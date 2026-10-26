@@ -118,6 +118,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	pr, err := s.beginPersist(r, body)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if pr != nil {
+		pr.setHeaders(w.Header())
+	}
 	stream, _ := body["stream"].(bool)
 	if stream {
 		if _, ok := body["stream_options"]; !ok {
@@ -182,6 +190,29 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		pt, ct := usage(v["usage"])
 		s.record(r, record{stream: false, status: resp.StatusCode, t0: t0, q: q, pt: pt, ct: ct, genS: &genS})
+		if pr != nil {
+			content, reasoning := "", ""
+			if cs, ok := v["choices"].([]any); ok && len(cs) > 0 {
+				if c, ok := cs[0].(map[string]any); ok {
+					if m, ok := c["message"].(map[string]any); ok {
+						content = textOf(m["content"])
+						reasoning, _ = m["reasoning"].(string)
+						if reasoning == "" {
+							reasoning, _ = m["reasoning_content"].(string)
+						}
+					}
+				}
+			}
+			model, _ := v["model"].(string)
+			pr.finish(r, content, reasoning, model, pt, ct, "complete", "")
+			for k, x := range pr.ids() {
+				v[k] = x
+			}
+			if pr.msgID != "" {
+				w.Header().Set("X-Message-Id", pr.msgID)
+			}
+			data, _ = json.Marshal(v)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(data)
@@ -194,7 +225,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, upstreamStatusErr(resp.StatusCode, string(b)))
 		return
 	}
-	s.streamSSE(w, r, resp.Body, t0, q)
+	s.streamSSE(w, r, resp.Body, t0, q, pr)
 }
 
 func usage(u any) (pt, ct *int64) {
@@ -217,21 +248,54 @@ func usage(u any) (pt, ct *int64) {
 	return get("prompt_tokens"), get("completion_tokens")
 }
 
-// streamSSE forwards upstream bytes verbatim, parsing complete lines for usage/token counts.
-func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reader, t0 time.Time, q time.Duration) {
+// streamAcc accumulates the assistant reply from SSE deltas.
+type streamAcc struct {
+	content, reasoning strings.Builder
+	model              string
+}
+
+// streamSSE forwards upstream SSE line by line (bytes unchanged), parsing
+// usage/token counts. With persistence it prepends a chunk carrying
+// thread_id/user_message_id and, before [DONE], saves the reply and emits a
+// "chat.completion.persisted" event. Aborts/disconnects save the partial reply
+// as status "incomplete".
+func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reader, t0 time.Time, q time.Duration, pr *chatPersist) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 	fl, _ := w.(http.Flusher)
-	if fl != nil {
-		fl.Flush()
+	flush := func() {
+		if fl != nil {
+			fl.Flush()
+		}
 	}
 	rec := record{stream: true, status: 200, t0: t0, q: q}
+	acc := &streamAcc{}
+	event := func(v map[string]any) []byte {
+		b, _ := json.Marshal(v)
+		return []byte("data: " + string(b) + "\n\n")
+	}
+	created := time.Now().Unix()
+	persistEvent := func(status, reason string) []byte {
+		pr.finish(r, acc.content.String(), acc.reasoning.String(), acc.model, rec.pt, rec.ct, status, reason)
+		v := pr.ids()
+		v["object"], v["created"], v["status"] = "chat.completion.persisted", created, status
+		return event(v)
+	}
+	if pr != nil {
+		v := pr.ids()
+		delete(v, "message_id")
+		v["id"], v["object"], v["created"], v["model"], v["choices"] = "persist-"+rid(r), "chat.completion.chunk", created, pr.model, []any{}
+		if _, err := w.Write(event(v)); err == nil {
+			flush()
+		}
+	}
 	var ctCount int64
 	var tfirst time.Time
 	var line []byte
+	var out bytes.Buffer
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := body.Read(buf)
@@ -240,25 +304,33 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 				tfirst = time.Now()
 				rec.ttft = fp(tfirst.Sub(t0).Seconds() - q.Seconds())
 			}
-			chunk := buf[:n]
-			line = append(line, chunk...)
+			line = append(line, buf[:n]...)
+			out.Reset()
 			for {
 				i := bytes.IndexByte(line, '\n')
 				if i < 0 {
 					break
 				}
-				s.parseSSELine(line[:i], &rec, &ctCount)
+				l := line[:i+1]
+				if pr != nil && !pr.done && strings.TrimSpace(string(l)) == "data: [DONE]" {
+					out.Write(persistEvent("complete", ""))
+				}
+				s.parseSSELine(line[:i], &rec, &ctCount, acc)
+				out.Write(l)
 				line = line[i+1:]
 			}
-			if _, werr := w.Write(chunk); werr != nil {
-				rec.clientGone = true
-				break
-			}
-			if fl != nil {
-				fl.Flush()
+			if out.Len() > 0 {
+				if _, werr := w.Write(out.Bytes()); werr != nil {
+					rec.clientGone = true
+					break
+				}
+				flush()
 			}
 		}
 		if err == io.EOF {
+			if len(line) > 0 {
+				w.Write(line)
+			}
 			break
 		}
 		if err != nil {
@@ -272,15 +344,25 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 				rec.code, rec.status, msg = "upstream_timeout", 504, "Upstream stalled mid-stream"
 			}
 			e, _ := json.Marshal(apierr.Body(rec.code, msg, "server_error", rid(r)))
-			fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", e)
-			if fl != nil {
-				fl.Flush()
+			fmt.Fprintf(w, "data: %s\n\n", e)
+			if pr != nil {
+				w.Write(persistEvent("incomplete", rec.code))
 			}
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			flush()
 			break
 		}
 	}
 	if rec.ct == nil && ctCount > 0 {
 		rec.ct = &ctCount
+	}
+	if pr != nil && !pr.done {
+		if rec.clientGone {
+			pr.finish(r, acc.content.String(), acc.reasoning.String(), acc.model, rec.pt, rec.ct, "incomplete", "client_disconnected")
+		} else { // upstream ended without [DONE]
+			w.Write(persistEvent("complete", ""))
+			flush()
+		}
 	}
 	if !tfirst.IsZero() {
 		rec.genS = fp(time.Since(tfirst).Seconds())
@@ -288,7 +370,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 	s.record(r, rec)
 }
 
-func (s *Server) parseSSELine(l []byte, rec *record, ctCount *int64) {
+func (s *Server) parseSSELine(l []byte, rec *record, ctCount *int64, acc *streamAcc) {
 	ls := strings.TrimRight(string(l), "\r")
 	if !strings.HasPrefix(ls, "data: ") {
 		return
@@ -298,15 +380,28 @@ func (s *Server) parseSSELine(l []byte, rec *record, ctCount *int64) {
 		return
 	}
 	var j struct {
+		Model   string         `json:"model"`
 		Usage   map[string]any `json:"usage"`
 		Choices []struct {
 			Delta struct {
-				Content any `json:"content"`
+				Content          any    `json:"content"`
+				Reasoning        string `json:"reasoning"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"delta"`
 		} `json:"choices"`
 	}
 	if json.Unmarshal([]byte(d), &j) != nil {
 		return
+	}
+	if j.Model != "" && acc.model == "" {
+		acc.model = j.Model
+	}
+	for _, c := range j.Choices {
+		if str, ok := c.Delta.Content.(string); ok {
+			acc.content.WriteString(str)
+		}
+		acc.reasoning.WriteString(c.Delta.Reasoning)
+		acc.reasoning.WriteString(c.Delta.ReasoningContent)
 	}
 	if j.Usage != nil {
 		pt, ct := usage(j.Usage)

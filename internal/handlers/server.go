@@ -22,6 +22,7 @@ import (
 	"github.com/gun025bba/llm-serving/internal/metrics"
 	"github.com/gun025bba/llm-serving/internal/proxy"
 	"github.com/gun025bba/llm-serving/internal/queue"
+	"github.com/gun025bba/llm-serving/internal/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -52,6 +53,7 @@ type Server struct {
 	Up      *proxy.Client
 	Start   time.Time
 	Version string
+	Store   store.Store // nil = persistence disabled (thread endpoints -> 503)
 }
 
 type ctxKey struct{}
@@ -182,6 +184,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
 	mux.HandleFunc("POST /v1/chat/completions", s.authed(s.chat))
 	mux.HandleFunc("GET /v1/models", s.authed(s.models))
+	mux.HandleFunc("GET /v1/threads", s.persisted(s.listThreads))
+	mux.HandleFunc("POST /v1/threads", s.persisted(s.createThread))
+	mux.HandleFunc("POST /v1/threads/import", s.persisted(s.importThreads))
+	mux.HandleFunc("GET /v1/threads/{id}", s.persisted(s.getThread))
+	mux.HandleFunc("PATCH /v1/threads/{id}", s.persisted(s.patchThread))
+	mux.HandleFunc("DELETE /v1/threads/{id}", s.persisted(s.deleteThread))
+	mux.HandleFunc("GET /v1/threads/{id}/messages", s.persisted(s.listMessages))
+	mux.HandleFunc("PUT /v1/messages/{id}/feedback", s.persisted(s.putFeedback))
+	mux.HandleFunc("DELETE /v1/messages/{id}/feedback", s.persisted(s.deleteFeedback))
+	mux.HandleFunc("GET /v1/search", s.persisted(s.search))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)
 	mux.HandleFunc("GET /metrics", s.metrics)
@@ -245,9 +257,9 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", o)
 			h.Add("Vary", "Origin")
-			h.Set("Access-Control-Expose-Headers", "X-Request-ID")
+			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-Thread-Id, X-Message-Id, X-User-Message-Id")
 			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-				h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
 				h.Set("Access-Control-Max-Age", "600")
 				w.WriteHeader(http.StatusOK)
@@ -313,6 +325,7 @@ func (s *Server) adminConfig(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
 	json.Unmarshal(b, &m)
 	m["log_level"] = s.Log.Level().String()
+	m["database"] = map[string]any{"configured": s.Cfg.Database.URL != "", "enabled": s.Store != nil, "auto_migrate": s.Cfg.Database.AutoMigrate}
 	writeJSON(w, 200, m)
 }
 
