@@ -14,9 +14,9 @@ data: {"args":{"url":"https://two.example/"},"created":"_","id":"_","object":"ch
 
 data: {"created":"_","id":"_","object":"chat.completion.tool_result","sources":[{"domain":"two.example","fetched":true,"n":2,"title":"Two","url":"https://two.example/"}],"status":"ok","tool":"web_fetch"}
 
-data: {"model":"m1","choices":[{"delta":{"content":"force "}}]}
+data: {"choices":[{"delta":{"content":"force"}}],"model":"m1"}
 
-data: {"choices":[{"delta":{"content":"answer [1]"}}]}
+data: {"choices":[{"delta":{"content":" answer [1]"}}]}
 
 data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}
 

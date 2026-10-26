@@ -2,4 +2,4 @@ status: 200 OK
 --- upstream
 {"max_tokens":8192,"messages":[{"content":"hi","role":"user"}],"model":"m1","temperature":0.7,"top_p":0.9}
 --- response
-{"id":"_","model":"m1","choices":[{"message":{"role":"assistant","content":"plain [1]"}}]}
+{"choices":[{"message":{"content":"plain","role":"assistant"}}],"id":"_","model":"m1"}

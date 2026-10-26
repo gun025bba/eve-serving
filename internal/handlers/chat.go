@@ -14,6 +14,7 @@ import (
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/auth"
+	"github.com/gun025bba/eve-serving/internal/cite"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/proxy"
 	"github.com/gun025bba/eve-serving/internal/tools"
@@ -216,6 +217,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, upstreamStatusErr(resp.StatusCode, trunc(string(data), 300)))
 			return
 		}
+		// Web off / proxy path: no tool ran, so every citation marker goes.
+		changed, removed := filterMessageContent(v, nil)
+		s.citeObserve(r, "proxy", removed)
 		pt, ct := usage(v["usage"])
 		s.record(r, record{stream: false, status: resp.StatusCode, t0: t0, q: q, pt: pt, ct: ct, genS: &genS})
 		if pr != nil {
@@ -239,6 +243,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			if pr.msgID != "" {
 				w.Header().Set("X-Message-Id", pr.msgID)
 			}
+			changed = true
+		}
+		if changed {
 			data, _ = json.Marshal(v)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -301,6 +308,17 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 	}
 	rec := record{stream: true, status: 200, t0: t0, q: q}
 	acc := &streamAcc{}
+	cf := cite.New(nil) // web off: no valid source numbers
+	// emitTail writes any text the citation filter still holds (stream ended
+	// without a finish_reason chunk), before [DONE]/persisted.
+	emitTail := func(dst *bytes.Buffer) {
+		if t := cf.Flush(); t != "" {
+			ev := tailChunk(t, acc.model)
+			s.parseSSELine(ev, &rec, new(int64), acc)
+			dst.Write(append(ev, '\n', '\n'))
+		}
+	}
+	defer func() { s.citeObserve(r, "proxy", cf.Removed) }()
 	event := func(v map[string]any) []byte {
 		b, _ := json.Marshal(v)
 		return []byte("data: " + string(b) + "\n\n")
@@ -340,11 +358,19 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 					break
 				}
 				l := line[:i+1]
-				if pr != nil && !pr.done && strings.TrimSpace(string(l)) == "data: [DONE]" {
-					out.Write(persistEvent("complete", ""))
+				if strings.TrimSpace(string(l)) == "data: [DONE]" {
+					emitTail(&out)
+					if pr != nil && !pr.done {
+						out.Write(persistEvent("complete", ""))
+					}
 				}
-				s.parseSSELine(line[:i], &rec, &ctCount, acc)
-				out.Write(l)
+				fl := filterChunk(line[:i], cf)
+				s.parseSSELine(fl, &rec, &ctCount, acc)
+				if len(fl) == i && string(fl) == string(line[:i]) {
+					out.Write(l)
+				} else {
+					out.Write(append(fl, '\n'))
+				}
 				line = line[i+1:]
 			}
 			if out.Len() > 0 {
@@ -356,8 +382,16 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 			}
 		}
 		if err == io.EOF {
+			var tb bytes.Buffer
 			if len(line) > 0 {
-				w.Write(line)
+				fl := filterChunk(line, cf)
+				s.parseSSELine(fl, &rec, &ctCount, acc)
+				tb.Write(fl)
+				tb.WriteString("\n\n")
+			}
+			emitTail(&tb)
+			if tb.Len() > 0 {
+				w.Write(tb.Bytes())
 			}
 			break
 		}

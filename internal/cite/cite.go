@@ -1,23 +1,36 @@
 // Package cite strips citation markers ([n]) that do not refer to a search
 // result actually returned during the current request.
 //
-// Matching rule (kept identical to the eval runner's emulation):
-//   - A marker is '[' + 1-3 ASCII digits + ']'.
-//   - It is a candidate only if the rune immediately before '[' (in the
-//     ORIGINAL text, even if that rune belonged to a removed marker) is the
-//     start of text, Unicode whitespace (unicode.IsSpace) or Unicode
-//     punctuation (unicode.IsPunct). So "a[1]" and "값[1]" are kept, while
-//     " [1]", "다.[1]", "요。[1]" and the second marker of "[1][2]" are candidates.
-//   - A candidate is removed if its number (decimal, leading zeros ignored)
-//     is not in the valid set. An empty set removes every candidate.
-//   - Only the marker itself is removed; surrounding whitespace is untouched.
-//   - Text inside fenced code blocks (a line whose first non-space content is
-//     a run of >=3 backticks or tildes, up to the matching closing fence) and
-//     inline code spans (backtick run of length k up to the next run of
-//     exactly k backticks) is never modified.
+// The rule mirrors the eval runner's reference (eval/tools/citation_guard.py
+// on eval/ko-baseline-v1 @ f89e348) plus the confirmed single-space change:
 //
-// Filter is chunk-invariant: feeding text in any split produces the same
-// output as feeding it whole.
+//   - Code is never modified. "```" opens a fenced block (anywhere, not only
+//     at line start) that runs to the next "```" or, if unclosed, to the end
+//     of the text. A single backtick opens inline code that must close with a
+//     backtick on the same line; otherwise the backtick is plain text. "“"
+//     is an empty inline span. Tildes are not special.
+//   - Outside code, a marker is '[' + one or more digits + ']'. Consecutive
+//     markers with nothing between them ([1][2][5]) form one run.
+//   - Index form: if the character directly before a run's first '[' is an
+//     ASCII letter, ASCII digit, '_', ')' or ']', the whole run is kept
+//     (a[1], f(x)[2], m[0][7]). Any other character (Hangul, whitespace,
+//     punctuation) or the start of a text piece makes it a citation run. The
+//     text right after a code span counts as a start.
+//   - In a citation run each marker is checked on its own: kept if its number
+//     is in the valid set, removed otherwise. [0] is therefore always removed
+//     (sources are numbered from 1), and with no tool calls every citation
+//     marker is removed.
+//   - If every marker of a run is removed, the single space or tab directly
+//     before the run is removed too. If any marker survives, it is kept.
+//   - Removing a marker can join the text on either side of it (e.g. "A[9]B"
+//     becomes "AB"); this is intended.
+//
+// Filter is incremental (each rune is processed once) with bounded
+// lookahead, and chunk-invariant: any split of the input gives the same
+// output as feeding it whole. Invalid UTF-8 becomes U+FFFD. Bounded divergences from the reference:
+// a digit sequence longer than maxDigits is not a marker, and an inline-code
+// candidate longer than maxInline bytes without a closing backtick is
+// resolved as plain text.
 package cite
 
 import (
@@ -26,27 +39,45 @@ import (
 	"unicode/utf8"
 )
 
-const maxDigits = 3
+const (
+	maxDigits = 64
+	maxInline = 16 << 10
+)
+
+const (
+	modeText = iota
+	modeFence
+	modeInline
+)
 
 type Filter struct {
-	valid map[int]bool
-	// Removed counts markers dropped so far.
-	Removed int
+	valid   map[int]bool
+	Removed int // markers dropped so far
 
-	buf       []rune // unprocessed lookahead (pending marker / delimiter run)
-	partial   []byte // incomplete UTF-8 tail
-	prev      rune   // previous original rune; 0 = start
-	lineStart bool   // only spaces seen since last newline
-	fence     rune   // '`' or '~' when inside a fenced block
-	fenceLen  int
-	inline    int // >0: inside inline code opened by this many backticks
+	out     strings.Builder
+	partial []byte // incomplete UTF-8 tail of the last Write
+
+	mode int
+	bt   int             // pending backticks (0..2)
+	inl  strings.Builder // inline-code candidate content
+	prev rune            // previous char in the current text piece; 0 = start
+	lead rune            // held single space/tab before a possible run
+
+	mk       []rune // partial marker "[digits"
+	mkPrev   rune   // char before the '[' of a run start
+	inRun    bool
+	runIndex bool
+	runKept  bool
+	runLead  rune
 }
 
-// New returns a filter that keeps markers whose number is in valid.
+// New returns a filter that keeps citation markers whose number is in valid.
 func New(valid []int) *Filter {
-	f := &Filter{valid: map[int]bool{}, lineStart: true}
+	f := &Filter{valid: map[int]bool{}}
 	for _, n := range valid {
-		f.valid[n] = true
+		if n > 0 { // [0] is never a valid source number
+			f.valid[n] = true
+		}
 	}
 	return f
 }
@@ -58,126 +89,229 @@ func Sanitize(s string, valid []int) (string, int) {
 	return out, f.Removed
 }
 
-// Write feeds a chunk and returns text that is safe to emit now.
+// Write feeds a chunk and returns the text that is final now.
 func (f *Filter) Write(s string) string {
-	b := append(f.partial, s...)
-	f.partial = nil
+	b := s
+	if len(f.partial) > 0 {
+		b = string(f.partial) + s
+		f.partial = nil
+	}
 	for len(b) > 0 {
-		r, size := utf8.DecodeRune(b)
-		if r == utf8.RuneError && size == 1 && !utf8.FullRune(b) {
-			f.partial = append([]byte{}, b...)
-			break
+		r, size := utf8.DecodeRuneInString(b)
+		if r == utf8.RuneError && size <= 1 {
+			if !utf8.FullRuneInString(b) {
+				f.partial = []byte(b)
+				break
+			}
+			// Invalid byte: becomes U+FFFD (same in the shown and saved copy).
+			f.feed(utf8.RuneError)
+			b = b[1:]
+			continue
 		}
-		f.buf = append(f.buf, r)
+		f.feed(r)
 		b = b[size:]
 	}
-	var out strings.Builder
-	f.process(&out, false)
-	return out.String()
+	return f.take()
 }
 
-// Flush emits everything still buffered (an unterminated marker is kept).
+// Flush resolves all pending state at end of text.
 func (f *Filter) Flush() string {
-	var out strings.Builder
-	f.process(&out, true)
-	out.Write(f.partial)
-	f.partial = nil
-	return out.String()
+	if len(f.partial) > 0 {
+		f.partial = nil
+		f.feed(utf8.RuneError) // truncated UTF-8 tail
+
+	}
+	f.finish()
+	return f.take()
 }
 
-func isBoundary(r rune) bool { return r == 0 || unicode.IsSpace(r) || unicode.IsPunct(r) }
+func (f *Filter) take() string {
+	s := f.out.String()
+	f.out.Reset()
+	return s
+}
 
-func (f *Filter) emit(out *strings.Builder, rs []rune) {
-	for _, r := range rs {
-		out.WriteRune(r)
-		f.advance(r)
+func isIndex(c rune) bool {
+	return c < utf8.RuneSelf && (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == ')' || c == ']')
+}
+
+// digitVal returns the value of a Unicode decimal digit (Python \d / int()).
+func digitVal(r rune) int {
+	if r >= '0' && r <= '9' {
+		return int(r - '0')
+	}
+	v := 0
+	for x := r; unicode.IsDigit(x - 1); x-- {
+		v++
+	}
+	return v % 10
+}
+
+func (f *Filter) emitLead() {
+	if f.lead != 0 {
+		f.out.WriteRune(f.lead)
+		f.lead = 0
 	}
 }
 
-func (f *Filter) advance(r rune) {
-	f.prev = r
-	if r == '\n' {
-		f.lineStart = true
-	} else if r != ' ' && r != '\t' {
-		f.lineStart = false
-	}
+func (f *Filter) endRun() {
+	// If no marker was kept, runLead is simply dropped with the run.
+	f.inRun, f.runLead = false, 0
 }
 
-func runLen(rs []rune, c rune) int {
+func (f *Filter) failMarker() {
+	if f.inRun {
+		f.endRun()
+	} else {
+		f.emitLead()
+	}
+	for _, x := range f.mk {
+		f.out.WriteRune(x)
+		f.prev = x
+	}
+	f.mk = nil
+}
+
+func (f *Filter) marker() {
 	n := 0
-	for n < len(rs) && rs[n] == c {
-		n++
+	if len(f.mk)-1 > 9 {
+		n = -1
+	} else {
+		for _, d := range f.mk[1:] {
+			n = n*10 + digitVal(d)
+		}
 	}
-	return n
+	m := string(f.mk) + "]"
+	f.mk = nil
+	f.prev = ']'
+	if !f.inRun {
+		f.inRun, f.runKept = true, false
+		f.runIndex = isIndex(f.mkPrev)
+		f.runLead, f.lead = f.lead, 0
+	}
+	switch {
+	case f.runIndex || f.valid[n]:
+		if !f.runKept && f.runLead != 0 {
+			f.out.WriteRune(f.runLead)
+		}
+		f.runKept = true
+		f.out.WriteString(m)
+	default:
+		f.Removed++
+	}
 }
 
-// process consumes f.buf; when final is false it stops at an ambiguous tail.
-func (f *Filter) process(out *strings.Builder, final bool) {
-	for len(f.buf) > 0 {
-		r := f.buf[0]
-		// Inside a fenced block: only look for the closing fence.
-		if f.fence != 0 {
-			if r == f.fence && f.lineStart {
-				n := runLen(f.buf, r)
-				if n == len(f.buf) && !final {
-					return
-				}
-				if n >= f.fenceLen {
-					f.fence, f.fenceLen = 0, 0
-				}
-				f.emit(out, f.buf[:n])
-				f.buf = f.buf[n:]
-				continue
+func (f *Filter) feed(r rune) {
+	switch f.mode {
+	case modeFence:
+		if r == '`' {
+			f.bt++
+			if f.bt == 3 {
+				f.out.WriteString("```")
+				f.mode, f.bt, f.prev = modeText, 0, 0
 			}
-			f.emit(out, f.buf[:1])
-			f.buf = f.buf[1:]
-			continue
+			return
 		}
-		if r == '`' || (r == '~' && f.inline == 0) {
-			n := runLen(f.buf, r)
-			if n == len(f.buf) && !final {
-				return
-			}
-			switch {
-			case f.inline == 0 && f.lineStart && n >= 3:
-				f.fence, f.fenceLen = r, n
-			case r == '`' && f.inline == 0:
-				f.inline = n
-			case r == '`' && f.inline == n:
-				f.inline = 0
-			}
-			f.emit(out, f.buf[:n])
-			f.buf = f.buf[n:]
-			continue
+		f.out.WriteString(strings.Repeat("`", f.bt))
+		f.bt = 0
+		f.out.WriteRune(r)
+		return
+	case modeInline:
+		switch {
+		case r == '`':
+			f.out.WriteByte('`')
+			f.out.WriteString(f.inl.String())
+			f.out.WriteByte('`')
+			f.inl.Reset()
+			f.mode, f.prev = modeText, 0
+		case r == '\n' || f.inl.Len() >= maxInline:
+			f.failInline()
+			f.feed(r)
+		default:
+			f.inl.WriteRune(r)
 		}
-		if f.inline > 0 || r != '[' || !isBoundary(f.prev) {
-			f.emit(out, f.buf[:1])
-			f.buf = f.buf[1:]
-			continue
-		}
-		// Candidate '[': need '[' digits{1,3} ']'.
-		i, num := 1, 0
-		for i < len(f.buf) && i <= maxDigits && f.buf[i] >= '0' && f.buf[i] <= '9' {
-			num = num*10 + int(f.buf[i]-'0')
-			i++
-		}
-		if i == len(f.buf) && i <= maxDigits && !final {
-			return // may still become a marker
-		}
-		if i > 1 && i < len(f.buf) && f.buf[i] == ']' {
-			m := f.buf[:i+1]
-			if f.valid[num] {
-				f.emit(out, m)
-			} else {
-				f.Removed++
-				for _, x := range m { // track original text, emit nothing
-					f.advance(x)
-				}
-			}
-			f.buf = f.buf[i+1:]
-			continue
-		}
-		f.emit(out, f.buf[:1])
-		f.buf = f.buf[1:]
+		return
 	}
+	// modeText
+	if f.bt > 0 && r != '`' {
+		if f.bt == 1 {
+			f.bt = 0
+			f.mode = modeInline
+			f.feed(r)
+			return
+		}
+		f.out.WriteString("``") // empty inline span
+		f.bt, f.prev = 0, 0
+	}
+	if f.mk != nil {
+		if unicode.IsDigit(r) && len(f.mk) <= maxDigits {
+			f.mk = append(f.mk, r)
+			return
+		}
+		if r == ']' && len(f.mk) > 1 {
+			f.marker()
+			return
+		}
+		f.failMarker()
+	}
+	if f.inRun {
+		if r == '[' {
+			f.mk = []rune{'['}
+			return
+		}
+		f.endRun()
+	}
+	switch r {
+	case '[':
+		f.mk, f.mkPrev = []rune{'['}, f.prev
+	case ' ', '\t':
+		f.emitLead()
+		f.lead, f.prev = r, r
+	case '`':
+		f.emitLead()
+		f.bt++
+		if f.bt == 3 {
+			f.out.WriteString("```")
+			f.mode, f.bt = modeFence, 0
+		}
+	default:
+		f.emitLead()
+		f.out.WriteRune(r)
+		f.prev = r
+	}
+}
+
+// failInline: the backtick had no closing on its line, so it is plain text
+// and the held content is processed as text.
+func (f *Filter) failInline() {
+	s := f.inl.String()
+	f.inl.Reset()
+	f.mode = modeText
+	f.out.WriteByte('`')
+	f.prev = '`'
+	for _, x := range s {
+		f.feed(x)
+	}
+}
+
+func (f *Filter) finish() {
+	switch f.mode {
+	case modeFence:
+		f.out.WriteString(strings.Repeat("`", f.bt))
+		f.bt = 0
+		return
+	case modeInline:
+		f.failInline()
+	}
+	if f.bt > 0 {
+		f.out.WriteString(strings.Repeat("`", f.bt)) // lone "`" is text, "``" an empty span
+		f.bt, f.prev = 0, 0
+	}
+	if f.mk != nil {
+		f.failMarker()
+	}
+	if f.inRun {
+		f.endRun()
+	}
+	f.emitLead()
 }
