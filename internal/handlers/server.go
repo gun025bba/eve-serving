@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/audit"
 	"mime"
 	"net/http"
 	"os"
@@ -53,8 +54,9 @@ type Server struct {
 	Up      *proxy.Client
 	Start   time.Time
 	Version string
-	Store   store.Store // nil = persistence disabled (thread endpoints -> 503)
-	Web     *WebTools   // nil = web tools unavailable (also needs Cfg.Web.Enabled)
+	Store   store.Store  // nil = persistence disabled (thread endpoints -> 503)
+	Web     *WebTools    // nil = web tools unavailable (also needs Cfg.Web.Enabled)
+	Audit   audit.Ledger // tool_audit; nil = audit events dropped (tests only; main always sets it)
 }
 
 // uiCSP keeps the UI from loading external resources (no remote images =

@@ -16,11 +16,14 @@ import (
 	"syscall"
 	"time"
 
+	policydata "github.com/gun025bba/eve-serving/deploy/policy"
+	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/handlers"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/metrics"
+	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/proxy"
 	"github.com/gun025bba/eve-serving/internal/queue"
 	"github.com/gun025bba/eve-serving/internal/store"
@@ -100,6 +103,8 @@ func main() {
 		fatal("%v", err)
 	}
 	var st store.Store
+	var ledger audit.Ledger
+	var pgStore *postgres.Store
 	if cfg.Database.URL != "" {
 		ctx, c := context.WithTimeout(context.Background(), 30*time.Second)
 		if cfg.Database.AutoMigrate {
@@ -114,14 +119,52 @@ func main() {
 			fatal("database: %v", err)
 		}
 		defer pg.Close()
-		st = pg
+		// §5 startup gate: the gateway login must not be able to rewrite the
+		// audit ledger (owner membership / UPDATE / DELETE / TRUNCATE).
+		actx, ac := context.WithTimeout(context.Background(), 10*time.Second)
+		err = pg.CheckAuditPrivileges(actx)
+		ac()
+		if err != nil {
+			fatal("refusing to start: %v", err)
+		}
+		st, ledger, pgStore = pg, pg, pg
+	} else {
+		// no database: nothing is persisted; audit rows live in memory only
+		ledger = &audit.Memory{}
+		log.Warn("audit_memory_only", "reason", "no database configured")
 	}
-	srv := &handlers.Server{Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+	srv := &handlers.Server{Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	sysEvent := func(ev, status string, detail map[string]string) {
+		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
+		defer c()
+		if err := ledger.Append(ctx, "", audit.Event{At: time.Now(), Actor: audit.ActorSystem, Event: ev, Status: status, Detail: detail}); err != nil {
+			m.AuditWriteFail.Inc()
+			log.Error("audit_write_failed", "event", ev, "err", err.Error())
+		}
+	}
+	// §13 domain policy (embedded, signed malware snapshot). A load failure
+	// keeps the web tools fail-closed (every call: policy_unavailable).
+	pol, perr := domains.Load(policydata.FS, time.Now())
+	if perr != nil {
+		pol = nil
+		log.Error("web_policy_unavailable", "err", perr.Error())
+		sysEvent(audit.EvPolicyLoaded, "error", nil)
+	} else {
+		for _, w := range pol.Warnings {
+			log.Warn("web_policy_warning", "msg", w)
+		}
+		if !pol.SnapshotGenerated.IsZero() {
+			m.PolicySnapshotAge.Set(time.Since(pol.SnapshotGenerated).Seconds())
+		}
+		d, a := pol.RuleCount()
+		log.Info("web_policy_loaded", "deny_rules", d, "allow_rules", a, "snapshot_fallback", pol.SnapshotFallback)
+		sysEvent(audit.EvPolicyLoaded, "ok", map[string]string{"deny_rules": strconv.Itoa(d), "allow_rules": strconv.Itoa(a)})
+	}
 	if cfg.Web.Enabled {
-		wt, err := handlers.NewWebTools(cfg.Web)
+		wt, err := handlers.NewWebTools(cfg.Web, pol)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "web tools:", err)
 			os.Exit(1)
@@ -131,10 +174,12 @@ func main() {
 	}
 	reg := tools.Default() // embedded manifests; invalid manifests abort startup
 	log.Info("tool_registry_loaded", "tools", strings.Join(reg.Reg.Names(), ","))
+	sysEvent(audit.EvRegistryLoaded, "ok", map[string]string{"tools": strings.Join(reg.Reg.Names(), ",")})
 	if cfg.ToolsKillswitchFile != "" {
 		ks := tools.NewKillswitch(config.Expand(cfg.ToolsKillswitchFile), os.Getuid())
 		ks.OnLoad = func(res string, disabled []string, allOff bool) {
 			log.Info("tools_killswitch", "result", res, "all_off", allOff, "disabled", strings.Join(disabled, ","))
+			sysEvent(audit.EvKillswitch, res, map[string]string{"all_off": strconv.FormatBool(allOff), "disabled": strings.Join(disabled, ",")})
 		}
 		ks.Reload()
 		tools.SetKillswitch(ks)
@@ -148,6 +193,9 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
+	if pgStore != nil {
+		go runAuditVerify(ctx, pgStore, log, m, 24*time.Hour)
+	}
 	defer stop()
 	go func() {
 		<-ctx.Done()
@@ -163,6 +211,28 @@ func main() {
 		fatal("listen: %v", err)
 	}
 	log.Info("gateway_stop")
+}
+
+// runAuditVerify recomputes the tool_audit hash chain at startup and daily.
+func runAuditVerify(ctx context.Context, pg *postgres.Store, log *logging.Logger, m *metrics.Metrics, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		vctx, c := context.WithTimeout(ctx, 5*time.Minute)
+		res, err := pg.VerifyAudit(vctx)
+		c()
+		if err != nil {
+			m.AuditVerifyFail.Inc()
+			log.Error("audit_verify_failed", "err", err.Error(), "first_bad_seq", res.FirstBad)
+		} else {
+			log.Info("audit_verify_ok", "rows", res.Rows, "seq_gaps", res.SeqGaps)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 func fatal(f string, a ...any) {

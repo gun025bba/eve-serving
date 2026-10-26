@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/search"
 	_ "github.com/gun025bba/eve-serving/internal/search/brave"   // registers "brave" (stub, disabled)
 	_ "github.com/gun025bba/eve-serving/internal/search/searxng" // registers "searxng"
@@ -29,23 +31,27 @@ type WebTools struct {
 	Search search.Provider
 	Fetch  tools.Fetcher
 	Rate   *tools.RateLimiter
+	// Domains is the §13 policy; nil = not loaded, web tools fail closed.
+	Domains *domains.Policy
 }
 
 func secsDur(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
 
 // NewWebTools builds the search chain and the dedicated web_fetch client.
-func NewWebTools(c config.WebConfig) (*WebTools, error) {
+// pol is enforced by the gateway on search results and on every fetch hop.
+func NewWebTools(c config.WebConfig, pol *domains.Policy) (*WebTools, error) {
 	sp, err := search.New(search.Config{Providers: c.Providers, SearxngURL: c.SearxngURL, BraveKeyFile: c.BraveKeyFile,
 		Timeout: secsDur(c.SearchTimeoutS), MaxResults: c.SearchMaxResults})
 	if err != nil {
 		return nil, err
 	}
 	f, err := webfetch.New(webfetch.Options{Timeout: secsDur(c.FetchTimeoutS), MaxBytes: c.FetchMaxBytes, MaxChars: c.FetchMaxChars,
-		AllowedPorts: c.FetchAllowedPort, DenyCIDRs: c.FetchDenyCIDRs, GlobalConc: c.FetchGlobalConc, PerHostConc: c.FetchPerHostConc})
+		AllowedPorts: c.FetchAllowedPort, DenyCIDRs: c.FetchDenyCIDRs, GlobalConc: c.FetchGlobalConc, PerHostConc: c.FetchPerHostConc,
+		HostPolicy: tools.HostPolicy(pol)})
 	if err != nil {
 		return nil, err
 	}
-	return &WebTools{Search: sp, Fetch: f, Rate: tools.NewRateLimiter(map[string]int{"search": c.RatePerMin, "fetch": c.FetchRatePerMin})}, nil
+	return &WebTools{Domains: pol, Search: sp, Fetch: f, Rate: tools.NewRateLimiter(map[string]int{"search": c.RatePerMin, "fetch": c.FetchRatePerMin})}, nil
 }
 
 func (s *Server) webEnabled() bool { return s.Cfg.Web.Enabled && s.Web != nil }
@@ -93,7 +99,7 @@ func (s *Server) resolveWebMode(ctx context.Context, explicit tools.Mode, has bo
 	return m
 }
 
-func (s *Server) newSession(r *http.Request, msgs []any) *tools.Session {
+func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools.Session {
 	var userTexts []string
 	for _, x := range msgs {
 		if m, ok := x.(map[string]any); ok && m["role"] == "user" {
@@ -104,8 +110,16 @@ func (s *Server) newSession(r *http.Request, msgs []any) *tools.Session {
 	return tools.NewSession(tools.Deps{
 		Search: s.Web.Search, Fetch: s.Web.Fetch, Rate: s.Web.Rate,
 		Limits:  tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
-		OnCall:  func(tc tools.Call) { s.observeCall(r, tc) },
+		Domains: s.Web.Domains,
+		OnStart: func(tc tools.Call) { s.auditCall(r, pr, tc, audit.EvCallStarted) },
+		OnCall: func(tc tools.Call) {
+			s.observeCall(r, tc)
+			s.auditCall(r, pr, tc, audit.EvCallDone)
+		},
 		OnBlock: func(reason string) { s.M.FetchBlocked.WithLabelValues(reason).Inc() },
+		OnDomainBlock: func(tc tools.Call, reason, rule, host string, hop int) {
+			s.auditDomainBlock(r, pr, tc, reason, rule, host, hop)
+		},
 	}, user(r), userTexts)
 }
 
@@ -119,6 +133,9 @@ func (s *Server) observeCall(r *http.Request, c tools.Call) {
 		c.Tool = "unknown"
 	}
 	s.M.ToolCalls.WithLabelValues(c.Tool, prov, c.Status).Inc()
+	if c.Status == "blocked" {
+		s.M.ToolDenied.WithLabelValues(c.Tool, c.BlockReason).Inc()
+	}
 	s.M.ToolLat.WithLabelValues(c.Tool, prov).Observe(float64(c.LatencyMs) / 1000)
 	if c.Tool == "web_search" && c.Status == "ok" {
 		s.M.SearchResults.WithLabelValues(prov).Observe(float64(c.ResultCount))
@@ -306,7 +323,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		s.fail(w, r, apierr.BadRequest("System messages must not contain web tool content"))
 		return
 	}
-	sess := s.newSession(r, clean)
+	sess := s.newSession(r, clean, pr)
 	lim := sess.Limits()
 	// Trusted, fixed system text goes first; web content never enters a system message.
 	conv := append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
@@ -323,7 +340,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	}
 	emitCall := func(c tools.Call) {
 		out.event(map[string]any{"object": "chat.completion.tool_call", "id": c.ID, "tool": c.Tool, "args": publicArgs(c), "round": c.Round})
-		out.event(map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources)})
+		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources)}
+		if c.Blocked > 0 {
+			res["blocked_count"] = c.Blocked // count only (§13); the UI shows "차단 n건"
+		}
+		out.event(res)
 	}
 	rounds := 0
 	var final upMsg
