@@ -133,6 +133,11 @@ func main() {
 		ledger = &audit.Memory{}
 		log.Warn("audit_memory_only", "reason", "no database configured")
 	}
+	switch strings.ToLower(cfg.Env) {
+	case "", "prod", "dev":
+	default:
+		log.Warn("unknown_gw_env", "value", cfg.Env, "treated_as", "prod")
+	}
 	breaker := audit.NewBreaker()
 	breaker.OnTrip = func() {
 		m.AuditBreakerOpen.Set(1)
@@ -170,6 +175,9 @@ func main() {
 		}
 		if !pol.SnapshotGenerated.IsZero() {
 			m.PolicySnapshotAge.Set(time.Since(pol.SnapshotGenerated).Seconds())
+		}
+		if pol.SnapshotFallback {
+			m.PolicyFallback.Set(1)
 		}
 		d, a := pol.RuleCount()
 		log.Info("web_policy_loaded", "deny_rules", d, "allow_rules", a, "snapshot_fallback", pol.SnapshotFallback)

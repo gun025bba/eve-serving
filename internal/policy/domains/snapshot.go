@@ -107,14 +107,14 @@ func LoadKeys(fsys fs.FS) ([]Key, error) {
 	return keys, nil
 }
 
-// VerifySnapshot checks body against a signature file: "KEYID:BASE64SIG"
-// (preferred) or a bare base64 signature (any pinned key). Keys past their
+// VerifySnapshot checks body against a signature file "KEYID:BASE64SIG". A
+// signature without a key id is rejected. Keys past their
 // not-after date are rejected. It returns the id of the verifying key.
 func VerifySnapshot(keys []Key, body, sigFile []byte, now time.Time) (string, error) {
 	line := strings.TrimSpace(string(sigFile))
-	id := ""
-	if i := strings.IndexByte(line, ':'); i >= 0 {
-		id, line = line[:i], line[i+1:]
+	id, line, ok := strings.Cut(line, ":")
+	if !ok || id == "" {
+		return "", errors.New("signature without key id")
 	}
 	sig, err := base64.StdEncoding.DecodeString(line)
 	if err != nil || len(sig) != ed25519.SignatureSize {
@@ -122,7 +122,7 @@ func VerifySnapshot(keys []Key, body, sigFile []byte, now time.Time) (string, er
 	}
 	matched := false
 	for _, k := range keys {
-		if id != "" && k.ID != id {
+		if k.ID != id {
 			continue
 		}
 		matched = true
@@ -133,7 +133,7 @@ func VerifySnapshot(keys []Key, body, sigFile []byte, now time.Time) (string, er
 			return k.ID, nil
 		}
 	}
-	if id != "" && !matched {
+	if !matched {
 		return "", fmt.Errorf("unknown key id %q", id)
 	}
 	return "", errors.New("signature mismatch (or signing key expired)")
@@ -194,6 +194,9 @@ func loadMalwareSnapshot(fsys fs.FS, now time.Time) (*snapshot, error) {
 		if perr != nil {
 			return nil, fmt.Errorf("domain policy: malware snapshot unverifiable (current: %v; previous: %v)", cerr, perr)
 		}
+		if age := now.Sub(pgen); age > MaxPrevSnapshotAge {
+			return nil, fmt.Errorf("domain policy: malware snapshot unverifiable (current: %v) and previous is %s old (max %s)", cerr, age.Round(time.Hour), MaxPrevSnapshotAge)
+		}
 		body, gen, s.fallback = pbody, pgen, true
 		s.warnings = append(s.warnings, "malware snapshot failed verification, using previous: "+cerr.Error())
 	}
@@ -217,8 +220,12 @@ func CheckSnapshotFiles(fsys fs.FS, now time.Time) error {
 		return fmt.Errorf("%s: %w", malwareCurrent, err)
 	}
 	if _, statErr := fs.Stat(fsys, malwarePrevious); statErr == nil {
-		if _, _, err := verifyFile(fsys, pub, malwarePrevious, now); err != nil {
+		_, pgen, err := verifyFile(fsys, pub, malwarePrevious, now)
+		if err != nil {
 			return fmt.Errorf("%s: %w", malwarePrevious, err)
+		}
+		if age := now.Sub(pgen); age > MaxPrevSnapshotAge {
+			return fmt.Errorf("%s: fallback snapshot is %s old (max %s)", malwarePrevious, age.Round(time.Hour), MaxPrevSnapshotAge)
 		}
 	}
 	cur, _ := fs.ReadFile(fsys, malwareCurrent)

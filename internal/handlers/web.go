@@ -111,9 +111,10 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools
 	c := s.Cfg.Web
 	return tools.NewSession(tools.Deps{
 		Search: s.Web.Search, Fetch: s.Web.Fetch, Rate: s.Web.Rate,
-		Limits:  tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
-		Domains: s.Web.Domains,
-		OnStart: func(tc tools.Call) { s.auditCall(r, pr, tc, audit.EvCallStarted) },
+		Limits:   tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
+		Domains:  s.Web.Domains,
+		Disabled: func() bool { return s.WebAuditBlocked || s.AuditBreaker.Open() },
+		OnStart:  func(tc tools.Call) { s.auditCall(r, pr, tc, audit.EvCallStarted) },
 		OnCall: func(tc tools.Call) {
 			s.observeCall(r, tc)
 			s.auditCall(r, pr, tc, audit.EvCallDone)

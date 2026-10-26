@@ -24,15 +24,18 @@ import (
 
 // Block reasons (stable values; also metric labels and tool_calls.error text).
 const (
-	ReasonDomainDenied    = "domain_denied"
-	ReasonIPLiteral       = "ip_literal"
-	ReasonIPLiteralPriv   = "ip_literal_private"
-	ReasonInvalidHost     = "invalid_host"
-	ReasonNotAllowlisted  = "not_allowlisted"
-	ReasonPolicyUnloaded  = "policy_unavailable"
-	ModeDenylist          = "denylist"
-	ModeAllowlistOnly     = "allowlist_only"
-	MaxSnapshotAge        = 30 * 24 * time.Hour
+	ReasonDomainDenied   = "domain_denied"
+	ReasonIPLiteral      = "ip_literal"
+	ReasonIPLiteralPriv  = "ip_literal_private"
+	ReasonInvalidHost    = "invalid_host"
+	ReasonNotAllowlisted = "not_allowlisted"
+	ReasonPolicyUnloaded = "policy_unavailable"
+	ModeDenylist         = "denylist"
+	ModeAllowlistOnly    = "allowlist_only"
+	MaxSnapshotAge       = 30 * 24 * time.Hour
+	// MaxPrevSnapshotAge bounds the fallback snapshot (malware.prev.txt): an
+	// older one is not used (fail closed) and fails CI.
+	MaxPrevSnapshotAge    = 60 * 24 * time.Hour
 	categoryMalware       = "malware"
 	malwareKeyGlob        = "keys/malware-ed25519*.pub"
 	malwareCurrent        = "categories/malware.txt"

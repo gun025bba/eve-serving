@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -172,5 +173,26 @@ func TestBlockedAlwaysHasReason(t *testing.T) {
 	}
 	if nb < 5 {
 		t.Fatalf("expected several blocked paths, got %d", nb)
+	}
+}
+
+// Low follow-up: the breaker is re-checked on every call, so a running loop stops.
+func TestSession_DisabledRecheckedEveryCall(t *testing.T) {
+	fs := &fakeSearch{}
+	off := false
+	s := NewSession(Deps{Domains: testPolicy(), Search: fs, Disabled: func() bool { return off }}, "u", nil)
+	if _, c := s.Exec(context.Background(), 1, "1", "web_search", `{"query":"q"}`); c.Status == "blocked" {
+		t.Fatalf("first call must run: %+v", c)
+	}
+	n := fs.n
+	off = true // breaker opens mid-loop
+	for i, call := range [][2]string{{"web_search", `{"query":"q2"}`}, {"web_fetch", `{"url":"https://news.example.com/a"}`}} {
+		_, c := s.Exec(context.Background(), 2, fmt.Sprint(i+2), call[0], call[1])
+		if c.Status != "blocked" || c.BlockReason != ReasonToolsDisabled {
+			t.Errorf("%s: %+v", call[0], c)
+		}
+	}
+	if fs.n != n {
+		t.Fatal("no upstream call after the breaker opened")
 	}
 }

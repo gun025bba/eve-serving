@@ -64,7 +64,13 @@ type Deps struct {
 	// OnDomainBlock is called once per blocked host (search result or fetch
 	// hop). host is for hashing only; it never reaches the model.
 	OnDomainBlock func(c Call, reason, rule, host string, hop int)
+	// Disabled is re-checked before every tool call (audit circuit breaker):
+	// when it returns true the call is blocked, even mid-loop.
+	Disabled func() bool
 }
+
+// ReasonToolsDisabled blocks calls after the audit breaker opened.
+const ReasonToolsDisabled = "tools_disabled"
 
 // Source is a citation (metadata only; page text is never stored).
 type Source struct {
@@ -167,6 +173,10 @@ func (s *Session) Exec(ctx context.Context, round int, id, name, rawArgs string)
 		if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
 			c.Status, c.Error = "error", "invalid arguments json"
 		}
+	}
+	if c.Status == "" && s.d.Disabled != nil && s.d.Disabled() {
+		c.Status, c.BlockReason, c.Error = "blocked", ReasonToolsDisabled, "web tools are disabled"
+		s.block(ReasonToolsDisabled)
 	}
 	var out string
 	if c.Status == "" {

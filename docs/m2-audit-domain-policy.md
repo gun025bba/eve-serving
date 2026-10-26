@@ -51,7 +51,8 @@ Auditing is fail-open in M2: a failed audit write does not block a web tool
 call. To bound that:
 
 - **Circuit breaker:** 3 or more audit write or chain-verify failures within
-  5 minutes disable `web_search` and `web_fetch` (requests asking for web
+  5 minutes disable `web_search` and `web_fetch`, re-checked before every
+  tool call so a running tool loop stops too (`tools_disabled`) (requests asking for web
   search get `400 web_search_disabled`, `/v1/me` reports
   `web_search: false`). It stays open until the gateway is restarted after
   the audit store is fixed. Metrics: `eve_audit_breaker_open` (1 = tripped),
@@ -59,7 +60,8 @@ call. To bound that:
 - **In-memory ledger:** without a database the ledger is in memory only.
   Unless `GW_ENV=dev`, the web tools are then disabled
   (`eve_web_tools_audit_disabled{reason="memory_ledger"}`, log
-  `web_tools_disabled`). Production (`GW_ENV` unset or `prod`) must run with
+  `web_tools_disabled`). An unknown `GW_ENV` value is treated as prod and
+  logged (`unknown_gw_env`). Production (`GW_ENV` unset or `prod`) must run with
   Postgres.
 - **Alert rules** (Prometheus):
 
@@ -103,6 +105,16 @@ and requires `# source:` and `# upstream-commit:` headers. Refresh:
     go run ./cmd/eve-policy import -source "<feed name>" -upstream-commit <upstream sha> -in hosts.txt -out deploy/policy/categories/malware.txt
     go run ./cmd/eve-policy sign -key <private key, outside the repo> -key-id <id> deploy/policy/categories/malware.txt
     go run ./cmd/eve-policy verify      # CI runs this; fails if older than 30 days
+
+The fallback snapshot may be at most 60 days old (`MaxPrevSnapshotAge`): an
+older one is not used (both web tools fail closed) and fails CI. While the
+fallback is in use `eve_policy_snapshot_fallback` is 1 (log
+`web_policy_loaded snapshot_fallback=true`). Signatures without a key id are
+rejected. Alert:
+
+    - alert: EvePolicySnapshotFallback
+      expr: eve_policy_snapshot_fallback == 1
+      labels: {severity: warn}
 
 The feed (malware-filter's urlhaus-filter, CC0/MIT) has a single maintainer
 and leaves out the top 1M sites; it is a supplement, not a guarantee.

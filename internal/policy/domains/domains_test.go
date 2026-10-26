@@ -176,9 +176,9 @@ func signedFS(t *testing.T, gen time.Time, corruptCur, withPrev, corruptPrev boo
 	snap := func(host string) []byte {
 		return []byte("# generated: " + gen.UTC().Format(time.RFC3339) + "\n" + host + "\n")
 	}
-	sig := func(b []byte) []byte { return []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(priv, b))) }
+	sig := func(b []byte) []byte { return []byte("t:" + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, b))) }
 	m := testFS("version: 1\nmode: denylist\ndeny_categories: [malware]\n", nil)
-	m["keys/malware-ed25519.pub"] = &fstest.MapFile{Data: []byte(base64.StdEncoding.EncodeToString(pub))}
+	m["keys/malware-ed25519.pub"] = &fstest.MapFile{Data: []byte("# key-id: t\n" + base64.StdEncoding.EncodeToString(pub))}
 	cur := snap("cur.example")
 	m["categories/malware.txt"] = &fstest.MapFile{Data: cur}
 	m["categories/malware.txt.sig"] = &fstest.MapFile{Data: sig(cur)}
@@ -244,7 +244,8 @@ func TestMalwareSnapshot_KeyRotationOverlap(t *testing.T) {
 		{sig("k1", oldPriv), now.Add(8 * 24 * time.Hour), false, "old key after not-after"},
 		{sig("k2", oldPriv), now, false, "wrong key for id"},
 		{sig("k9", newPriv), now, false, "unknown id"},
-		{[]byte(base64.StdEncoding.EncodeToString(ed25519.Sign(newPriv, body))), now, true, "legacy bare signature"},
+		{[]byte(base64.StdEncoding.EncodeToString(ed25519.Sign(newPriv, body))), now, false, "bare signature without key id"},
+		{[]byte(":" + base64.StdEncoding.EncodeToString(ed25519.Sign(newPriv, body))), now, false, "empty key id"},
 	} {
 		_, err := VerifySnapshot(keys, body, tc.sig, tc.at)
 		if (err == nil) != tc.ok {
@@ -280,5 +281,23 @@ func TestIsNonPublic_6to4Teredo(t *testing.T) {
 	}
 	if IsNonPublic(netip.MustParseAddr("2001:4860:4860::8888")) {
 		t.Error("public IPv6 must stay public")
+	}
+}
+
+// Low follow-up: the fallback snapshot has a maximum age (runtime + CI).
+func TestMalwareSnapshot_PrevMaxAge(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-MaxPrevSnapshotAge - time.Hour)
+	fs := signedFS(t, old, true, true, false) // current tampered, prev too old
+	if _, err := Load(fs, now); err == nil {
+		t.Fatal("too-old fallback snapshot must fail closed")
+	}
+	fs = signedFS(t, now.Add(-MaxPrevSnapshotAge+24*time.Hour), true, true, false)
+	if p, err := Load(fs, now); err != nil || !p.SnapshotFallback {
+		t.Fatalf("fallback within max age must load: %v", err)
+	}
+	fs = signedFS(t, now, false, true, false)
+	if err := CheckSnapshotFiles(fs, now.Add(MaxPrevSnapshotAge+time.Hour)); err == nil {
+		t.Fatal("CI must fail when the fallback snapshot is too old")
 	}
 }
