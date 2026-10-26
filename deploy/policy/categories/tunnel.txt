@@ -1,0 +1,12 @@
+# Tunnels / reverse proxies to arbitrary (often private) origins.
+*.ngrok.io
+*.ngrok-free.app
+*.ngrok.app
+*.ngrok-free.dev
+*.trycloudflare.com
+*.loca.lt
+*.serveo.net
+*.localtunnel.me
+*.pagekite.me
+*.localhost.run
+*.lhr.life

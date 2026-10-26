@@ -40,12 +40,19 @@ type Options struct {
 	PerHostConc    int // 2
 	UserAgent      string
 	Resolver       Resolver
+	// HostPolicy is the gateway domain policy, checked for the requested URL
+	// and again for every redirect hop before the SSRF checks.
+	HostPolicy HostPolicy
 	// dialIP, if set, replaces the raw TCP dial of an already validated
 	// ip:port. Unexported on purpose: only this package's tests can set it
 	// (to reach httptest servers); production always dials through
 	// net.Dialer with Guard.Control.
 	dialIP func(ctx context.Context, network, ipport string) (net.Conn, error)
 }
+
+// HostPolicy decides whether a URL's host may be reached. It returns a non-nil
+// *BlockedError to block.
+type HostPolicy func(u *url.URL, hop int) *BlockedError
 
 type redirectPolicyKey struct{}
 
@@ -145,6 +152,11 @@ func New(o Options) (*Fetcher, error) {
 			prev := via[len(via)-1].URL
 			if strings.EqualFold(prev.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
 				return blocked(ReasonRedirect, "https->http downgrade")
+			}
+			if o.HostPolicy != nil {
+				if be := o.HostPolicy(req.URL, len(via)); be != nil {
+					return be
+				}
 			}
 			if _, _, err := g.CheckURL(req.URL); err != nil {
 				return err
@@ -268,6 +280,11 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string, maxChars int) (*Resu
 		return nil, blocked(ReasonURL, "unparsable url")
 	}
 	u.Fragment = ""
+	if f.o.HostPolicy != nil {
+		if be := f.o.HostPolicy(u, 0); be != nil {
+			return nil, be
+		}
+	}
 	host, _, err := f.G.CheckURL(u)
 	if err != nil {
 		return nil, err
@@ -292,6 +309,10 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string, maxChars int) (*Resu
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
+			var be *BlockedError
+			if errors.As(ue.Err, &be) {
+				return nil, be
+			}
 			if r, ok := IsBlocked(ue.Err); ok {
 				return nil, &BlockedError{Reason: r, Detail: ue.Err.Error()}
 			}
