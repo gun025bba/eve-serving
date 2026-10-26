@@ -67,6 +67,7 @@ func scanThread(r pgx.Row) (store.Thread, error) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, store.ErrNotFound
 	}
+	t.CreatedAt, t.UpdatedAt = t.CreatedAt.UTC(), t.UpdatedAt.UTC()
 	if prev != nil {
 		p := store.Preview(*prev, 120)
 		t.LastMessagePreview = &p
@@ -244,12 +245,17 @@ func scanMsg(r pgx.Row) (store.Message, error) {
 		return m, err
 	}
 	m.Params, m.Metadata = params, meta
+	m.CreatedAt = m.CreatedAt.UTC()
+	if m.UpdatedAt != nil {
+		u := m.UpdatedAt.UTC()
+		m.UpdatedAt = &u
+	}
 	if usage != nil {
 		m.Usage = &store.Usage{}
 		json.Unmarshal(usage, m.Usage)
 	}
 	if rating != nil {
-		m.Feedback = &store.Feedback{MessageID: m.ID, Rating: *rating, Comment: comment, CreatedAt: *fc, UpdatedAt: *fu}
+		m.Feedback = &store.Feedback{MessageID: m.ID, Rating: *rating, Comment: comment, CreatedAt: fc.UTC(), UpdatedAt: fu.UTC()}
 	}
 	return m, nil
 }
@@ -320,6 +326,7 @@ func (s *Store) SetFeedback(ctx context.Context, user, messageID, rating string,
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, store.ErrNotFound
 	}
+	f.CreatedAt, f.UpdatedAt = f.CreatedAt.UTC(), f.UpdatedAt.UTC()
 	return f, err
 }
 
@@ -367,6 +374,7 @@ SELECT * FROM (
 			return nil, err
 		}
 		h.Snippet = store.Snippet(body, q, 160)
+		h.CreatedAt = h.CreatedAt.UTC()
 		out = append(out, h)
 	}
 	return out, rows.Err()

@@ -167,7 +167,7 @@ func TestPostgresStore(t *testing.T) {
 		t.Fatal("client_id must be per user")
 	}
 	g, _ := s.GetThread(ctx, a, id1)
-	if !g.CreatedAt.Equal(ct) || !g.UpdatedAt.Equal(ct.Add(time.Minute)) || g.MessageCount != 2 {
+	if g.CreatedAt != ct || g.CreatedAt.Location() != time.UTC || !g.UpdatedAt.Equal(ct.Add(time.Minute)) || g.MessageCount != 2 {
 		t.Fatal(g)
 	}
 	ms, _, _ = s.ListMessages(ctx, a, id1, 10, "")
