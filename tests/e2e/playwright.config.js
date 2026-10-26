@@ -12,6 +12,6 @@ module.exports = defineConfig({
   use: { baseURL: BASE_URL, trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: [
     { name: 'api', testMatch: /api-.*\.spec\.js/ },
-    { name: 'iphone-webkit', testMatch: /background-resume\.spec\.js/, use: { ...devices['iPhone 15'] } },
+    { name: 'iphone-webkit', testMatch: /ui-.*\.spec\.js/, use: { ...devices['iPhone 15'] } },
   ],
 });
