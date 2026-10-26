@@ -91,7 +91,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 ### 3.2 쓰기/송신 확인 게이트 (pending_actions)
 흐름:
 1. 모델이 write/send 툴 호출 → 실행기는 **실행하지 않고** 인자를 스키마 검증·정규화(RFC 8785 JCS) → `payload_hash = sha256(user|tool|tool_version|canonical_args)`.
-2. `pending_actions` 행 생성, SSE `chat.completion.confirmation` 카드 송출(실제 실행될 페이로드 그대로: 수신자, 본문 요약, 일시). 모델에게는 `{"status":"pending_confirmation","action_id":...}`만 반환.
+2. `pending_actions` 행 생성, SSE `chat.completion.confirmation` 카드 송출(토큰 없음, §10.3; 실제 실행될 페이로드 그대로: 수신자, 본문 요약, 일시). 모델에게는 `{"status":"pending_confirmation","action_id":...}`만 반환.
 3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at` 둘 다 미경과**(토큰은 발급 후 120~300초, 기본 120초, 제안 만료를 넘지 않게 `LEAST(now()+ttl, expires_at)`로 상한), `token_sha256 IS NOT NULL`(토큰 미발급 제안은 승인 불가, `confirm_token` 누락·빈 값은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
@@ -304,10 +304,11 @@ SSE(기존 이벤트 유지 + 추가):
 {"object":"chat.completion.tool_result","id":"call_1_0","tool":"web_search","status":"ok","sources":[...]}
 {"object":"chat.completion.confirmation","action_id":"01J...","tool":"calendar_create_event","tool_version":"1.0.0",
  "summary":"10/28 15:00 치과 일정 추가","payload_view":{...실제 실행 값},"payload_hash":"sha256:...",
- "confirm_token":"<1회용>","expires_at":"2026-10-26T11:02:00Z","tainted":true,
+ "expires_at":"2026-10-26T11:02:00Z","tainted":true,
  "provenance":{"actor":"user|scheduler","job_id":null}}
 {"object":"chat.completion.action_result","action_id":"01J...","status":"executed|failed|rejected|expired"}
 ```
+- **토큰 전달 경로는 하나**: SSE confirmation에는 `confirm_token`·토큰 해시가 없다. 토큰은 **세션 POST 응답으로만** 받는다: 카드를 띄운 UI가 `POST /v1/actions/{id}/reissue`(최초 발급 포함 3회)를 호출하거나 `POST /v1/proposals/{id}/revise` 응답으로 받는다(ui-api-contract.md §3.5.4). **UI PR #1은 SSE에서 토큰을 읽는 코드를 이 방식으로 바꿔야 한다.**
 엔드포인트:
 - `POST /v1/actions/{id}/approve` `{confirm_token, payload_hash}` → 200 `{status:"executed",result}` / 409 `conflict`(이미 결정됨, 같은 결과 반환) / 410 `expired` / 422 `payload_mismatch` / 422 `cap_exceeded` / 404 `not_found`(다른 사용자 포함, 본문 동일). 코드 이름은 ui-api-contract.md §3.3 enum과 같다.
 - `POST /v1/actions/{id}/reject` → 200.

@@ -22,7 +22,7 @@
 | Q7 | `GET /v1/settings`, `PATCH /v1/settings`(부분 갱신, merge). 키는 §2. 알 수 없는 키·타입·범위 오류는 400(PM S4-4). | MINOR |
 | Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
-| Q10 | SSE confirmation 이벤트에 `token_expires_at` 포함(`expires_at`과 별개, TP 두 만료 규칙). | MINOR |
+| Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
 | Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
 | Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. 보안 규칙은 §3.2. | MINOR |
 | Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
@@ -103,25 +103,38 @@ SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.
 ### 3.5 추가 엔드포인트 (모두 MINOR)
 
 #### 3.5.1 `GET /v1/actions` — 대기 중 제안 목록
-- 응답 `{data:[…]}`: 각 항목은 SSE confirmation 객체에서 **토큰 관련 필드 전부를 뺀 것**(`confirm_token`, `token_expires_at`, 해시 없음) + `thread_id` + `message_id`(nullable, scheduler 제안처럼 메시지가 없으면 `null`). 세션 사용자의 `status='pending'` 제안만.
+- 응답 `{data:[…]}`: 각 항목은 confirmation 객체에서 **토큰 관련 필드 전부를 뺀 것**(`confirm_token`, `token_sha256`, `token_expires_at` 없음; `payload_hash`는 포함) + `thread_id` + `message_id`(nullable, scheduler 제안처럼 메시지가 없으면 `null`). 세션 사용자의 `status='pending'` 제안만.
 - 토큰이 필요하면 카드에서 `revise`를 호출해 새로 받는다(§3.5.4).
-- 테스트: `TestActionsList_NoTokenFields`, `TestActionsList_OnlySessionUser`.
+- 테스트: `TestActionsList_NoTokenRelatedKeys`(응답 JSON 전체에서 `token`이 들어간 키가 하나도 없음을 검사), `TestActionsList_IncludesPayloadHash`, `TestThreadsUnread_OnlyOwnThreads`, `TestActionsList_OnlySessionUser`.
 
 #### 3.5.2 미읽음 — `/v1/notifications` 없음
 - 별도 알림 리소스를 만들지 않고 `GET /v1/threads?unread=true`(기존 목록 + 필터, 각 Thread의 `unread_count` > 0만).
-- Web Push payload는 그대로 `{v, type, nid}` ≤256B이며 **`nid` = `message_id`**. 클라이언트는 받은 뒤 API로 본문을 가져온다(push에 본문 없음).
-- 테스트: `TestThreadsList_UnreadFilter`, `TestPushPayload_NidIsMessageIDUnder256B`.
+- Web Push payload는 그대로 `{v, type, nid}` ≤256B이며 **`nid` = `message_id`**. 클라이언트는 받은 뒤 API로 본문을 가져온다(push에 본문 없음). `nid`로 메시지를 조회할 때도 **소유자 확인**(아니면 404). ID(ULID)는 `crypto/rand`로 만들고 단조 증가(monotonic) 모드를 쓰지 않는다(추측 방지).
+- 테스트: `TestThreadsList_UnreadFilter`, `TestMessageByNid_OwnerCheck404`, `TestULID_CryptoRandNonMonotonic`, `TestPushPayload_NidIsMessageIDUnder256B`.
 
 #### 3.5.3 Push 구독
 - `GET /v1/push/vapid-public-key` → `{key, key_id}`.
 - `POST /v1/push/subscriptions` `{endpoint, keys:{p256dh, auth}, vapid_key_id}` → 201. `vapid_key_id`가 현재 키와 다르면 400 `invalid`.
-- `DELETE /v1/push/subscriptions` `{endpoint}` → 204(세션 사용자 구독만 삭제).
+- `DELETE /v1/push/subscriptions` `{endpoint}` → **항상 204**(세션 사용자 구독만 삭제, 없거나 다른 사용자 것이어도 204).
+- 구독 검증(서버): `endpoint`는 `https`, 포트 443, 호스트가 정확히 `web.push.apple.com`(하위 도메인·다른 호스트 400); `p256dh` 디코딩 65바이트, `auth` 16바이트.
+- 사용자별 구독 **최대 5개**(코드 상수, 초과 422 `cap_exceeded`). 청사진: 필요하면 서버 설정으로 옮기되 낮추기만 MINOR.
+- 다른 사용자가 이미 등록한 `endpoint`를 등록해도 **소유권은 옮겨지지 않고** 존재 여부도 드러나지 않는다(같은 201, 기존 행 유지, 내 구독 행은 만들지 않음, ops 감사).
+- 설정을 읽지 못하면 push 비활성으로 보고 **404(fail-closed)**.
 - push가 꺼져 있으면(설정·킬스위치) **세 엔드포인트 모두 404** `not_found`. CSRF·Origin 동일.
-- 테스트: `TestPushVapidKey_Returns`, `TestPushSubscribe_201`, `TestPushUnsubscribe_204OwnOnly`, `TestPush_DisabledAll404`.
+- 테스트: `TestPushVapidKey_Returns`, `TestPushSubscribe_201`, `TestPushSubscribe_EndpointHostPortScheme`, `TestPushSubscribe_KeyLengths`, `TestPushSubscribe_Cap5`, `TestPushSubscribe_OtherUserEndpointNoTransferNoLeak`, `TestPushUnsubscribe_Always204`, `TestPush_DisabledAll404`, `TestPush_SettingsReadFailure404`.
 
 #### 3.5.4 revise 응답
 - `POST /v1/proposals/{id}/revise` 응답 = **새 confirmation 객체 전체(토큰 포함)**. 토큰은 이 세션 POST 응답에만 담기고 **SSE에는 절대 싣지 않는다**(§3.4 규칙 유지). 보안 리뷰 확인 필요.
 - 테스트: `TestProposalRevise_ResponseHasTokenSSEHasNone`.
+
+### 3.6 CORS·캐시·로그 [Sec-Med CORS, Sec-L]
+- **선행 조건**: main에 아직 없는 **CSRF 보호(보안 Med)가 먼저 들어가야** 토큰 발급·`/v1/actions`·push 엔드포인트를 구현·배포할 수 있다.
+- `cors_origins`에 `*`가 있으면 **게이트웨이가 기동을 거부**한다. 테스트 `TestConfig_CORSWildcardRefusesStartup`.
+- 토큰 발급 엔드포인트(`revise`, `reissue`, approve 경로의 토큰 발급)와 `GET /v1/actions`는 **허용 origin이어도 CORS 허용 헤더를 절대 내지 않는다**(`Access-Control-Allow-*` 없음, preflight 포함). 테스트 `TestCORS_TokenEndpointsAndActionsNoAllowHeaders`.
+- `revise`·`reissue`·`/v1/actions` 응답은 `Cache-Control: no-store`. 테스트 `TestTokenEndpoints_CacheNoStore`.
+- 이 엔드포인트들의 요청·응답 본문은 로그에 남기지 않는다. `tool_audit`에는 토큰·토큰 해시가 절대 없다(`action_id`·`payload_hash`만). 테스트 `TestTokenEndpoints_BodiesNotLogged`, `TestAudit_NoTokenOrTokenHash`.
+- 422 `payload_mismatch` 본문은 `{"error_code":"payload_mismatch"}`뿐(기대 해시 없음). 테스트 `TestApprove_PayloadMismatchBodyCodeOnly`.
+- 404 본문 동일성 테스트는 `request_id`를 뺀 **본문 바이트**를 비교한다.
 
 ### 3.4 기타 [Sec-L]
 - **SSE에는 토큰·토큰 해시를 절대 넣지 않는다**(토큰은 사용자 세션 POST 응답으로만). SSE는 해당 세션 사용자에게만 전송. 테스트 `TestSSEConfirmation_NoTokenOrHash`, `TestSSEConfirmation_OnlyToSessionUser`.
@@ -134,6 +147,10 @@ SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.
 | Sec-M1 | revise 규칙 | §3.1 (404, 소유 재확인, 조건부 1행 void, 체인 상한, root+24h, 상속, 필터 재실행) |
 | Sec-M2 | follow-up 툴 | §3.2 (scheduler·taint 거부, thread 고정, 30일, 활성 10개, 템플릿 허용 목록) |
 | Sec-L | settings strict decode·감사·킬스위치, SSE 토큰 금지, read 404 | §2, §3.4 |
+| Sec-Med CORS | `*` 기동 거부, 토큰 발급·actions CORS 헤더 없음, CSRF 선행 | §3.6 |
+| Sec-L2 | no-store, 본문 무로그, 감사 토큰 없음, 422 본문 code만, 404 바이트 비교 | §3.6 |
+| Sec-L3 | 토큰 전달 경로 = 세션 POST 응답만(SSE·TP에서 제거, UI PR #1 수정 필요), actions에 토큰 키 없음 | §3.5.1, §3.5.4, TP §10.3 |
+| Sec-L4 | push 구독 검증(호스트·키 길이·상한 5·소유권·DELETE 204·fail-closed), nid 소유 확인, ULID crypto/rand, unread 본인 스레드 | §3.5.2, §3.5.3 |
 | 디자이너 | 위험 스타일 send·delete만, job 스레드 첫 실행 생성, 후보 `updated_at`, 고정 error_code, 빈 본문 revise, `template_kind` | §1 Q4·Q5·Q9·Q11·Q13·Q14 |
 
 ## 4. 확장 메모 (청사진)
