@@ -20,7 +20,7 @@
 <line x1="580" y1="115.0" x2="640" y2="115.0" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
 <text x="610.0" y="105.0" text-anchor="middle" font-size="13" fill="#495057">원자적 쓰기</text>
 <line x1="460.0" y1="170" x2="460.0" y2="260" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
-<text x="460.0" y="205.0" text-anchor="middle" font-size="13" fill="#495057">프롬프트 주입 ≤1.5k tok</text>
+<text x="460.0" y="205.0" text-anchor="middle" font-size="13" fill="#495057">프롬프트 주입 ≤1k tok (끝·nonce)</text>
 <line x1="580" y1="170" x2="640" y2="260" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
 <text x="610.0" y="205.0" text-anchor="middle" font-size="13" fill="#495057">감사 기록</text>
 <text x="40" y="400" font-size="12" fill="#868e96">박스 5개: 새 컴포넌트는 memory 파일 하나뿐 (memory 모듈은 gateway 내부 패키지)</text></svg>
