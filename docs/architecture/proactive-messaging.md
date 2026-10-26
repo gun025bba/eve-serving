@@ -53,7 +53,7 @@
 - 거부된 호스트는 메트릭(`eve_push_endpoint_rejected_total{reason}`)과 `tool_audit`에 기록합니다(전체 URL이 아닌 호스트만). [N1]
 - 허용 호스트를 추가하는 것은 **별도 MAJOR 결정**입니다. Apple WWDC22 안내처럼 push.apple.com 하위 도메인 전체를 허용하는 경우도 포함합니다. [N1]
 - VAPID JWT의 `aud`는 정확히 `https://web.push.apple.com`이어야 합니다. 다른 값이면 서명하지 않습니다. [N1]
-- **DNS 검사:** 이름이 사설(RFC 1918)·loopback·link-local·CGNAT(100.64.0.0/10, tailnet 대역 포함)·ULA 주소로 해석되면 거부합니다. **DNS rebinding을 막기 위해** 검사한 IP로 연결을 고정(pin)하고, 연결 시점에 다시 해석하지 않습니다. [N3]
+- **DNS 검사:** 이름이 사설(RFC 1918)·loopback·link-local·CGNAT(100.64.0.0/10, tailnet 대역 포함)·ULA·**IPv4-mapped IPv6(`::ffff:0:0/96`, 내부 IPv4로 정규화 후 재검사)·미지정 주소(`0.0.0.0`, `::`)·멀티캐스트(`224.0.0.0/4`, `ff00::/8`)** 주소로 해석되면 거부합니다. **DNS rebinding을 막기 위해** 검사한 IP로 연결을 고정(pin)하고, 연결 시점에 다시 해석하지 않습니다. [N3]
 - IP 리터럴(IPv4/IPv6, 10진·16진 표기 포함) 거부, userinfo·비표준 포트 거부, **리다이렉트 따라가지 않음**(3xx = 실패).
 - 발송은 gateway의 **도메인 egress 정책(PR #2 §13, 단일 적용 계층)**을 통과해야 하며 별도 HTTP 클라이언트 우회 경로를 두지 않습니다.
 
@@ -159,11 +159,11 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 
 **머지 차단 테스트 (구현 PR에서 필수, 이름은 제안):**
 - `TestPushEndpoint_RejectsNonApple` / `_RejectsHTTP` / `_RejectsPort` / `_RejectsIPLiteral`(IPv4, IPv6, 10진·16진 표기) / `_RejectsUserinfo` / `_NoRedirectFollow` / `_CheckedAtSendTime`(등록 후 DB 값 변조 시 발송 거부)
-- `TestSchedulerActor_RejectsWriteScope` / `_RejectsSendScope` / `_IgnoresGrantsFileOverride`
+- `TestActorScheduler_RejectsWriteScope` / `_RejectsSendScope` / `_IgnoresGrantsFileOverride`
 - `TestConfirmToken_ConsumeOnlyViaUserSessionPOST` (scheduler·모델 컨텍스트에서 소비 시 거부, GET 거부)
 - `TestSchedulerRun_TaintedFromStart`, `TestFollowup_InheritsOriginThreadTaint`
 - `TestPushEndpoint_RejectsPrivateResolution` (사설·loopback·CGNAT로 해석, rebinding 시 거부) [N3], `TestPushEndpoint_RejectsWildcardOrSuffixMatch`, `TestVAPID_AudExactAppleHost`, `TestPush_DisabledUntilHostConfirmed`
-- `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL` (24시간 상한 포함), `TestConfirmToken_ReissueInvalidatesPrevious`
+- `TestSchedulerProposal_TokenlessUntilUserOpens`, `TestSchedulerProposal_TTL24h` (24시간 상한 포함), `TestConfirmToken_ReissueInvalidatesPrevious`
 - `TestAudit_RecordsJobCreateRunSendReject` [N5], `TestRedaction_EndpointVAPIDJWTKeys` [N5], `TestQuietHours_EnforcedServerSide` (Asia/Seoul 경계 포함) [N5]
 - `TestNoModelOrToolPathWritesJobs` (툴 레지스트리·모델 tool_call로 job 생성 불가), `TestJobSpec_TemplateIDOnly` (자유 텍스트·추가 키 거부)
 - `TestProactiveAPI_OriginMissingOrNull403`, `_CSRFRequired`, `_IDOROtherUser404`
@@ -187,6 +187,7 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 | N3 | 사설·loopback·CGNAT로 해석되면 거부, IP pin으로 rebinding 방지 (§2.2.1, 테스트) |
 | N5 | 감사 기록·redaction·quiet hours 머지 차단 테스트, VAPID JWT redaction (§2.4, 테스트) |
 | L1 | 구독 보존 기간·cascade 삭제 (§3) |
+| 권고(승인 후) | DNS 거부 목록에 IPv4-mapped IPv6·미지정·멀티캐스트 추가, 테스트 이름을 PR #2 규칙(`Test<대상>_<동작>`, `TestActorScheduler_*`, `TestSchedulerProposal_*`)에 맞춤 |
 | L3 | '연결 필요' 화면 처리 (§2.3) |
 
 ## 6. SemVer 판단: **MAJOR**
