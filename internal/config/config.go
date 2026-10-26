@@ -27,9 +27,21 @@ type GenConfig struct {
 	WriteTimeoutS   float64 `yaml:"write_timeout_s" json:"write_timeout_s"`     // per SSE write
 }
 
+// Validate fails fast on generation limits that cannot be honoured.
+func (g GenConfig) Validate() error {
+	if g.UserMaxActive < 1 || g.RunMaxBytes < 1 || g.RunMaxEvents < 1 || g.PartialMaxBytes < 1 || g.HubMaxRuns < 1 || g.HubMaxBytes < 1 || g.MaxSubscribers < 1 {
+		return fmt.Errorf("generation: limits must be >= 1")
+	}
+	if int64(g.HubMaxBytes) < int64(g.HubMaxRuns)*int64(g.RunMaxBytes) {
+		return fmt.Errorf("generation.hub_max_bytes (%d) must be >= hub_max_runs (%d) * run_max_bytes (%d) = %d",
+			g.HubMaxBytes, g.HubMaxRuns, g.RunMaxBytes, int64(g.HubMaxRuns)*int64(g.RunMaxBytes))
+	}
+	return nil
+}
+
 func DefaultGen() GenConfig {
 	return GenConfig{UserMaxActive: 2, TimeoutS: 900, IdleCancelS: 300, RetainS: 600, RunMaxBytes: 2 << 20, RunMaxEvents: 10000,
-		PartialMaxBytes: 64 << 10, HubMaxRuns: 64, HubMaxBytes: 64 << 20, MaxSubscribers: 4, WriteTimeoutS: 30}
+		PartialMaxBytes: 64 << 10, HubMaxRuns: 64, HubMaxBytes: 128 << 20, MaxSubscribers: 4, WriteTimeoutS: 30}
 }
 
 type Config struct {
@@ -155,6 +167,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
 		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
+	}
+	if err := c.Generation.Validate(); err != nil {
+		return c, err
 	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")

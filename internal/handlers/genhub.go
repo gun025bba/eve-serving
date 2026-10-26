@@ -159,6 +159,14 @@ func (h *genHub) reserve(user string) error {
 			return errHubFull
 		}
 	}
+	// Running runs alone can hold more than HubMaxBytes (they are never
+	// evicted); refuse new work until finished runs are freed or runs end.
+	for h.totalBytes.Load() >= int64(h.cfg.HubMaxBytes) {
+		if !h.evictFinishedLocked() {
+			h.m.GenRejected.WithLabelValues("hub_bytes").Inc()
+			return errHubFull
+		}
+	}
 	h.active[user]++
 	h.reserved++
 	return nil

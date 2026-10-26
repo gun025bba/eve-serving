@@ -418,3 +418,13 @@ func TestConcurrentRegenerateConflict(t *testing.T) {
 		t.Fatal(r.StatusCode, string(b))
 	}
 }
+
+func TestHubBytesFullOfRunningRunsRejects(t *testing.T) {
+	e, _ := newDetachEnv(t, 300, 10*time.Millisecond, func(s *Server) { s.Cfg.Generation.HubMaxBytes = 300 })
+	r1, _ := openStream(t, e, "alice@example", longChat, 6) // running run now holds > 300 bytes
+	defer r1.Body.Close()
+	r2, b := e.call(t, "bob@example", "POST", "/v1/chat/completions", longChat)
+	if r2.StatusCode != 429 || r2.Header.Get("Retry-After") == "" || errCode(js(t, b)) != "server_busy" {
+		t.Fatal(r2.StatusCode, string(b))
+	}
+}

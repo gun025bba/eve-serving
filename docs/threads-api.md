@@ -88,7 +88,7 @@ then upstream chunks unchanged, then **right before `data: [DONE]`**:
 ```
 (On upstream mid-stream errors: error event, then the persisted event with `status:"failed"`, then `[DONE]`.)
 
-Limits (§3.8): 2 concurrent generations per user (429 `too_many_generations` + `Retry-After`); hub-wide 429
+Limits (§3.8): 2 concurrent generations per user (429 `too_many_generations` + `Retry-After`); hub-wide (64 runs / 128MB, also when running runs alone fill the byte cap) 429
 `server_busy`; partial reply > 64KB → `failed`/`too_large`; no subscriber for 5 min → `failed`/`no_subscriber`.
 Queue errors (`queue_full` 429 etc.) happen **before** the assistant row is created and keep their 3.0.0 HTTP status.
 Regenerating a message that is already `generating` → 409 `generation_in_progress`. The startup sweep that marks

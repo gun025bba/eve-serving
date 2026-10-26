@@ -187,7 +187,7 @@ iPhone PWA가 백그라운드로 가면 SSE가 끊긴다. 저장되는 채팅(`t
 - **어드미션 후 에러 = 스트림 안**: 업스트림 연결 실패·중간 에러·타임아웃은 HTTP 200 SSE 안에서 에러 이벤트(`{"error":{"code","message",…,"retry_after"?}}`) → persisted(`failed`) → `[DONE]`. 원래 상태·코드는 서버 로그와 `eve_gen_stream_errors_total{code,status}`에 남는다.
 - **취소**: `POST /v1/threads/{thread_id}/messages/{message_id}/cancel` (CSRF 헤더 필요, 본문 없음) → 항상 **204**(멱등: 이미 끝난 메시지도 204, 상태 변화 없음). 진행 중이면 생성을 멈추고 `failed` + `error_code:"cancelled"`. 없는/남의 메시지 → 같은 404.
 - **자동 취소**: 구독자(원 스트림 + 재연결)가 하나도 없는 상태가 5분(`generation.idle_cancel_s`, env `GW_GEN_IDLE_CANCEL_S`) 이어지면 `failed` + `no_subscriber`. 백그라운드 PWA는 5분 안에 재연결해야 이어서 받는다.
-- **한도**: 런당 이벤트 로그 2MB/10k 이벤트 — 넘으면 오래된 이벤트부터 버리고, 버린 구간 이후를 요청한 재연결은 `eve.snapshot`(현재까지의 content, `status`, `last_event_id`)로 시작한 뒤 이어서 실시간 이벤트. 부분 응답(content+reasoning) 64KB 초과 → `failed` + `too_large`. 허브 전체 런 64개/64MB, 넘으면 끝난 런부터 퇴출(퇴출된 런 재연결 = DB 스냅숏). 메시지당 구독자 4개, 5번째 → `429 too_many_subscribers`. 구독자 쓰기 데드라인 30초(느린 클라이언트는 끊김 → 재연결).
+- **한도**: 런당 이벤트 로그 2MB/10k 이벤트 — 넘으면 오래된 이벤트부터 버리고, 버린 구간 이후를 요청한 재연결은 `eve.snapshot`(현재까지의 content, `status`, `last_event_id`)로 시작한 뒤 이어서 실시간 이벤트. 부분 응답(content+reasoning) 64KB 초과 → `failed` + `too_large`. 허브 전체 런 64개/128MB, 넘으면 끝난 런부터 퇴출(퇴출된 런 재연결 = DB 스냅숏); 진행 중 런만으로 바이트 한도에 차면 새 생성은 `429 server_busy`. 기동 시 `hub_max_bytes >= hub_max_runs × run_max_bytes`를 검사해 어긋나면 시작하지 않는다. 메시지당 구독자 4개, 5번째 → `429 too_many_subscribers`. 구독자 쓰기 데드라인 30초(느린 클라이언트는 끊김 → 재연결).
 - **새 `error_code`**: `cancelled`, `no_subscriber`, `too_large`, `timeout`, `gateway_restart`, `internal_error` + 기존 게이트웨이 코드.
 - **캐시**: 스트림·재연결 응답 모두 `Cache-Control: no-store`.
 - **기동 스윕은 단일 인스턴스 전용**: 기동 시 남은 `generating` 행을 모두 `failed`(`gateway_restart`)로 바꾼다. 같은 DB를 쓰는 게이트웨이를 2개 이상 띄우면 서로의 진행 중 생성을 실패 처리하므로 지원하지 않는다.
