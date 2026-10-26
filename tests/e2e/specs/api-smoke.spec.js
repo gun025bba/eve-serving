@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { EXPECT_UI_VERSION } = require('../env');
 test.describe('smoke', () => {
   test('/health ok with semver version', async ({ request }) => {
     const r = await request.get('/health'); expect(r.status()).toBe(200);
@@ -9,6 +10,6 @@ test.describe('smoke', () => {
   });
   test('/ui/ serves the app with a version', async ({ request }) => {
     const r = await request.get('/ui/'); expect(r.status()).toBe(200);
-    expect(await r.text()).toMatch(/id="appVersion"[^>]*>v\d+\.\d+\.\d+/);
+    expect(await r.text()).toMatch(new RegExp(`id="appVersion"[^>]*>v${EXPECT_UI_VERSION.replace(/\./g, '\\.')}<`));
   });
 });
