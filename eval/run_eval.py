@@ -8,6 +8,8 @@ Environment:
   EVAL_MODEL      Optional. Default mlx-community/Qwen3-30B-A3B-4bit
   EVAL_APPEND_NO_THINK  Optional. Default 1. Append ' /no_think' to user prompts for Qwen3.
   EVAL_OMIT_MAX_TOKENS Optional. Default 0. If 1, omit max_tokens so the server default applies.
+  EVAL_SYSTEM_PROMPT_FILE Optional. Path to a UTF-8 text file used as a system message for every item
+                    (overrides item-level system if both are set when the flag/env is provided).
 
 Usage:
   python3 eval/run_eval.py --suite regression
@@ -253,13 +255,14 @@ def grade(item: dict, text: str) -> dict:
     return {"pass": passed, "score": 1.0 if passed else 0.0, "details": details}
 
 
-def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool, omit_max_tokens: bool = False) -> dict:
+def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool, omit_max_tokens: bool = False, system_prompt: str | None = None) -> dict:
     prompt = item["prompt"]
     if append_no_think and "/no_think" not in prompt:
         prompt = prompt + " /no_think"
     messages = []
-    if item.get("system"):
-        messages.append({"role": "system", "content": item["system"]})
+    sys_content = system_prompt if system_prompt is not None else item.get("system")
+    if sys_content:
+        messages.append({"role": "system", "content": sys_content})
     messages.append({"role": "user", "content": prompt})
     payload = {
         "model": model,
@@ -385,7 +388,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
     results = []
     for i, item in enumerate(items, 1):
         print(f"[{name} {i}/{len(items)}] {item['id']} ...", flush=True)
-        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think, bool(args.omit_max_tokens))
+        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think, bool(args.omit_max_tokens), args.system_prompt)
         g = grade(item, resp.get("content") or "")
         row = {
             "id": item["id"],
@@ -410,6 +413,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
         "model": args.model,
         "base_url_set": bool(args.base_url),
         "omit_max_tokens": bool(args.omit_max_tokens),
+        "system_prompt_file": args.system_prompt_file or None,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary,
         "results": results,
@@ -427,9 +431,18 @@ def main():
     ap.add_argument("--sleep", type=float, default=0.0, help="seconds between requests")
     ap.add_argument("--append-no-think", type=int, default=int(os.getenv("EVAL_APPEND_NO_THINK", "1")))
     ap.add_argument("--omit-max-tokens", type=int, default=int(os.getenv("EVAL_OMIT_MAX_TOKENS", "0")), help="1=omit max_tokens (use server default); 0=send item max_tokens (default)")
+    ap.add_argument("--system-prompt-file", default=os.getenv("EVAL_SYSTEM_PROMPT_FILE", ""), help="UTF-8 text file injected as system message for every request")
     args = ap.parse_args()
     if not args.base_url:
         raise SystemExit("EVAL_BASE_URL or --base-url is required (do not hardcode hostnames)")
+    args.system_prompt = None
+    if args.system_prompt_file:
+        sp = Path(args.system_prompt_file)
+        if not sp.is_file():
+            raise SystemExit(f"system prompt file not found: {sp}")
+        args.system_prompt = sp.read_text(encoding="utf-8").strip()
+        if not args.system_prompt:
+            raise SystemExit(f"system prompt file is empty: {sp}")
     # never print key
     key = load_key()
 
