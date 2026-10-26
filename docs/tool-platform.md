@@ -90,13 +90,15 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
 - **멱등성**: `idempotency_key = payload_hash + action_id`를 외부 API에 전달 가능하면 전달, 아니면 `executing` 상태 락 + `executed` 후 재시도 차단. 같은 approve 재요청은 저장된 결과를 반환.
-- **토큰 재발급은 POST만**: `POST /v1/actions/{id}/reissue`(같은 사용자, 미만료, `pending` 상태일 때만, 이전 토큰 즉시 무효화, 재발급 횟수 ≤3, 감사 `token_reissued`). `GET`은 토큰을 절대 반환·발급하지 않음(조회는 부작용 없음). 토큰은 `action_id`에도 바인딩(`token_sha256 = sha256(token|action_id)`), 모든 상태 변경 POST는 `Origin` 헤더가 게이트웨이 자신의 오리진과 일치해야 함(불일치·**누락·`null`이면 403**).
+- **토큰 재발급은 POST만**: `POST /v1/actions/{id}/reissue`(같은 사용자, 미만료, `pending` 상태일 때만, 이전 토큰 즉시 무효화, 최초 발급 포함 총 3회, 감사 `token_reissued`). `GET`은 토큰을 절대 반환·발급하지 않음(조회는 부작용 없음). 토큰은 `action_id`에도 바인딩(`token_sha256 = sha256(token|action_id)`), 모든 상태 변경 POST는 `Origin` 헤더가 게이트웨이 자신의 오리진과 일치해야 함(불일치·**누락·`null`이면 403**).
 - **1회 승인 = 1회 실행**: 승인 시 `idempotency_key`(ULID)를 `pending_actions`에 기록(UNIQUE). 실행기 재시도는 같은 키로만 하며, 외부 API가 멱등 키를 지원하지 않으면 **재시도 없음**. `executing`에 고착된 행(타임아웃+여유 초과)은 자동 재실행하지 않고 `failed(unknown_outcome)`로 전이 후 사용자에게 "실행 여부 불명, 확인 후 새 제안" 안내.
 - 모델 텍스트나 사용자의 "응/승인" 채팅 텍스트는 확인으로 **인정하지 않음**. 승인은 UI 버튼 → 별도 엔드포인트만.
 - 턴당 쓰기 제안 1회.
-- **scheduler 발 제안(PR #4)**: scheduler는 **토큰 없는 제안**만 만든다(`token_sha256` NULL, `payload_hash`로 페이로드 고정). 제안 TTL은 **최대 24시간**(`expires_at`), 그 뒤 `expired`. 사용자가 카드를 열면 사용자 세션의 `POST /v1/actions/{id}/reissue`(Origin 검사)로 **1회용 토큰을 발급**하며 토큰 만료는 **120~300초**(기본 120초). 카드에는 출처(actor=scheduler, job_id, job 이름)를 표시. 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
+- **scheduler 발 제안(PR #4)**: scheduler는 **토큰 없는 제안**만 만든다(`token_sha256` NULL, `payload_hash`로 페이로드 고정). 제안 TTL은 **최대 24시간**(`expires_at`, 제안 생성 시 고정), 그 뒤 `expired`. 사용자가 카드를 열면 사용자 세션의 `POST /v1/actions/{id}/reissue`(Origin 검사)로 **1회용 토큰을 발급**하며 토큰 만료는 **120~300초**(기본 120초, `token_expires_at`).
+- **만료 2단 분리**: 제안 만료 `expires_at`과 토큰 만료 `token_expires_at`은 별도 컬럼. approve는 **둘 다** 미만료여야 통과(`now() < expires_at AND now() < token_expires_at`). 토큰 발급·재발급은 `token_expires_at`만 설정하며 **제안 TTL을 절대 연장하지 않음**(`token_expires_at = LEAST(now()+ttl, expires_at)`). 발급 횟수 상한은 **최초 발급 포함 총 3회**(user 제안은 생성 시 발급이 1회째, scheduler 제안은 카드를 열 때 발급이 1회째).
+- **토큰 없는 제안 승인 금지**: approve는 `token_sha256 IS NOT NULL`인 행만 대상. `confirm_token` 누락·빈 문자열이면 **400 `confirm_token_required`**(DB 조회 전 거부), 토큰 미발급 제안에 대한 approve는 실행 0회. 카드에는 출처(actor=scheduler, job_id, job 이름)를 표시. 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
 - **actor/job_id는 서버만 설정**: `actor`·`job_id`는 게이트웨이가 실행 컨텍스트(사용자 요청 핸들러 vs 스케줄러 goroutine)에서 직접 채운다. API 본문·헤더·쿼리, 모델 출력, 툴 인자에서는 **절대 받지 않음**(해당 필드가 오면 무시가 아니라 400 거부). 기본값 없음: 코드에서 명시적으로 설정하지 않으면 INSERT가 NOT NULL로 실패.
-- **검증 테스트(추가)**: `TestActor_NotClientSettable`(본문·헤더·모델 tool_call·툴 인자로 actor/job_id 주입 시 거부, DB 값은 서버 컨텍스트 값), `TestSchedulerProposal_TokenlessUntilUserOpens`, `TestSchedulerProposal_TTL24h`, `TestActorScheduler_RequiresJobID`.
+- **검증 테스트(추가)**: `TestActor_NotClientSettable`(본문·헤더·모델 tool_call·툴 인자로 actor/job_id 주입 시 거부, DB 값은 서버 컨텍스트 값), `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL`(토큰 발급이 TTL을 늘리지 않음 포함), `TestApprove_RejectsTokenlessProposal`(거부, 실행 0회), `TestConfirmToken_ReissueInvalidatesPrevious`, `TestConfirmToken_IssueCapIncludesFirst`, `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(이름은 PR #4와 동일), `TestActorScheduler_RequiresJobID`.
 
 ```sql
 CREATE TABLE pending_actions (
@@ -114,9 +116,11 @@ CREATE TABLE pending_actions (
   job_id        TEXT,                            -- 서버만 설정, 카드 출처 표시
   tainted_turn  BOOLEAN NOT NULL,                 -- 제안 시점의 스레드 taint 스냅샷(§7)
   idempotency_key TEXT UNIQUE,                   -- 승인 시 발급, 1회 실행 보장
-  reissue_count SMALLINT NOT NULL DEFAULT 0,
+  issue_count   SMALLINT NOT NULL DEFAULT 0 CHECK (issue_count <= 3),  -- 최초 발급 포함 총 발급 횟수
+  token_expires_at TIMESTAMPTZ,                  -- 토큰 만료(120~300초), 제안 만료와 별개
+  CHECK (token_expires_at IS NULL OR token_expires_at <= expires_at),
   status        TEXT NOT NULL CHECK (status IN ('pending','executing','executed','failed','rejected','expired')),
-  expires_at    TIMESTAMPTZ NOT NULL,
+  expires_at    TIMESTAMPTZ NOT NULL,            -- 제안 만료(scheduler ≤24h), 토큰 발급으로 연장 불가
   decided_at    TIMESTAMPTZ,
   result_ref    TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -389,7 +393,7 @@ SSE(기존 이벤트 유지 + 추가):
   allow: []               # allowlist_only일 때만 의미
   ```
 - **정규화**: 소문자화, IDNA punycode(`golang.org/x/net/idna` Lookup 프로필), 끝 점 제거, 포트 제거. `*.x`는 **서브도메인만** 매치(`x` 자체는 미포함, 필요하면 둘 다 적음). 같은 호스트가 둘 다 맞으면 **deny 우선**.
-- **IP 리터럴 정규화(정책 판정 전)**: 호스트가 IP로 해석될 수 있는 모든 표기를 `net/netip` 정규형으로 바꾼 뒤 판정. 처리 대상: 10진 정수(`2130706433`), 8진(`0177.0.0.1`), 16진(`0x7f.1`, `0x7f000001`), 축약 점 표기(`127.1`, `10.1`), 혼합 표기, IPv6 축약(`::1`), IPv4-mapped/compat(`::ffff:7f00:1`, `::ffff:127.0.0.1`), NAT64(`64:ff9b::/96`), zone ID(`%25`), 대괄호 표기. 파서는 WHATWG URL host 파서 규칙과 동일하게(골든 테스트). 정규화 결과가 루프백·사설(RFC 1918)·링크로컬(169.254/16, fe80::/10)·CGNAT/tailnet(100.64/10)·ULA(fc00::/7)·unspecified·멀티캐스트·브로드캐스트면 **도메인 정책과 무관하게 차단**(`block_reason:"ip_literal_private"`). 공개 IP 리터럴도 기본 차단(`ip_literal`, 검색 결과에 IP 직접 URL은 드묾). 숫자처럼 보이나 파싱 불가한 호스트는 거부. DNS 해석 후 SSRF Dialer 검사는 그 아래 층에서 그대로.
+- **IP 리터럴 정규화(정책 판정 전)**: 호스트가 IP로 해석될 수 있는 모든 표기를 `net/netip` 정규형으로 바꾼 뒤 판정. 처리 대상: 10진 정수(`2130706433`), 8진(`0177.0.0.1`), 16진(`0x7f.1`, `0x7f000001`), 축약 점 표기(`127.1`, `10.1`), 혼합 표기, IPv6 축약(`::1`), IPv4-mapped/compat(`::ffff:7f00:1`, `::ffff:127.0.0.1`), NAT64(`64:ff9b::/96`), zone ID(`%25`), 대괄호 표기. 파서는 WHATWG URL host 파서 규칙과 동일하게(골든 테스트). 정규화 결과가 루프백·사설(RFC 1918)·링크로컬(169.254/16, fe80::/10)·CGNAT/tailnet(100.64/10)·ULA(fc00::/7)·unspecified·멀티캐스트·브로드캐스트면 **도메인 정책과 무관하게 차단**(`block_reason:"ip_literal_private"`). 공개 IP 리터럴도 기본 차단(`ip_literal`, 검색 결과에 IP 직접 URL은 드묾). 숫자처럼 보이나 파싱 불가한 호스트는 거부. DNS 해석 후 SSRF Dialer 검사는 그 아래 층에서 그대로 하며, **해석된 주소 거부 목록**에 루프백·사설·링크로컬·CGNAT/tailnet·ULA 외에 **IPv4-mapped IPv6(`::ffff:0:0/96`, 매핑된 v4로 재판정), unspecified(`0.0.0.0`, `::`), 멀티캐스트(`224.0.0.0/4`, `ff00::/8`)**를 포함(Dial 시점에 연결 IP로 검사, DNS 리바인딩 대비).
 - **기본 차단 카테고리**(정책 파일 `deny_categories`, 기본값 포함, 해제는 메이저): URL 단축(bit.ly, t.co, tinyurl.com, goo.gl 등), 터널/리버스 프록시(`*.ngrok.io`, `*.ngrok-free.app`, `*.trycloudflare.com`, `*.loca.lt`, `*.serveo.net` 등), paste/익명 호스팅(pastebin.com, `paste.*`, hastebin, ghostbin, transfer.sh 등), 동적 DNS 와일드카드(`*.nip.io`, `*.sslip.io`, `*.xip.io` — IP 내장 호스트), **악성코드/피싱 피드**(`malware`: URLhaus 등 공개 피드의 서명 검증된 오프라인 스냅샷을 저장소에 커밋해 사용, 런타임 자동 다운로드 없음, 서명 검증 실패 시 이전 스냅샷 유지·경고).
 - **malware 스냅샷 규칙**
   - **서명 검증 시점**: CI와 게이트웨이 기동 시 **둘 다** 검증.
@@ -472,6 +476,14 @@ SSE(기존 이벤트 유지 + 추가):
 | N2 | scheduler인데 job_id 없음 | `CHECK (actor <> 'scheduler' OR job_id IS NOT NULL)` (pending_actions, tool_audit) | §3.2, §5 |
 | N3 | 60초 카드 만료 비현실적·토큰 선발급 | 토큰 없는 제안(payload_hash 고정, TTL ≤24h) → 카드 열 때 세션 POST(Origin 검사)로 1회용 토큰(120~300초). 60초안 폐기 | §3.2, §14-6 |
 | N4 | `DEFAULT 'user'`로 actor 누락이 user로 기록 | 기본값 제거, NOT NULL, 명시 설정 필수 (tool_audit은 원래 기본값 없음) | §3.2, §5 |
+
+### 15.1f 31a5d7c 보안 리뷰 반영
+| # | 지적 | 반영 | 위치 |
+|---|---|---|---|
+| P1 | 제안 만료와 토큰 만료 혼용 | `token_expires_at` 분리, approve는 둘 다 검사, 발급이 TTL 연장 안 함(`LEAST`, CHECK), 최초 발급 포함 총 3회 | §3.2 |
+| P2 | 토큰 없는 제안 승인 경로 | `token_sha256 IS NOT NULL` 필수, 토큰 누락·빈 값 400, `TestApprove_RejectsTokenlessProposal` | §3.2 |
+| 권장 | 테스트 이름 PR #4와 통일 | `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL` 등 | §3.2 |
+| 권장 | DNS 해석 주소 거부 목록 보강 | IPv4-mapped IPv6, unspecified, 멀티캐스트 추가 | §13 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
