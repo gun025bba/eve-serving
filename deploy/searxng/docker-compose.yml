@@ -1,0 +1,47 @@
+# SearXNG for the gateway's web_search tool. Prepared, not auto-deployed.
+# See install-colima.sh (runbook + rollback) and docs/web-search.md §2.8/§3.5.
+# - images pinned by digest (update deliberately; see README in this dir)
+# - only SearXNG is published, and only on 127.0.0.1 (never 0.0.0.0 / tailnet)
+# - Valkey is not published; reachable only on the internal network
+# - read-only root fs, all capabilities dropped, no-new-privileges
+# - SEARXNG_SECRET comes from the environment (.env is git-ignored), never committed
+name: searxng
+services:
+  valkey:
+    image: docker.io/valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
+    command: valkey-server --save "" --appendonly no --protected-mode yes
+    restart: unless-stopped
+    networks: [searxng]
+    read_only: true
+    tmpfs: ["/data:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    logging: {driver: json-file, options: {max-size: "1m", max-file: "1"}}
+
+  searxng:
+    image: docker.io/searxng/searxng:2026.10.24-ef0ec03da@sha256:7c7cbe509429e82755104b2a95f52085a98633c95d53f44e4e905fa3a59f08c8
+    restart: unless-stopped
+    depends_on: [valkey]
+    networks: [searxng]
+    ports:
+      - "127.0.0.1:8888:8080"
+    environment:
+      SEARXNG_BASE_URL: "http://127.0.0.1:8888/"
+      SEARXNG_SECRET: "${SEARXNG_SECRET:?set SEARXNG_SECRET in deploy/searxng/.env (openssl rand -hex 32)}"
+      SEARXNG_VALKEY_URL: "valkey://valkey:6379/0"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+      - ./limiter.toml:/etc/searxng/limiter.toml:ro
+    read_only: true
+    tmpfs: ["/tmp:size=64m", "/var/cache/searxng:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 256
+    # Access log off: queries must not be written to container logs (§2.7).
+    logging: {driver: json-file, options: {max-size: "1m", max-file: "1"}}
+
+networks:
+  searxng: {}

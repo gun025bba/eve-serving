@@ -1,0 +1,14 @@
+# SearXNG bot-detection. Only the gateway on the same host talks to SearXNG,
+# arriving through the docker port-forward; trust only loopback/bridge.
+[botdetection]
+ipv4_prefix = 32
+ipv6_prefix = 48
+trusted_proxies = ["127.0.0.0/8", "::1"]
+
+[botdetection.ip_limit]
+link_token = false
+
+[botdetection.ip_lists]
+# pass_ip: requests from these addresses skip the limiter (the gateway).
+pass_ip = ["127.0.0.1", "::1"]
+block_ip = []
