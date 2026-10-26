@@ -252,6 +252,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 | M5+ | 첫 신규 툴 등록(종류는 건영님 결정) | **메이저** | 건영님 승인 |
 | 이후 | 툴 추가·제거·버전 변경·스코프 확대·enable·MCP 서버 도입 | **항상 메이저** | 매번 승인 |
 | M3.5 | 웹 도메인 허용/차단 정책(§13), IP 리터럴 정규화, 기본 차단 카테고리, block_reason 버그 정리 | **메이저** (확정) | 건영님 승인 |
+| 수시 | malware 스냅샷 갱신(§13, 서명 검증+보안 리뷰 통과, 항목 삭제 포함) | 패치 | 보안 리뷰 후 보고 |
 | 수시 | 킬스위치로 끄기 | 운영 조치 | 사후 보고 |
 
 각 배포마다 버전, 변경 내용, 롤백 방법을 control plane에 보고(t118u).
@@ -377,7 +378,12 @@ SSE(기존 이벤트 유지 + 추가):
   ```
 - **정규화**: 소문자화, IDNA punycode(`golang.org/x/net/idna` Lookup 프로필), 끝 점 제거, 포트 제거. `*.x`는 **서브도메인만** 매치(`x` 자체는 미포함, 필요하면 둘 다 적음). 같은 호스트가 둘 다 맞으면 **deny 우선**.
 - **IP 리터럴 정규화(정책 판정 전)**: 호스트가 IP로 해석될 수 있는 모든 표기를 `net/netip` 정규형으로 바꾼 뒤 판정. 처리 대상: 10진 정수(`2130706433`), 8진(`0177.0.0.1`), 16진(`0x7f.1`, `0x7f000001`), 축약 점 표기(`127.1`, `10.1`), 혼합 표기, IPv6 축약(`::1`), IPv4-mapped/compat(`::ffff:7f00:1`, `::ffff:127.0.0.1`), NAT64(`64:ff9b::/96`), zone ID(`%25`), 대괄호 표기. 파서는 WHATWG URL host 파서 규칙과 동일하게(골든 테스트). 정규화 결과가 루프백·사설(RFC 1918)·링크로컬(169.254/16, fe80::/10)·CGNAT/tailnet(100.64/10)·ULA(fc00::/7)·unspecified·멀티캐스트·브로드캐스트면 **도메인 정책과 무관하게 차단**(`block_reason:"ip_literal_private"`). 공개 IP 리터럴도 기본 차단(`ip_literal`, 검색 결과에 IP 직접 URL은 드묾). 숫자처럼 보이나 파싱 불가한 호스트는 거부. DNS 해석 후 SSRF Dialer 검사는 그 아래 층에서 그대로.
-- **기본 차단 카테고리**(정책 파일 `deny_categories`, 기본값 포함, 해제는 메이저): URL 단축(bit.ly, t.co, tinyurl.com, goo.gl 등), 터널/리버스 프록시(`*.ngrok.io`, `*.ngrok-free.app`, `*.trycloudflare.com`, `*.loca.lt`, `*.serveo.net` 등), paste/익명 호스팅(pastebin.com, `paste.*`, hastebin, ghostbin, transfer.sh 등), 동적 DNS 와일드카드(`*.nip.io`, `*.sslip.io`, `*.xip.io` — IP 내장 호스트), **악성코드/피싱 피드**(`malware`: URLhaus 등 공개 피드의 서명 검증된 오프라인 스냅샷을 저장소에 커밋해 사용, 런타임 자동 다운로드 없음, 서명 검증 실패 시 이전 스냅샷 유지·경고). 목록은 저장소의 `deploy/policy/categories/*.txt`로 고정(외부 피드 자동 갱신 없음).
+- **기본 차단 카테고리**(정책 파일 `deny_categories`, 기본값 포함, 해제는 메이저): URL 단축(bit.ly, t.co, tinyurl.com, goo.gl 등), 터널/리버스 프록시(`*.ngrok.io`, `*.ngrok-free.app`, `*.trycloudflare.com`, `*.loca.lt`, `*.serveo.net` 등), paste/익명 호스팅(pastebin.com, `paste.*`, hastebin, ghostbin, transfer.sh 등), 동적 DNS 와일드카드(`*.nip.io`, `*.sslip.io`, `*.xip.io` — IP 내장 호스트), **악성코드/피싱 피드**(`malware`: URLhaus 등 공개 피드의 서명 검증된 오프라인 스냅샷을 저장소에 커밋해 사용, 런타임 자동 다운로드 없음, 서명 검증 실패 시 이전 스냅샷 유지·경고).
+- **malware 스냅샷 규칙**
+  - **서명 검증 시점**: CI와 게이트웨이 기동 시 **둘 다** 검증.
+  - **fail-closed**: 검증 실패 시 이전 스냅샷 유지. 이전 스냅샷이 없거나 그것도 검증 실패면 **정책 로드 실패**로 처리 → 검색·fetch 모두 차단(`web_search_unavailable`).
+  - **최대 사용 기간 30일**: 초과 시 경고 로그 + 지표 `eve_policy_snapshot_age_seconds{category="malware"}`(임계 초과 경고) + **CI 실패**. 런타임 차단은 계속(오래된 스냅샷도 그대로 집행, 만료로 차단이 풀리지 않음).
+  - **분류 예외**: malware 스냅샷 갱신(항목 삭제 포함)은 서명 검증과 보안 리뷰 통과 시 **패치**. 수동으로 추가한 deny 항목의 해제는 여전히 **메이저**. 목록은 저장소의 `deploy/policy/categories/*.txt`로 고정(외부 피드 자동 갱신 없음).
 - **판정 시점**: 검색 결과 URL, fetch 요청 URL, **리다이렉트 매 hop**, 최종 `final_url`. 현행 `webfetch` 리다이렉트 처리(`fetch.go`의 cross-domain allowlist 검사) 지점에 도메인 정책 검사를 추가.
 - **결과 형식**
   - 검색: 차단된 결과는 제거하고 툴 결과에 `blocked_count`만 포함. **차단 도메인 목록·이름은 모델에 보내지 않음**(우회 유도 방지).
@@ -387,7 +393,7 @@ SSE(기존 이벤트 유지 + 추가):
 - **감사**: 모든 차단은 `tool_audit` 이벤트 `domain_blocked`(호스트 해시, 규칙 ID, hop 번호) + `eve_tool_denied_total{tool,reason="domain_denied"}`.
 - **테스트**: 정규화 표(대문자, 한글 IDN, 끝 점, IDN 변환 실패 거부, 레이블 경계 `evil-x` vs `*.x`), IP 표기 변형 표(위 전 형식 × 루프백/사설/링크로컬/매핑), 카테고리별 대표 호스트, `*.x` 경계, deny 우선, 리다이렉트로 차단 도메인 진입, 로드 실패 fail-closed, 모델 입력에 도메인 목록 부재.
 - **공수**: 약 1~1.5일.
-- **분류(확정)**: 정책 도입(M3.5) 자체 **메이저**. **차단 해제(deny 항목·카테고리 삭제), 허용 확대(allow 추가), 모드 전환(denylist ↔ allowlist_only 양방향)은 모두 메이저**. deny 항목 추가(좁히는 방향)만 보안 리뷰 후 패치 후보(열린 결정 9).
+- **분류(확정)**: 정책 도입(M3.5) 자체 **메이저**. **차단 해제(deny 항목·카테고리 삭제), 허용 확대(allow 추가), 모드 전환(denylist ↔ allowlist_only 양방향)은 모두 메이저**. deny 항목 추가(좁히는 방향)만 보안 리뷰 후 패치 후보(열린 결정 9). 예외: malware 스냅샷 갱신은 서명 검증+보안 리뷰 통과 시 패치(항목 삭제 포함).
 
 ## 14. 건영님께 열린 결정
 1. M1 분할안(CHECK 제거·fail-closed 전환을 M3로 이동, M1은 마이너 1.2.0) 승인 여부(§15.2).
@@ -429,6 +435,14 @@ SSE(기존 이벤트 유지 + 추가):
 | Low | taint 리셋 | 새 스레드만 권장, 삭제 경로 시 파생 메시지·요약 삭제 필수 | §7, §14-11 |
 | Low | 악성코드/피싱 카테고리 | `malware` 카테고리, 서명 검증 오프라인 스냅샷(URLhaus 등) | §13 |
 | Low | 결정 9 보안 의견 | 공개 IP 리터럴 차단 유지, deny 추가는 패치 | §14-9 |
+
+### 15.1c malware 스냅샷 규칙 확정(f468d99 재리뷰)
+| 지적 | 반영 | 위치 |
+|---|---|---|
+| 이전 스냅샷 없음/검증 실패 시 동작 | 정책 로드 실패 → 검색·fetch fail-closed | §13 |
+| 스냅샷 최대 사용 기간 | 30일, 초과 시 경고+지표+CI 실패, 런타임 차단은 유지 | §13 |
+| 서명 검증 시점 | CI와 게이트웨이 기동 시 모두 | §13 |
+| 갱신 분류 | malware 스냅샷 갱신은 서명 검증+보안 리뷰 통과 시 패치, 수동 deny 해제는 메이저 | §9, §13 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
