@@ -38,6 +38,7 @@ func proactiveEnv(t *testing.T, mut func(*config.Config)) *penv {
 	s := csrfServer(t, "http://127.0.0.1:1", []string{testOrigin}, lockedWriter{&mu, logbuf})
 	s.Cfg.AllowedUsers = []string{alice, bob}
 	s.Cfg.Push = config.PushConfig{Enabled: true, VAPIDPublicKey: "BPUBLICKEYPLACEHOLDER", VAPIDKeyID: "k1"}
+	setKill(t, "")
 	if mut != nil {
 		mut(&s.Cfg)
 	}
@@ -666,7 +667,7 @@ func TestPushSubscribe_OtherUserEndpointNoTransferNoLeak(t *testing.T) {
 			found = true
 		}
 	}
-	if !found || !strings.Contains(e.log.String(), `"alert":"push_endpoint_conflict"`) || strings.Contains(e.log.String(), "shared") {
+	if !found || !strings.Contains(e.log.String(), `"alert":"push_endpoint_conflict"`) || strings.Contains(e.log.String(), "shared") || strings.Contains(e.log.String(), hashEndpoint(ep)) || strings.Contains(e.log.String(), "endpoint_sha256") {
 		t.Fatal("audit/ops alert", e.log.String())
 	}
 }
@@ -695,30 +696,65 @@ func check404All(t *testing.T, e *penv, name string) {
 	}
 }
 
-func TestPush_KillSwitchAndReadFailure404(t *testing.T) {
-	dir := t.TempDir()
-	f := filepath.Join(dir, "ks.yaml")
+// setKill installs a kill switch backed by a 0600 file with body (healthy
+// unless body says otherwise) and restores the previous switch afterwards.
+func setKill(t *testing.T, body string) *tools.Killswitch {
+	t.Helper()
 	prev := tools.Default().Kill
 	t.Cleanup(func() { tools.SetKillswitch(prev) })
-	// proactive_off
-	os.WriteFile(f, []byte("proactive_off: true\n"), 0o600)
+	f := filepath.Join(t.TempDir(), "ks.yaml")
+	if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ks := tools.NewKillswitch(f, os.Getuid())
 	ks.Reload()
 	tools.SetKillswitch(ks)
-	check404All(t, proactiveEnv(t, nil), "proactive_off")
-	// unreadable / bad permissions = fail closed
+	return ks
+}
+
+func TestPush_KillSwitchAndReadFailure404(t *testing.T) {
+	e := proactiveEnv(t, nil)
+	if r := e.do(alice, "GET", "/v1/push/vapid-public-key", ""); r.Code != 200 {
+		t.Fatal("healthy file without proactive_off should allow", r.Code)
+	}
+	setKill(t, "proactive_off: true\n")
+	check404All(t, e, "proactive_off")
+	setKill(t, "all_off: true\n")
+	check404All(t, e, "all_off")
+	// bad permissions = fail closed
+	f := filepath.Join(t.TempDir(), "bad.yaml")
 	os.WriteFile(f, []byte("proactive_off: false\n"), 0o644)
 	os.Chmod(f, 0o644)
 	ks2 := tools.NewKillswitch(f, os.Getuid())
 	ks2.Reload()
 	tools.SetKillswitch(ks2)
-	check404All(t, proactiveEnv(t, nil), "bad perms")
-	// healthy file without proactive_off: enabled
-	os.Chmod(f, 0o600)
-	ks3 := tools.NewKillswitch(f, os.Getuid())
+	check404All(t, e, "bad perms")
+	// nil kill switch (no path configured)
+	tools.SetKillswitch(nil)
+	check404All(t, e, "nil killswitch")
+	// missing file at startup
+	ks3 := tools.NewKillswitch(filepath.Join(t.TempDir(), "absent.yaml"), os.Getuid())
 	ks3.Reload()
 	tools.SetKillswitch(ks3)
-	if r := proactiveEnv(t, nil).do(alice, "GET", "/v1/push/vapid-public-key", ""); r.Code != 200 {
+	check404All(t, e, "missing file")
+	// healthy again
+	setKill(t, "")
+	if r := e.do(alice, "GET", "/v1/push/vapid-public-key", ""); r.Code != 200 {
 		t.Fatal(r.Code)
+	}
+}
+
+func TestKillswitch_FileRemovedDisallowsProactive(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "ks.yaml")
+	os.WriteFile(f, nil, 0o600)
+	ks := tools.NewKillswitch(f, os.Getuid())
+	ks.Reload()
+	if !ks.ProactiveAllowed() {
+		t.Fatal("healthy empty file should allow")
+	}
+	os.Remove(f)
+	ks.Reload()
+	if ks.ProactiveAllowed() {
+		t.Fatal("removed file must disallow")
 	}
 }

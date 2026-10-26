@@ -27,7 +27,9 @@ type Killswitch struct {
 	// proactiveOff turns off proactive messaging and push (off-only).
 	proactiveOff bool
 	loaded       bool
-	OnLoad       func(result string, disabled []string, allOff bool) // audit/log hook
+	// fileOK is true only when the most recent read parsed the file OK.
+	fileOK bool
+	OnLoad func(result string, disabled []string, allOff bool) // audit/log hook
 }
 
 type killFile struct {
@@ -56,6 +58,7 @@ func (k *Killswitch) Reload() string {
 	default: // any error: fail closed
 		k.allOff, k.off, k.proactiveOff = true, map[string]bool{}, true
 	}
+	k.fileOK = res == "ok"
 	k.loaded = true
 	a, names := k.allOff, keys(k.off)
 	k.mu.Unlock()
@@ -114,15 +117,17 @@ func (k *Killswitch) Disabled(name string) bool {
 	return k.allOff || k.off[name]
 }
 
-// ProactiveOff reports whether proactive messaging (and push) is switched
-// off by proactive_off or all_off.
-func (k *Killswitch) ProactiveOff() bool {
+// ProactiveAllowed is the single gate for push and proactive sending. It is
+// true ONLY when a kill-switch file is configured, its latest read parsed OK,
+// and neither all_off nor proactive_off is set. A nil switch (no path), a
+// missing file or any read/parse error means not allowed.
+func (k *Killswitch) ProactiveAllowed() bool {
 	if k == nil {
 		return false
 	}
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return k.allOff || k.proactiveOff
+	return k.fileOK && !k.allOff && !k.proactiveOff
 }
 
 func (k *Killswitch) String() string {

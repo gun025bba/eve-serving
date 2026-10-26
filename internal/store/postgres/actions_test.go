@@ -371,3 +371,32 @@ func TestPostgresJobFK(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestPostgresActions_ReviseOrderAndExpired(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const a = "alice@example"
+	p := newProposal(t, s, a, itemsPayload)
+	now := time.Now().UTC()
+	// past the proposal's own expires_at (but within root+24h): 410, no resurrection
+	if _, _, err := s.ReviseAction(ctx, a, p.ID, nil, p.ExpiresAt.Add(time.Second)); !errors.Is(err, store.ErrExpired) {
+		t.Fatal(err)
+	}
+	var st string
+	s.pool.QueryRow(ctx, `SELECT status FROM pending_actions WHERE id=$1`, p.ID).Scan(&st)
+	if st != "pending" {
+		t.Fatal(st)
+	}
+	// 409 before 410: voided + expired reports conflict
+	if _, _, err := s.ReviseAction(ctx, a, p.ID, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.ReviseAction(ctx, a, p.ID, nil, now.Add(48*time.Hour)); !errors.Is(err, store.ErrConflict) {
+		t.Fatal(err)
+	}
+	// 410 before 400
+	q := newProposal(t, s, a, itemsPayload)
+	if _, _, err := s.ReviseAction(ctx, a, q.ID, []string{"zz"}, q.ExpiresAt.Add(time.Second)); !errors.Is(err, store.ErrExpired) {
+		t.Fatal(err)
+	}
+}

@@ -42,7 +42,8 @@ func (r *Redactor) Redact(s string) string {
 	return s
 }
 
-// RedactJSON redacts every string (keys and values) inside a JSON document.
+// RedactJSON redacts (unparseable input yields {} so model text never leaks)
+// and every string (keys and values) inside a JSON document.
 // Used for model/tool-derived sub-documents only; callers pick which fields
 // pass through it by struct origin, never by key name.
 func (r *Redactor) RedactJSON(raw []byte) []byte {
@@ -51,11 +52,11 @@ func (r *Redactor) RedactJSON(raw []byte) []byte {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return []byte(`null`)
+		return []byte(`{}`)
 	}
 	out, err := json.Marshal(r.redactAny(v))
 	if err != nil {
-		return []byte(`null`)
+		return []byte(`{}`)
 	}
 	return out
 }

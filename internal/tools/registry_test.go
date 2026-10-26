@@ -194,3 +194,10 @@ func TestRedactor(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestRedactJSON_ParseFailureEmptyObject(t *testing.T) {
+	var r Redactor
+	if got := string(r.RedactJSON([]byte(`{not json`))); got != `{}` {
+		t.Fatal(got)
+	}
+}

@@ -117,11 +117,13 @@ func (s *Store) ReviseAction(_ context.Context, user, id string, itemIDs []strin
 	if r, ok := s.actions[orig.RootID]; ok {
 		rc = r.CreatedAt
 	}
-	if !now.Before(rc.Add(store.ProposalMaxAge)) {
-		return orig.Action, "", store.ErrExpired
-	}
+	// Same order as reissue: 404 -> 409 -> 410 -> 400 -> 422. An expired
+	// proposal (own expires_at or root+24h) is never resurrected by revise.
 	if orig.Status != "pending" {
 		return orig.Action, "", store.ErrConflict
+	}
+	if !now.Before(orig.ExpiresAt) || !now.Before(rc.Add(store.ProposalMaxAge)) {
+		return orig.Action, "", store.ErrExpired
 	}
 	payload, err := store.FilterItems(orig.Payload, itemIDs)
 	if err != nil {

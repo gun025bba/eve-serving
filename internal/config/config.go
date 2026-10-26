@@ -130,6 +130,10 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
+		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
+		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
+	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
 	}

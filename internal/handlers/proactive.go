@@ -201,7 +201,7 @@ func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
 // (proactive_off / all_off, unreadable file = off) must all allow it.
 func (s *Server) pushEnabled() bool {
 	p := s.Cfg.Push
-	return p.Enabled && p.VAPIDPublicKey != "" && p.VAPIDKeyID != "" && s.Store != nil && !tools.Default().Kill.ProactiveOff()
+	return p.Enabled && p.VAPIDPublicKey != "" && p.VAPIDKeyID != "" && s.Store != nil && tools.Default().Kill.ProactiveAllowed()
 }
 
 func (s *Server) pushed(h http.HandlerFunc) http.HandlerFunc {
@@ -254,7 +254,7 @@ func (s *Server) subscribePush(w http.ResponseWriter, r *http.Request) {
 		// No transfer, no leak: same 201. Ops alert + audit with the hash only.
 		ev.Event, ev.Status = "push_endpoint_conflict", "kept_existing_owner"
 		s.M.Errs.WithLabelValues("push_endpoint_conflict").Inc()
-		s.Log.Warn("ops_alert", "alert", "push_endpoint_conflict", "request_id", rid(r), "endpoint_sha256", eh)
+		s.Log.Warn("ops_alert", "alert", "push_endpoint_conflict", "request_id", rid(r))
 	}
 	s.appendAudit(r.Context(), user(r), ev)
 	writeNoStore(w, 201, map[string]string{"status": "subscribed"})
