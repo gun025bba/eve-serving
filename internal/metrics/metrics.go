@@ -17,6 +17,7 @@ type Metrics struct {
 	Reg      *prometheus.Registry
 	Reqs     *prometheus.CounterVec
 	Errs     *prometheus.CounterVec
+	Auth     *prometheus.CounterVec
 	Lat      *prometheus.HistogramVec
 	QWait    prometheus.Histogram
 	TTFT     prometheus.Histogram
@@ -35,6 +36,7 @@ func New(window int) *Metrics {
 		Reg:      prometheus.NewRegistry(),
 		Reqs:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_requests_total", Help: "Requests by endpoint/status"}, []string{"endpoint", "status"}),
 		Errs:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_errors_total", Help: "Errors by code"}, []string{"code"}),
+		Auth:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_auth_total", Help: "Auth decisions by provider/result"}, []string{"auth_method", "result"}),
 		Lat:      prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_request_latency_seconds", Help: "Total request latency", Buckets: latBuckets}, []string{"stream"}),
 		QWait:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_queue_wait_seconds", Help: "Time waiting for a slot", Buckets: latBuckets}),
 		TTFT:     prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_time_to_first_token_seconds", Help: "Streaming time to first token", Buckets: latBuckets}),
@@ -47,7 +49,7 @@ func New(window int) *Metrics {
 		MemMLX:   prometheus.NewGauge(prometheus.GaugeOpts{Name: "llm_mlx_server_rss_bytes", Help: "mlx_lm.server RSS"}),
 		Recent:   NewWindow(window),
 	}
-	m.Reg.MustRegister(m.Reqs, m.Errs, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
+	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }

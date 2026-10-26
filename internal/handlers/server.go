@@ -42,7 +42,9 @@ func init() {
 
 type Server struct {
 	Cfg     config.Config
-	Key     string
+	Key     string             // API key; used to build Auth when Auth is nil
+	Auth    auth.Authenticator // provider chain (auth.Build); nil = build from Cfg.Auth.Providers
+	Limiter auth.RateLimiter   // per-user hook; nil = auth.NoopLimiter
 	Log     *logging.Logger
 	M       *metrics.Metrics
 	Mem     *metrics.MemSampler
@@ -96,19 +98,88 @@ func trunc(s string, n int) string {
 	return s
 }
 
+// statusWriter records the status code; keeps Flush working for SSE.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(c int) {
+	if w.status == 0 {
+		w.status = c
+	}
+	w.ResponseWriter.WriteHeader(c)
+}
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = 200
+	}
+	return w.ResponseWriter.Write(b)
+}
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func authErr(err error) *apierr.Error {
+	switch {
+	case errors.Is(err, auth.ErrInvalidKey):
+		return apierr.InvalidKey()
+	case errors.Is(err, auth.ErrForbiddenIdentity):
+		return apierr.ForbiddenIdentity()
+	default:
+		return apierr.Unauthenticated()
+	}
+}
+
+// authed runs the provider chain, stores the Identity in the request context,
+// applies the per-user rate-limit hook, and logs user/provider for the request.
+// Handlers read the caller via auth.FromContext only.
 func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !auth.Check(r, s.Key) {
-			s.fail(w, r, apierr.InvalidKey())
+		t0 := time.Now()
+		id, err := s.Auth.Authenticate(r)
+		if err != nil {
+			s.M.Auth.WithLabelValues("none", "denied").Inc()
+			s.fail(w, r, authErr(err))
 			return
 		}
-		h(w, r)
+		s.M.Auth.WithLabelValues(id.Provider, "ok").Inc()
+		r = r.WithContext(auth.WithIdentity(r.Context(), id))
+		if !s.Limiter.Allow(r.Context(), id) {
+			s.fail(w, r, apierr.New(429, "rate_limited", "Per-user rate limit exceeded", "rate_limit_error"))
+			return
+		}
+		sw := &statusWriter{ResponseWriter: w}
+		h(sw, r)
+		s.Log.Info("request", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "status", sw.status,
+			"user", id.User, "auth_provider", id.Provider, "ms", time.Since(t0).Milliseconds())
 	}
+}
+
+// whoami reports the caller identity so the UI can detect identity mode.
+func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
+	id, _ := auth.FromContext(r.Context())
+	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider})
 }
 
 // Handler returns the full router with middleware (request id, recovery, CORS).
 func (s *Server) Handler() http.Handler {
+	if s.Auth == nil {
+		c, err := auth.Build(s.Cfg.Auth.Providers, auth.Options{APIKey: s.Key, AllowedUsers: s.Cfg.AllowedUsers})
+		if err != nil {
+			panic(err)
+		}
+		s.Auth = c
+	}
+	if s.Limiter == nil {
+		s.Limiter = auth.NoopLimiter{}
+	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
+	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
 	mux.HandleFunc("POST /v1/chat/completions", s.authed(s.chat))
 	mux.HandleFunc("GET /v1/models", s.authed(s.models))
 	mux.HandleFunc("GET /health", s.health)
@@ -143,6 +214,7 @@ func (s *Server) withRequestID(next http.Handler) http.Handler {
 			id = newID()
 		}
 		w.Header().Set("X-Request-ID", id)
+		auth.StripUntrusted(r)
 		next.ServeHTTP(w, r.WithContext(contextWith(r, id)))
 	})
 }

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,7 +79,11 @@ func main() {
 	up := proxy.New(proxy.Options{BaseURL: cfg.Upstream, ConnectTimeout: secs(cfg.ConnectTimeoutS), ReadTimeout: secs(cfg.ReadTimeoutS),
 		Retries: cfg.Retries, Backoff: secs(cfg.RetryBackoffS),
 		OnRetry: func(a int, e error) { log.Warn("upstream_connect_retry", "attempt", a, "error", e.Error()) }})
-	srv := &handlers.Server{Cfg: cfg, Key: key, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+	chain, err := auth.Build(cfg.Auth.Providers, auth.Options{APIKey: key, AllowedUsers: cfg.AllowedUsers})
+	if err != nil {
+		fatal("%v", err)
+	}
+	srv := &handlers.Server{Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
@@ -90,7 +95,8 @@ func main() {
 		defer c()
 		hs.Shutdown(sctx)
 	}()
-	log.Info("gateway_start", "addr", addr, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue)
+	log.Info("gateway_start", "addr", addr, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue,
+		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers))
 	fmt.Fprintf(os.Stderr, "gateway %s listening on %s\n", version, addr)
 	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("gateway_exit", "error", err.Error())

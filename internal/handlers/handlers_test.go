@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gun025bba/llm-serving/internal/auth"
 	"github.com/gun025bba/llm-serving/internal/config"
 	"github.com/gun025bba/llm-serving/internal/logging"
 	"github.com/gun025bba/llm-serving/internal/metrics"
@@ -111,7 +113,7 @@ func TestAuthAndErrors(t *testing.T) {
 	defer up.Close()
 	ts, _ := newServer(t, up.URL, nil)
 	r, m := do(t, "POST", ts.URL+"/v1/chat/completions", `{}`, false)
-	if r.StatusCode != 401 || errCode(m) != "invalid_api_key" || r.Header.Get("X-Request-ID") == "" {
+	if r.StatusCode != 401 || errCode(m) != "unauthenticated" || r.Header.Get("X-Request-ID") == "" {
 		t.Fatal(r.StatusCode, m)
 	}
 	r, m = do(t, "POST", ts.URL+"/v1/chat/completions", `{"messages":[]}`, true)
@@ -291,5 +293,104 @@ func TestAdmin(t *testing.T) {
 	r, _ = do(t, "POST", ts.URL+"/admin/log-level", `{"level":"LOUD"}`, true)
 	if r.StatusCode != 400 {
 		t.Fatal(r.StatusCode)
+	}
+}
+
+func TestIdentityAuth(t *testing.T) {
+	up := fakeUpstream(t, 0, nil, nil)
+	defer up.Close()
+	ts, logbuf := newServer(t, up.URL, func(c *config.Config) { c.AllowedUsers = []string{"Owner@GitHub"} })
+	get := func(path, login, bearer string) (int, map[string]any) {
+		req, _ := http.NewRequest("GET", ts.URL+path, nil)
+		if login != "" {
+			req.Header.Set("Tailscale-User-Login", login)
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var m map[string]any
+		json.NewDecoder(resp.Body).Decode(&m)
+		return resp.StatusCode, m
+	}
+	// httptest peers are loopback, like `tailscale serve`.
+	if c, m := get("/whoami", "owner@github", ""); c != 200 || m["provider"] != "tailscale-identity" || m["user"] != "owner@github" {
+		t.Fatal(c, m)
+	}
+	if c, _ := get("/v1/models", "owner@github", ""); c != 200 {
+		t.Fatal(c)
+	}
+	if c, m := get("/v1/models", "someone@github", ""); c != 401 || errCode(m) != "identity_not_allowed" {
+		t.Fatal(c, m)
+	}
+	if c, m := get("/v1/me", "", key); c != 200 || m["provider"] != "api-key" {
+		t.Fatal(c, m)
+	}
+	if c, m := get("/v1/models", "", "wrong"); c != 401 || errCode(m) != "invalid_api_key" {
+		t.Fatal(c, m)
+	}
+	if !strings.Contains(logbuf.String(), `"user":"owner@github"`) || !strings.Contains(logbuf.String(), `"auth_provider":"tailscale-identity"`) || strings.Contains(logbuf.String(), key) {
+		t.Fatal("log missing identity or leaked key:", logbuf.String())
+	}
+	resp, _ := http.Get(ts.URL + "/metrics")
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(b), `llm_auth_total{auth_method="tailscale-identity",result="ok"}`) {
+		t.Fatal("auth metric missing")
+	}
+}
+
+// Non-loopback peers can't use the header, even if allowlisted.
+func TestIdentityHeaderFromNonLoopback(t *testing.T) {
+	up := fakeUpstream(t, 0, nil, nil)
+	defer up.Close()
+	cfg := config.Default()
+	cfg.Upstream, cfg.AllowedUsers = up.URL, []string{"owner@github"}
+	s := &Server{Cfg: cfg, Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
+		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
+	h := s.Handler()
+	for _, remote := range []string{"100.64.1.2:4444", "[fd7a::1]:4444", "192.168.0.5:1"} {
+		req := httptest.NewRequest("GET", "/whoami", nil)
+		req.RemoteAddr = remote
+		req.Header.Set("Tailscale-User-Login", "owner@github")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != 401 || !strings.Contains(rec.Body.String(), "unauthenticated") {
+			t.Fatal(remote, rec.Code, rec.Body.String())
+		}
+	}
+	// empty allowlist: header from loopback is not enough
+	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
+	req := httptest.NewRequest("GET", "/whoami", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Tailscale-User-Login", "owner@github")
+	rec := httptest.NewRecorder()
+	s2.Handler().ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatal(rec.Code)
+	}
+}
+
+type denyAll struct{}
+
+func (denyAll) Allow(context.Context, auth.Identity) bool { return false }
+
+func TestRateLimitHook(t *testing.T) {
+	up := fakeUpstream(t, 0, nil, nil)
+	defer up.Close()
+	cfg := config.Default()
+	cfg.Upstream = up.URL
+	s := &Server{Cfg: cfg, Key: key, Limiter: denyAll{}, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
+		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
+	req := httptest.NewRequest("GET", "/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != 429 || !strings.Contains(rec.Body.String(), "rate_limited") {
+		t.Fatal(rec.Code, rec.Body.String())
 	}
 }

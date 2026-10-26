@@ -1,412 +1,438 @@
 {
- "openapi": "3.0.3",
- "info": {
-  "title": "Local LLM Gateway",
-  "version": "3.0-go",
-  "description": "OpenAI-compatible gateway in front of mlx_lm.server. Auth: `Authorization: Bearer <key>`. Errors use OpenAI format `{error:{message,type,code,request_id}}`. Codes: invalid_api_key 401, bad_request 400, queue_full/queue_timeout 429, upstream_unavailable 503, upstream_timeout 504, upstream_error 502, internal_error 500. Every response carries `X-Request-ID`."
- },
- "tags": [
-  {
-   "name": "inference",
-   "description": "OpenAI-compatible endpoints (Bearer auth)"
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Local LLM Gateway",
+    "version": "3.0-go",
+    "description": "OpenAI-compatible gateway in front of mlx_lm.server. Auth: `Authorization: Bearer <key>`. Errors use OpenAI format `{error:{message,type,code,request_id}}`. Codes: invalid_api_key 401, bad_request 400, queue_full/queue_timeout 429, upstream_unavailable 503, upstream_timeout 504, upstream_error 502, internal_error 500. Every response carries `X-Request-ID`."
   },
-  {
-   "name": "ops",
-   "description": "Health, readiness, metrics (no auth)"
-  },
-  {
-   "name": "admin",
-   "description": "Runtime admin (Bearer auth)"
-  }
- ],
- "components": {
-  "securitySchemes": {
-   "bearer": {
-    "type": "http",
-    "scheme": "bearer",
-    "description": "API key from ~/llm-serving/.api_key"
-   }
-  },
-  "schemas": {
-   "Error": {
-    "type": "object",
-    "properties": {
-     "error": {
-      "type": "object",
-      "properties": {
-       "message": {
-        "type": "string"
-       },
-       "type": {
-        "type": "string"
-       },
-       "code": {
-        "type": "string"
-       },
-       "request_id": {
-        "type": "string"
-       }
-      }
-     }
-    }
-   },
-   "ChatRequest": {
-    "type": "object",
-    "required": [
-     "messages"
-    ],
-    "additionalProperties": true,
-    "properties": {
-     "model": {
-      "type": "string"
-     },
-     "messages": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-       "type": "object",
-       "properties": {
-        "role": {
-         "type": "string"
-        },
-        "content": {
-         "type": "string"
-        }
-       }
-      }
-     },
-     "max_tokens": {
-      "type": "integer",
-      "description": "default from config (1024)"
-     },
-     "temperature": {
-      "type": "number"
-     },
-     "top_p": {
-      "type": "number"
-     },
-     "stream": {
-      "type": "boolean"
-     },
-     "stream_options": {
-      "type": "object"
-     }
+  "tags": [
+    {
+      "name": "inference",
+      "description": "OpenAI-compatible endpoints (Bearer auth)"
     },
-    "example": {
-     "messages": [
-      {
-       "role": "user",
-       "content": "안녕"
-      }
-     ],
-     "max_tokens": 64,
-     "stream": false
-    }
-   }
-  }
- },
- "paths": {
-  "/v1/chat/completions": {
-   "post": {
-    "tags": [
-     "inference"
-    ],
-    "security": [
-     {
-      "bearer": []
-     }
-    ],
-    "summary": "Chat completion (OpenAI-compatible, supports stream=true SSE)",
-    "description": "Omitted max_tokens/temperature/top_p/model get config defaults. With `stream: true` returns `text/event-stream`: lines `data: {chat.completion.chunk JSON}` ending with `data: [DONE]`. Mid-stream failures emit `data: {\"error\":{...}}` then `data: [DONE]`.",
-    "requestBody": {
-     "required": true,
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/ChatRequest"
-       }
-      }
-     }
+    {
+      "name": "ops",
+      "description": "Health, readiness, metrics (no auth)"
     },
-    "responses": {
-     "200": {
-      "description": "chat.completion JSON or SSE stream"
-     },
-     "400": {
-      "description": "bad_request",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "401": {
-      "description": "invalid_api_key",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "429": {
-      "description": "queue_full | queue_timeout",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "500": {
-      "description": "internal_error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "502": {
-      "description": "upstream_error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "503": {
-      "description": "upstream_unavailable",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "504": {
-      "description": "upstream_timeout",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     }
+    {
+      "name": "admin",
+      "description": "Runtime admin (Bearer auth)"
     }
-   }
-  },
-  "/v1/models": {
-   "get": {
-    "tags": [
-     "inference"
-    ],
-    "security": [
-     {
-      "bearer": []
-     }
-    ],
-    "summary": "List models",
-    "responses": {
-     "200": {
-      "description": "model list"
-     },
-     "401": {
-      "description": "invalid_api_key",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key from ~/llm-serving/.api_key"
       }
-     },
-     "502": {
-      "description": "upstream_error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "503": {
-      "description": "upstream_unavailable",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     },
-     "504": {
-      "description": "upstream_timeout",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/health": {
-   "get": {
-    "tags": [
-     "ops"
-    ],
-    "summary": "Liveness: gateway process is up (no upstream check)",
-    "responses": {
-     "200": {
-      "description": "ok"
-     }
-    }
-   }
-  },
-  "/ready": {
-   "get": {
-    "tags": [
-     "ops"
-    ],
-    "summary": "Readiness: upstream reachable, model loaded, memory headroom",
-    "responses": {
-     "200": {
-      "description": "ready"
-     },
-     "503": {
-      "description": "not ready"
-     }
-    }
-   }
-  },
-  "/metrics": {
-   "get": {
-    "tags": [
-     "ops"
-    ],
-    "summary": "Prometheus metrics (text exposition)",
-    "responses": {
-     "200": {
-      "description": "text/plain"
-     }
-    }
-   }
-  },
-  "/stats": {
-   "get": {
-    "tags": [
-     "ops"
-    ],
-    "summary": "Human-readable summary over the recent request window",
-    "responses": {
-     "200": {
-      "description": "JSON"
-     }
-    }
-   }
-  },
-  "/admin/config": {
-   "get": {
-    "tags": [
-     "admin"
-    ],
-    "security": [
-     {
-      "bearer": []
-     }
-    ],
-    "summary": "Effective config (no secrets)",
-    "responses": {
-     "200": {
-      "description": "config"
-     },
-     "401": {
-      "description": "invalid_api_key",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/admin/log-level": {
-   "post": {
-    "tags": [
-     "admin"
-    ],
-    "security": [
-     {
-      "bearer": []
-     }
-    ],
-    "summary": "Change log level at runtime (DEBUG/INFO/WARNING/ERROR)",
-    "requestBody": {
-     "required": true,
-     "content": {
-      "application/json": {
-       "schema": {
+    },
+    "schemas": {
+      "Error": {
         "type": "object",
         "properties": {
-         "level": {
-          "type": "string",
-          "enum": [
-           "DEBUG",
-           "INFO",
-           "WARNING",
-           "ERROR"
-          ]
-         }
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              }
+            }
+          }
         }
-       },
-       "example": {
-        "level": "DEBUG"
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "new level"
-     },
-     "400": {
-      "description": "bad_request",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "default from config (1024)"
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "top_p": {
+            "type": "number"
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "stream_options": {
+            "type": "object"
+          }
+        },
+        "example": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "안녕"
+            }
+          ],
+          "max_tokens": 64,
+          "stream": false
         }
-       }
       }
-     },
-     "401": {
-      "description": "invalid_api_key",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/Error"
-        }
-       }
-      }
-     }
     }
-   }
+  },
+  "paths": {
+    "/v1/chat/completions": {
+      "post": {
+        "tags": [
+          "inference"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Chat completion (OpenAI-compatible, supports stream=true SSE)",
+        "description": "Omitted max_tokens/temperature/top_p/model get config defaults. With `stream: true` returns `text/event-stream`: lines `data: {chat.completion.chunk JSON}` ending with `data: [DONE]`. Mid-stream failures emit `data: {\"error\":{...}}` then `data: [DONE]`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "chat.completion JSON or SSE stream"
+          },
+          "400": {
+            "description": "bad_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_api_key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "queue_full | queue_timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "upstream_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "upstream_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "upstream_timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "inference"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List models",
+        "responses": {
+          "200": {
+            "description": "model list"
+          },
+          "401": {
+            "description": "invalid_api_key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "upstream_error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "upstream_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "upstream_timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Liveness: gateway process is up (no upstream check)",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Readiness: upstream reachable, model loaded, memory headroom",
+        "responses": {
+          "200": {
+            "description": "ready"
+          },
+          "503": {
+            "description": "not ready"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Prometheus metrics (text exposition)",
+        "responses": {
+          "200": {
+            "description": "text/plain"
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Human-readable summary over the recent request window",
+        "responses": {
+          "200": {
+            "description": "JSON"
+          }
+        }
+      }
+    },
+    "/admin/config": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Effective config (no secrets)",
+        "responses": {
+          "200": {
+            "description": "config"
+          },
+          "401": {
+            "description": "invalid_api_key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/log-level": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Change log level at runtime (DEBUG/INFO/WARNING/ERROR)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "DEBUG",
+                      "INFO",
+                      "WARNING",
+                      "ERROR"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "level": "DEBUG"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "new level"
+          },
+          "400": {
+            "description": "bad_request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_api_key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/whoami": {
+      "get": {
+        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key, identity_not_allowed",
+        "responses": {
+          "200": {
+            "description": "{authenticated, user, provider}"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key, identity_not_allowed",
+        "responses": {
+          "200": {
+            "description": "{authenticated, user, provider}"
+          },
+          "401": {
+            "description": "Not authenticated"
+          }
+        }
+      }
+    }
   }
- }
 }
