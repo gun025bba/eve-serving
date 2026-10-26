@@ -14,8 +14,10 @@ services:
     command: ["valkey-server", "--save", "", "--appendonly", "no", "--protected-mode", "yes", "--requirepass", "${VALKEY_PASSWORD:?set VALKEY_PASSWORD in deploy/searxng/.env}"]
     restart: unless-stopped
     networks: [valkey]
+    # Run as the image's valkey user so the entrypoint skips its chown (fails with cap_drop ALL).
+    user: "999:1000"
     read_only: true
-    tmpfs: ["/data:size=64m"]
+    tmpfs: ["/data:size=64m,uid=999,gid=1000"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
