@@ -29,6 +29,8 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go run ./cmd/eve-policy verify
       - run: go test -race -count=1 ./...
+      - name: check-serve.sh fixtures
+        run: sh scripts/check-serve_test.sh
       - name: Postgres integration tests must run (not skip)
         shell: bash
         run: |
