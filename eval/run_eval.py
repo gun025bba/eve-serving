@@ -10,6 +10,7 @@ Environment:
   EVAL_OMIT_MAX_TOKENS Optional. Default 0. If 1, omit max_tokens so the server default applies.
   EVAL_SYSTEM_PROMPT_FILE Optional. Path to a UTF-8 text file used as a system message for every item
                     (overrides item-level system if both are set when the flag/env is provided).
+  EVAL_CATEGORY_MAX_TOKENS Optional. Comma list like chat=1536,safety=1536. Caps those categories.
 
 Usage:
   python3 eval/run_eval.py --suite regression
@@ -255,7 +256,7 @@ def grade(item: dict, text: str) -> dict:
     return {"pass": passed, "score": 1.0 if passed else 0.0, "details": details}
 
 
-def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool, omit_max_tokens: bool = False, system_prompt: str | None = None) -> dict:
+def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool, omit_max_tokens: bool = False, system_prompt: str | None = None, category_max_tokens: dict | None = None) -> dict:
     prompt = item["prompt"]
     if append_no_think and "/no_think" not in prompt:
         prompt = prompt + " /no_think"
@@ -272,6 +273,13 @@ def chat_completion(base: str, key: str, model: str, item: dict, append_no_think
     }
     if not omit_max_tokens:
         payload["max_tokens"] = int(item.get("max_tokens") or 1024)
+    caps = category_max_tokens or {}
+    cat_cap = caps.get(item.get("category") or "")
+    if cat_cap is not None:
+        if "max_tokens" in payload:
+            payload["max_tokens"] = min(int(payload["max_tokens"]), int(cat_cap))
+        else:
+            payload["max_tokens"] = int(cat_cap)
     data = json.dumps(payload).encode("utf-8")
     t0 = time.perf_counter()
     raw = b""
@@ -388,7 +396,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
     results = []
     for i, item in enumerate(items, 1):
         print(f"[{name} {i}/{len(items)}] {item['id']} ...", flush=True)
-        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think, bool(args.omit_max_tokens), args.system_prompt)
+        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think, bool(args.omit_max_tokens), args.system_prompt, args.category_max_tokens)
         g = grade(item, resp.get("content") or "")
         row = {
             "id": item["id"],
@@ -414,6 +422,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
         "base_url_set": bool(args.base_url),
         "omit_max_tokens": bool(args.omit_max_tokens),
         "system_prompt_file": args.system_prompt_file or None,
+        "category_max_tokens": args.category_max_tokens or None,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary,
         "results": results,
@@ -432,6 +441,7 @@ def main():
     ap.add_argument("--append-no-think", type=int, default=int(os.getenv("EVAL_APPEND_NO_THINK", "1")))
     ap.add_argument("--omit-max-tokens", type=int, default=int(os.getenv("EVAL_OMIT_MAX_TOKENS", "0")), help="1=omit max_tokens (use server default); 0=send item max_tokens (default)")
     ap.add_argument("--system-prompt-file", default=os.getenv("EVAL_SYSTEM_PROMPT_FILE", ""), help="UTF-8 text file injected as system message for every request")
+    ap.add_argument("--category-max-tokens", dest="category_max_tokens_spec", default=os.getenv("EVAL_CATEGORY_MAX_TOKENS", ""), help="cap max_tokens by category, e.g. chat=1536,safety=1536")
     args = ap.parse_args()
     if not args.base_url:
         raise SystemExit("EVAL_BASE_URL or --base-url is required (do not hardcode hostnames)")
@@ -443,6 +453,15 @@ def main():
         args.system_prompt = sp.read_text(encoding="utf-8").strip()
         if not args.system_prompt:
             raise SystemExit(f"system prompt file is empty: {sp}")
+    args.category_max_tokens = {}
+    for part in (args.category_max_tokens_spec or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            raise SystemExit(f"bad --category-max-tokens entry: {part!r} (want cat=N)")
+        cat, val = part.split("=", 1)
+        args.category_max_tokens[cat.strip()] = int(val.strip())
     # never print key
     key = load_key()
 

@@ -44,7 +44,8 @@ python3 eval/run_eval.py --suite both --out eval/results/full.json
 - `--sleep S` — 요청 사이 대기(초). 기본 0, 여전히 **직렬** 호출
 - `--offset N` — 앞에서 N문항 건너뛰기(중단 후 재개). 연결 오류는 최대 3회 재시도
 - `--omit-max-tokens 1` — 요청에서 `max_tokens`를 빼 서버 기본값(현재 라이브 8192)을 쓰게 함. 기본 0은 JSONL 값 전송
-- `--system-prompt-file PATH` — 매 요청에 system 메시지로 넣을 UTF-8 텍스트(예: `eval/prompts/ko_concise_v1.txt`)
+- `--system-prompt-file PATH` — 매 요청에 system 메시지로 넣을 UTF-8 텍스트(예: `eval/prompts/eve_system_v2.txt`)
+- `--category-max-tokens chat=1536,safety=1536` — 해당 카테고리만 max_tokens 상한(omit 모드와 함께 쓰면 서버 기본 8192 대신 캡 적용)
 - `--append-no-think 1` — Qwen3 thinking 생략(기본 1). 프롬프트에 `/no_think` 추가
 
 표준 라이브러리만 사용합니다 (`urllib`).
