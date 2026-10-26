@@ -119,7 +119,17 @@ func main() {
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	if cfg.Web.Enabled {
+		wt, err := handlers.NewWebTools(cfg.Web)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "web tools:", err)
+			os.Exit(1)
+		}
+		srv.Web = wt
+		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "default_mode", cfg.Web.DefaultMode)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go srv.RunWebRetention(ctx, 24*time.Hour)
 	defer stop()
 	go func() {
 		<-ctx.Done()

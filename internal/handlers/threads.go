@@ -14,6 +14,7 @@ import (
 	"github.com/gun025bba/llm-serving/internal/apierr"
 	"github.com/gun025bba/llm-serving/internal/auth"
 	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/llm-serving/internal/tools"
 )
 
 const maxImportBody = 5 << 20
@@ -154,17 +155,57 @@ func (s *Server) getThread(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, storeErr(err, "Thread"))
 		return
 	}
-	writeJSON(w, 200, t)
+	s.writeThread(w, r, t)
+}
+
+// writeThread adds per-thread settings (if the store supports them).
+func (s *Server) writeThread(w http.ResponseWriter, r *http.Request, t any) {
+	ts, ok := s.Store.(store.ThreadSettingsStore)
+	if !ok {
+		writeJSON(w, 200, t)
+		return
+	}
+	b, _ := json.Marshal(t)
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	if id, _ := m["id"].(string); id != "" {
+		if raw, err := ts.ThreadSettings(r.Context(), user(r), id); err == nil && len(raw) > 0 {
+			m["settings"] = json.RawMessage(raw)
+		}
+	}
+	writeJSON(w, 200, m)
 }
 
 func (s *Server) patchThread(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		Title    *string `json:"title"`
 		Archived *bool   `json:"archived"`
+		Settings *struct {
+			WebSearch any `json:"web_search"`
+		} `json:"settings"`
 	}
 	if err := decodeJSON(http.MaxBytesReader(w, r.Body, 64<<10), &b); err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	if b.Settings != nil {
+		ts, ok := s.Store.(store.ThreadSettingsStore)
+		m, valid := tools.ParseMode(b.Settings.WebSearch)
+		switch {
+		case !ok:
+			s.fail(w, r, apierr.New(501, "not_supported", "Thread settings are not supported by this store", "invalid_request_error"))
+			return
+		case !valid:
+			s.fail(w, r, apierr.BadRequest(`'settings.web_search' must be "off", "auto" or "force"`))
+			return
+		case m != tools.ModeOff && !s.webEnabled():
+			s.fail(w, r, apierr.New(400, "web_search_disabled", "Web search is disabled on this server", "invalid_request_error"))
+			return
+		}
+		if err := ts.SetThreadSettings(r.Context(), user(r), r.PathValue("id"), json.RawMessage(`{"web_search":"`+string(m)+`"}`)); err != nil {
+			s.fail(w, r, storeErr(err, "Thread"))
+			return
+		}
 	}
 	if b.Title != nil {
 		t := store.Preview(*b.Title, 200)
@@ -175,7 +216,7 @@ func (s *Server) patchThread(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, storeErr(err, "Thread"))
 		return
 	}
-	writeJSON(w, 200, t)
+	s.writeThread(w, r, t)
 }
 
 func (s *Server) deleteThread(w http.ResponseWriter, r *http.Request) {
@@ -197,6 +238,19 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.fail(w, r, storeErr(err, "Thread or message"))
 		return
+	}
+	if ws, ok := s.Store.(store.WebStore); ok && len(ms) > 0 {
+		ids := make([]string, 0, len(ms))
+		for _, m := range ms {
+			if m.Role == "assistant" {
+				ids = append(ids, m.ID)
+			}
+		}
+		if src, err := ws.Sources(r.Context(), user(r), ids); err == nil {
+			for i := range ms {
+				ms[i].Sources = src[ms[i].ID]
+			}
+		}
 	}
 	writeJSON(w, 200, map[string]any{"data": ms, "has_more": more})
 }
