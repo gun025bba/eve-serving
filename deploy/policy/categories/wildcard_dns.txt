@@ -1,0 +1,12 @@
+# Wildcard DNS services that embed an IP address in the host name.
+*.nip.io
+nip.io
+*.sslip.io
+sslip.io
+*.xip.io
+xip.io
+*.traefik.me
+*.localtest.me
+localtest.me
+*.lvh.me
+lvh.me

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/search"
 	"github.com/gun025bba/eve-serving/internal/webfetch"
 )
@@ -52,9 +53,17 @@ type Deps struct {
 	Fetch   Fetcher
 	Rate    *RateLimiter
 	Limits  Limits
-	OnCall  func(c Call)        // metrics/logging hook (no raw args)
+	OnCall  func(c Call)        // metrics/logging/audit hook (no raw args)
 	OnBlock func(reason string) // fetch block reasons
 	Now     func() time.Time
+	// OnStart runs before the adapter (audit call_started).
+	OnStart func(c Call)
+	// Domains is the gateway web domain policy (§13). nil = not loaded:
+	// both web tools fail closed with ReasonPolicyUnavailable.
+	Domains *domains.Policy
+	// OnDomainBlock is called once per blocked host (search result or fetch
+	// hop). host is for hashing only; it never reaches the model.
+	OnDomainBlock func(c Call, reason, rule, host string, hop int)
 }
 
 // Source is a citation (metadata only; page text is never stored).
@@ -84,7 +93,8 @@ type Call struct {
 	ResultChars int            `json:"result_chars"`
 	ResultCount int            `json:"-"`
 	FetchBytes  int64          `json:"-"`
-	BlockReason string         `json:"-"`
+	BlockReason string         `json:"-"` // constant per blocked path, never empty when Status=="blocked"
+	Blocked     int            `json:"-"` // web_search results dropped by the domain policy
 	ArgHash     string         `json:"-"`
 	ArgLen      int            `json:"-"`
 	Sources     []int          `json:"sources,omitempty"`
@@ -200,18 +210,23 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 		c.Args["time_range"] = tr
 	}
 	if r := CheckQuery(q); r != "" {
-		c.Status, c.Error = "blocked", "query rejected: "+r
+		c.Status, c.Error, c.BlockReason = "blocked", "query rejected: "+r, ReasonQuery
 		if r == "secret_pattern" {
 			c.Args["query"] = "[redacted]" // never persist a suspected secret
 		}
 		return ""
 	}
 	if s.nSearch >= s.d.Limits.MaxSearch {
-		c.Status, c.Error = "blocked", "search limit per request reached"
+		c.Status, c.Error, c.BlockReason = "blocked", "search limit per request reached", ReasonLimit
 		return ""
 	}
 	if !s.d.Rate.Allow(s.user, "search") {
-		c.Status, c.Error = "blocked", "rate limited"
+		c.Status, c.Error, c.BlockReason = "blocked", "rate limited", ReasonRate
+		return ""
+	}
+	if s.d.Domains == nil {
+		c.Status, c.Error, c.BlockReason = "blocked", "web policy unavailable", domains.ReasonPolicyUnloaded
+		s.block(c.BlockReason)
 		return ""
 	}
 	if s.d.Search == nil {
@@ -239,9 +254,16 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 		Snippet string `json:"snippet"`
 	}
 	items := []item{}
+	blocked := 0
 	for _, r := range res {
 		cu := CanonURL(r.URL)
 		if cu == "" {
+			continue
+		}
+		if d := s.d.Domains.CheckURL(r.URL); d.Blocked {
+			// dropped before the model, the allowlist and the sources list
+			blocked++
+			s.domainBlock(c, d.Reason, d.RuleID, d.Host, 0)
 			continue
 		}
 		s.allow[cu] = true // results of this request become fetchable
@@ -250,7 +272,12 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 		items = append(items, item{n, r.Title, r.URL, r.Snippet})
 	}
 	c.Status, c.ResultCount = "ok", len(items)
-	return s.budget(WrapUntrusted("web_search", "", mustJSON(map[string]any{"results": items})))
+	c.Blocked = blocked
+	body := map[string]any{"results": items}
+	if blocked > 0 {
+		body["blocked"] = blocked // count only, never the domains (§13)
+	}
+	return s.budget(WrapUntrusted("web_search", "", mustJSON(body)))
 }
 
 func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
@@ -260,17 +287,27 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 	if len(u) > 2048 {
 		c.Args["url"] = u[:2048]
 	}
+	if s.d.Domains == nil {
+		c.Status, c.Error, c.BlockReason = "blocked", "web policy unavailable", domains.ReasonPolicyUnloaded
+		s.block(c.BlockReason)
+		return ""
+	}
+	if d := s.d.Domains.CheckURL(u); d.Blocked {
+		c.Status, c.Error, c.BlockReason = "blocked", "blocked by domain policy", d.Reason
+		s.domainBlock(c, d.Reason, d.RuleID, d.Host, 0)
+		return ""
+	}
 	if !s.Allowed(u) {
 		c.Status, c.Error, c.BlockReason = "blocked", "url not from this request's search results or user message", webfetch.ReasonAllowlist
 		s.block(c.BlockReason)
 		return ""
 	}
 	if s.nFetch >= s.d.Limits.MaxFetch {
-		c.Status, c.Error = "blocked", "fetch limit per request reached"
+		c.Status, c.Error, c.BlockReason = "blocked", "fetch limit per request reached", ReasonLimit
 		return ""
 	}
 	if !s.d.Rate.Allow(s.user, "fetch") {
-		c.Status, c.Error = "blocked", "rate limited"
+		c.Status, c.Error, c.BlockReason = "blocked", "rate limited", ReasonRate
 		return ""
 	}
 	if s.d.Fetch == nil {
@@ -282,9 +319,15 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 	rctx := webfetch.WithRedirectPolicy(ctx, func(x *url.URL) bool { return s.Allowed(x.String()) })
 	r, err := s.d.Fetch.Fetch(rctx, u, mc)
 	if err != nil {
-		if reason, ok := webfetch.IsBlocked(err); ok {
-			c.Status, c.Error, c.BlockReason = "blocked", "blocked by fetch policy ("+reason+")", reason
-			s.block(reason)
+		var be *webfetch.BlockedError
+		if errors.As(err, &be) {
+			c.Status, c.Error, c.BlockReason = "blocked", "blocked by fetch policy ("+be.Reason+")", be.Reason
+			if domainReasons[be.Reason] {
+				c.Error = "blocked by domain policy"
+				s.domainBlock(c, be.Reason, be.Rule, be.Host, be.Hop)
+			} else {
+				s.block(be.Reason)
+			}
 		} else if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "Timeout") || strings.Contains(err.Error(), "timeout") {
 			c.Status, c.Error = "timeout", "fetch timed out"
 		} else {
@@ -297,6 +340,29 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 	c.Status, c.FetchBytes = "ok", r.Bytes
 	body := mustJSON(map[string]any{"n": n, "url": u, "title": r.Title, "text": r.Text, "truncated": r.Truncated})
 	return s.budget(WrapUntrusted("web_fetch", u, body))
+}
+
+func (s *Session) domainBlock(c *Call, reason, rule, host string, hop int) {
+	s.block(reason)
+	if s.d.OnDomainBlock != nil {
+		s.d.OnDomainBlock(*c, reason, rule, host, hop)
+	}
+}
+
+var domainReasons = map[string]bool{
+	domains.ReasonDomainDenied: true, domains.ReasonIPLiteral: true, domains.ReasonIPLiteralPriv: true,
+	domains.ReasonInvalidHost: true, domains.ReasonNotAllowlisted: true, domains.ReasonPolicyUnloaded: true,
+}
+
+// HostPolicy adapts a domain policy to webfetch (checked at every hop).
+func HostPolicy(p *domains.Policy) webfetch.HostPolicy {
+	return func(u *url.URL, hop int) *webfetch.BlockedError {
+		d := p.CheckParsed(u) // nil policy blocks everything
+		if !d.Blocked {
+			return nil
+		}
+		return &webfetch.BlockedError{Reason: d.Reason, Rule: d.RuleID, Host: d.Host, Hop: hop}
+	}
 }
 
 func (s *Session) block(reason string) {

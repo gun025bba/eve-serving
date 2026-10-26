@@ -1,0 +1,14 @@
+# Paste / anonymous file hosting.
+pastebin.com
+paste.*
+hastebin.com
+ghostbin.com
+ghostbin.co
+transfer.sh
+termbin.com
+dpaste.org
+dpaste.com
+rentry.co
+privatebin.net
+controlc.com
+0bin.net

@@ -1,0 +1,20 @@
+# URL shorteners: the real destination is hidden from the policy.
+bit.ly
+*.bit.ly
+t.co
+tinyurl.com
+*.tinyurl.com
+goo.gl
+ow.ly
+is.gd
+buff.ly
+rebrand.ly
+cutt.ly
+shorturl.at
+tiny.cc
+rb.gy
+t.ly
+bitly.com
+lnkd.in
+s.id
+v.gd

@@ -34,12 +34,17 @@ const (
 	ReasonContentType = "content_type"
 	ReasonRedirect    = "redirect"
 	ReasonAllowlist   = "allowlist"
+	// Domain policy reasons (internal/policy/domains, docs/tool-platform.md §13).
+	ReasonDomainDenied = "domain_denied"
 )
 
 // BlockedError is returned for any policy rejection.
 type BlockedError struct {
 	Reason string
 	Detail string
+	Rule   string // domain policy rule id (audit only, never shown to the model)
+	Host   string // normalized host (audit hashes it)
+	Hop    int    // 0 = requested URL, n = n-th redirect
 }
 
 func (e *BlockedError) Error() string { return "blocked (" + e.Reason + "): " + e.Detail }

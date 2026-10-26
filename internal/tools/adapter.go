@@ -91,7 +91,7 @@ func SetKillswitch(k *Killswitch) { Default().Kill = k }
 // Scope/taint/audit stages arrive in later milestones (M2/M3).
 func (p *Platform) exec(ctx context.Context, s *Session, c *Call, name string, args map[string]any) string {
 	if !s.CallsLeft() {
-		c.Status, c.Error = "blocked", "tool call limit reached"
+		c.Status, c.Error, c.BlockReason = "blocked", "tool call limit reached", ReasonLimit
 		return ""
 	}
 	a, ok := p.Adapters[name]
@@ -100,8 +100,20 @@ func (p *Platform) exec(ctx context.Context, s *Session, c *Call, name string, a
 		return ""
 	}
 	if p.Kill.Disabled(name) {
-		c.Status, c.Error = "blocked", "tool disabled"
+		c.Status, c.Error, c.BlockReason = "blocked", "tool disabled", ReasonDisabled
 		return ""
+	}
+	if s.d.OnStart != nil {
+		s.d.OnStart(*c)
 	}
 	return a.Call(ctx, s, c, args)
 }
+
+// Constant block reasons (metric label eve_tool_denied_total{reason}); the
+// domain policy reasons live in internal/policy/domains.
+const (
+	ReasonLimit    = "limit"
+	ReasonRate     = "rate_limited"
+	ReasonQuery    = "query_rejected"
+	ReasonDisabled = "tool_disabled"
+)

@@ -1,0 +1,10 @@
+# Web domain policy (docs/tool-platform.md §13). Enforced by the gateway
+# (internal/policy/domains) for search results, fetch URLs and every redirect
+# hop. Security review required for any change (CODEOWNERS).
+# Removing a deny entry or category, adding allow entries or switching mode is
+# a MAJOR release. Adding deny entries narrows the policy.
+version: 1
+mode: denylist
+deny_categories: [shortener, tunnel, paste, wildcard_dns, malware]
+deny: []
+allow: []

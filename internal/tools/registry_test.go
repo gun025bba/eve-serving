@@ -175,7 +175,7 @@ func TestKillswitch_ExecAndExposure(t *testing.T) {
 	if len(calls) != 0 || fails != 1 {
 		t.Fatal("disabled tool parsed", calls, fails)
 	}
-	s := NewSession(Deps{Rate: NewRateLimiter(map[string]int{"search": 9, "fetch": 9})}, "u", []string{"https://a.example/"})
+	s := NewSession(Deps{Domains: testPolicy(), Rate: NewRateLimiter(map[string]int{"search": 9, "fetch": 9})}, "u", []string{"https://a.example/"})
 	_, c := s.Exec(context.Background(), 1, "c1", "web_fetch", `{"url":"https://a.example/"}`)
 	if c.Status != "blocked" || c.Error != "tool disabled" {
 		t.Fatal(c)
