@@ -69,6 +69,10 @@ CREATE INDEX tool_audit_at_idx ON tool_audit (at);
 -- +goose StatementBegin
 CREATE FUNCTION tool_audit_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    -- TODO(purge PR): this exception only checks current_user, so a SECURITY
+    -- DEFINER function owned by eve_retention passes and any row may be
+    -- deleted. The purge PR must add a period/checkpoint condition (only rows
+    -- older than the retention period and covered by a written checkpoint).
     IF TG_OP = 'DELETE' AND current_user = 'eve_retention' THEN
         RETURN OLD;
     END IF;
@@ -90,6 +94,11 @@ GRANT SELECT, DELETE ON tool_audit TO eve_retention;
 
 RESET ROLE;
 REVOKE CREATE ON SCHEMA public FROM eve_audit_owner;
+-- The migration login only needed eve_audit_owner for the CREATE above; drop
+-- the membership so it cannot disable the triggers or DROP the table later.
+-- Residual risk (PG16+): the CREATEROLE login that created the roles keeps
+-- ADMIN on them and can re-grant itself; see docs/m2-audit-domain-policy.md.
+REVOKE eve_audit_owner FROM CURRENT_USER;
 
 -- +goose Down
 -- Intentionally empty: the audit ledger, its roles and grants are never

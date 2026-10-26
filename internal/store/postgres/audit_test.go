@@ -76,6 +76,15 @@ func TestAudit_PrivilegesAndAppendOnly(t *testing.T) {
 	if err := admin.CheckAuditPrivileges(ctx); err == nil {
 		t.Fatal("superuser must fail the audit privilege check")
 	}
+	// Med 1: the migration login's eve_audit_owner membership is revoked
+	var member bool
+	if err := admin.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
+		JOIN pg_roles u ON u.oid = m.member WHERE r.rolname = 'eve_audit_owner' AND u.rolname = current_user)`).Scan(&member); err != nil {
+		t.Fatal(err)
+	}
+	if member {
+		t.Fatal("migration login must not stay a member of eve_audit_owner")
+	}
 	app := appStore(t, admin)
 	if err := app.CheckAuditPrivileges(ctx); err != nil {
 		t.Fatal(err)
