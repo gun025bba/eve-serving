@@ -58,3 +58,6 @@ networks:
           gateway: 172.18.0.1
   valkey:
     internal: true     # no egress, no host access; SearXNG <-> Valkey only
+    ipam:
+      config:
+        - subnet: 172.19.0.0/24
