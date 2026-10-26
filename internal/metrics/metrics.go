@@ -40,6 +40,15 @@ type Metrics struct {
 	ToolRounds    prometheus.Histogram
 	ToolParseFail prometheus.Counter
 	WebPurged     prometheus.Counter
+
+	// Tool platform (M2).
+	ToolDenied        *prometheus.CounterVec // tool, reason (constant reasons only)
+	AuditWriteFail    prometheus.Counter
+	AuditVerifyFail   prometheus.Counter
+	PolicySnapshotAge prometheus.Gauge
+	PolicyFallback    prometheus.Gauge     // 1 = malware.prev.txt in use (snapshot_fallback=true)
+	AuditBreakerOpen  prometheus.Gauge     // 1 = web tools disabled by the audit circuit breaker
+	WebAuditDisabled  *prometheus.GaugeVec // reason: breaker|memory_ledger
 }
 
 func New(window int) *Metrics {
@@ -69,9 +78,18 @@ func New(window int) *Metrics {
 		ToolRounds:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_tool_rounds", Help: "Tool rounds per request", Buckets: []float64{0, 1, 2, 3, 4}}),
 		ToolParseFail: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
 		WebPurged:     prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
+
+		ToolDenied:        prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_tool_denied_total", Help: "Tool calls/results denied by policy"}, []string{"tool", "reason"}),
+		AuditWriteFail:    prometheus.NewCounter(prometheus.CounterOpts{Name: "eve_audit_write_failures_total", Help: "tool_audit append failures"}),
+		AuditVerifyFail:   prometheus.NewCounter(prometheus.CounterOpts{Name: "eve_audit_verify_failures_total", Help: "tool_audit chain verification failures"}),
+		PolicySnapshotAge: prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_policy_snapshot_age_seconds", Help: "Age of the signed malware snapshot"}),
+		PolicyFallback:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_policy_snapshot_fallback", Help: "1 when the previous malware snapshot is in use"}),
+		AuditBreakerOpen:  prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_audit_breaker_open", Help: "1 when the audit circuit breaker has disabled the web tools"}),
+		WebAuditDisabled:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "eve_web_tools_audit_disabled", Help: "1 when the web tools are disabled for an audit reason"}, []string{"reason"}),
 	}
 	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
 		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
+		m.ToolDenied, m.AuditWriteFail, m.AuditVerifyFail, m.PolicySnapshotAge, m.PolicyFallback, m.AuditBreakerOpen, m.WebAuditDisabled,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }

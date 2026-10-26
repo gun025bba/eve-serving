@@ -31,7 +31,7 @@ func (f *fakeFetch) Fetch(_ context.Context, u string, _ int) (*webfetch.Result,
 
 func newS(user []string) (*Session, *fakeSearch, *fakeFetch) {
 	fs, ff := &fakeSearch{}, &fakeFetch{}
-	return NewSession(Deps{Search: fs, Fetch: ff, Limits: Limits{MaxCalls: 8}}, "u", user), fs, ff
+	return NewSession(Deps{Domains: testPolicy(), Search: fs, Fetch: ff, Limits: Limits{MaxCalls: 8}}, "u", user), fs, ff
 }
 
 // review 7.2-1 / §2.8-10: only URLs from this request's search results or the user's message.
@@ -101,7 +101,7 @@ func TestQueryGuards(t *testing.T) {
 }
 
 func TestCapsAndCitations(t *testing.T) {
-	s := NewSession(Deps{Search: &fakeSearch{}, Fetch: &fakeFetch{}, Limits: Limits{MaxCalls: 5, MaxSearch: 3}}, "u", nil)
+	s := NewSession(Deps{Domains: testPolicy(), Search: &fakeSearch{}, Fetch: &fakeFetch{}, Limits: Limits{MaxCalls: 5, MaxSearch: 3}}, "u", nil)
 	var last Call
 	for i := 0; i < 6; i++ {
 		_, last = s.Exec(context.Background(), 1, "x", "web_search", `{"query":"q"}`)

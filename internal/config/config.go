@@ -35,10 +35,13 @@ type Config struct {
 	ToolsKillswitchFile string `yaml:"tools_killswitch_file" json:"tools_killswitch_file"`
 	// AllowedUsers are Tailscale logins accepted via the Tailscale-User-Login
 	// header (loopback only). Empty = identity auth disabled.
-	AllowedUsers []string   `yaml:"allowed_users" json:"allowed_users"`
-	Auth         AuthConfig `yaml:"auth" json:"auth"`
-	Database     DBConfig   `yaml:"database" json:"database"`
-	Web          WebConfig  `yaml:"web" json:"web"`
+	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
+	// Env is "prod" (default) or "dev". Only dev may run the web tools with
+	// the in-memory audit ledger (no database).
+	Env      string     `yaml:"env" json:"env"`
+	Auth     AuthConfig `yaml:"auth" json:"auth"`
+	Database DBConfig   `yaml:"database" json:"database"`
+	Web      WebConfig  `yaml:"web" json:"web"`
 }
 
 // WebConfig configures the web_search / web_fetch tools (docs/web-search.md
@@ -134,7 +137,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 }
 
 func applyEnv(c *Config, getenv func(string) string) error {
-	str := map[string]*string{"UPSTREAM": &c.Upstream, "MODEL": &c.Model, "LOG_LEVEL": &c.LogLevel, "LOG_FILE": &c.LogFile, "STATIC_DIR": &c.StaticDir, "TOOLS_KILLSWITCH_FILE": &c.ToolsKillswitchFile}
+	str := map[string]*string{"UPSTREAM": &c.Upstream, "MODEL": &c.Model, "LOG_LEVEL": &c.LogLevel, "LOG_FILE": &c.LogFile, "STATIC_DIR": &c.StaticDir, "TOOLS_KILLSWITCH_FILE": &c.ToolsKillswitchFile, "ENV": &c.Env}
 	for k, p := range str {
 		if v := getenv("GW_" + k); v != "" {
 			*p = v

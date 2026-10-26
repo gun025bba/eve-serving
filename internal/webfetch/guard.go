@@ -34,12 +34,17 @@ const (
 	ReasonContentType = "content_type"
 	ReasonRedirect    = "redirect"
 	ReasonAllowlist   = "allowlist"
+	// Domain policy reasons (internal/policy/domains, docs/tool-platform.md §13).
+	ReasonDomainDenied = "domain_denied"
 )
 
 // BlockedError is returned for any policy rejection.
 type BlockedError struct {
 	Reason string
 	Detail string
+	Rule   string // domain policy rule id (audit only, never shown to the model)
+	Host   string // normalized host (audit hashes it)
+	Hop    int    // 0 = requested URL, n = n-th redirect
 }
 
 func (e *BlockedError) Error() string { return "blocked (" + e.Reason + "): " + e.Detail }
@@ -71,7 +76,7 @@ var DeniedPorts = map[int]bool{5432: true, 6379: true, 8000: true, 8080: true, 8
 var extraDenied = mustPrefixes(
 	"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
 	"192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
-	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001:db8::/32", "2002::/16",
+	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "2002::/16",
 	"fc00::/7", "fd7a:115c:a1e0::/48", "fe80::/10", "ff00::/8",
 )
 
