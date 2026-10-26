@@ -123,6 +123,11 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.CORSOrigins == nil {
 		c.CORSOrigins = []string{}
 	}
+	for _, o := range c.CORSOrigins {
+		if strings.TrimSpace(o) == "*" {
+			return c, fmt.Errorf("cors_origins: wildcard \"*\" is not allowed")
+		}
+	}
 	if c.AllowedUsers == nil {
 		c.AllowedUsers = []string{}
 	}

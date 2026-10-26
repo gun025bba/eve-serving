@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/config"
@@ -94,4 +95,20 @@ func (s *Server) csrfStartup() {
 			s.Log.Warn("csrf_allowlist_empty", "detail", "GW_ALLOWED_ORIGINS is empty while the UI is enabled; all browser writes will be rejected")
 		}
 	}
+}
+
+// corsDeniedSegments: any path containing one of these segments never gets
+// CORS allow headers, including routes that don't exist yet.
+var corsDeniedSegments = map[string]bool{
+	"actions": true, "revise": true, "reissue": true, "token": true, "tokens": true,
+	"confirm": true, "confirmations": true,
+}
+
+func corsDenied(path string) bool {
+	for _, seg := range strings.Split(path, "/") {
+		if corsDeniedSegments[strings.ToLower(seg)] {
+			return true
+		}
+	}
+	return false
 }

@@ -206,3 +206,55 @@ func csrfCount(s *Server, reason string) float64 {
 	}
 	return 0
 }
+
+func TestCORSWildcardRefused(t *testing.T) {
+	for _, v := range []string{"*", "https://a.example.test, *"} {
+		_, err := config.Load("", func(k string) string {
+			if k == "GW_CORS_ORIGINS" {
+				return v
+			}
+			return ""
+		})
+		if err == nil {
+			t.Fatalf("%q accepted", v)
+		}
+	}
+}
+
+func TestCORSRouteDeny(t *testing.T) {
+	const o = "https://other.example.test"
+	ts, _ := newServer(t, "http://127.0.0.1:1", func(c *config.Config) { c.CORSOrigins = []string{o} })
+	cases := []struct {
+		path   string
+		denied bool
+	}{
+		{"/v1/actions", true}, {"/v1/actions/A1/reject", true}, {"/v1/actions/A1/revise", true},
+		{"/v1/actions/A1/reissue", true}, {"/v1/future/X/revise", true}, {"/v1/future/X/reissue", true},
+		{"/v1/tokens", true}, {"/v1/confirm/X", true}, {"/v1/Actions", true},
+		{"/v1/chat/completions", false}, {"/v1/threads", false},
+	}
+	for _, c := range cases {
+		for _, m := range []string{"OPTIONS", "GET", "POST"} {
+			req, _ := http.NewRequest(m, ts.URL+c.path, nil)
+			req.Header.Set("Origin", o)
+			if m == "OPTIONS" {
+				req.Header.Set("Access-Control-Request-Method", "POST")
+			}
+			r, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Body.Close()
+			got := r.Header.Get("Access-Control-Allow-Origin") != "" || r.Header.Get("Access-Control-Allow-Methods") != ""
+			if c.denied && got {
+				t.Fatalf("%s %s got CORS headers", m, c.path)
+			}
+			if c.denied && m == "OPTIONS" && r.StatusCode != 403 {
+				t.Fatalf("%s preflight %d", c.path, r.StatusCode)
+			}
+			if !c.denied && !got {
+				t.Fatalf("%s %s missing CORS headers", m, c.path)
+			}
+		}
+	}
+}

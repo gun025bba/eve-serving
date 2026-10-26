@@ -28,3 +28,8 @@ UI가 켜져 있는데 값이 비어 있으면 기동 시 `csrf_allowlist_empty`
 
 UI는 모든 쓰기 요청에 `X-Eve-Request: 1`과 `Content-Type: application/json`을 보내야 한다. 브라우저는 같은 출처 POST/PUT/PATCH/DELETE에 Origin을 자동으로 붙인다.
 eve-chat-ui v1.0.1은 `X-Eve-Request`를 보내지 않으므로, 이 변경은 이 헤더를 보내는 UI 버전이 배포된 뒤에 배포해야 한다.
+
+## CORS
+
+- `cors_origins` / `GW_CORS_ORIGINS`에 `"*"`가 있으면 게이트웨이는 기동을 거부한다.
+- 라우트 단위 거부: 경로 세그먼트에 `actions`, `revise`, `reissue`, `token`, `tokens`, `confirm`, `confirmations`가 하나라도 있으면(대소문자 무시) CORS 허용 헤더를 절대 내보내지 않는다. preflight는 403. 아직 없는 라우트도 이 규칙으로 덮는다.

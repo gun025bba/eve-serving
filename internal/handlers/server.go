@@ -290,10 +290,18 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	if len(origins) == 0 {
 		return next
 	}
-	any := slices.Contains(origins, "*")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		o := r.Header.Get("Origin")
-		if o != "" && (any || slices.Contains(origins, o)) {
+		if corsDenied(r.URL.Path) {
+			// Route-level deny: never emit CORS allow headers (docs/security.md).
+			if o != "" && r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+				http.Error(w, "CORS not allowed for this route", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		if o != "" && slices.Contains(origins, o) {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", o)
 			h.Add("Vary", "Origin")
