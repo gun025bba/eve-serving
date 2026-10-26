@@ -35,6 +35,41 @@ type Config struct {
 	AllowedUsers []string   `yaml:"allowed_users" json:"allowed_users"`
 	Auth         AuthConfig `yaml:"auth" json:"auth"`
 	Database     DBConfig   `yaml:"database" json:"database"`
+	Web          WebConfig  `yaml:"web" json:"web"`
+}
+
+// WebConfig configures the web_search / web_fetch tools (docs/web-search.md
+// §2.10). Disabled by default; requests asking for web search then get 400
+// web_search_disabled.
+type WebConfig struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled"`
+	DefaultMode      string   `yaml:"default_mode" json:"default_mode"` // off|auto|force
+	MaxRounds        int      `yaml:"max_rounds" json:"max_rounds"`
+	MaxCalls         int      `yaml:"max_calls" json:"max_calls"`
+	MaxSearches      int      `yaml:"max_searches" json:"max_searches"`
+	RatePerMin       int      `yaml:"rate_per_min" json:"rate_per_min"`             // searches per user per minute
+	FetchRatePerMin  int      `yaml:"fetch_rate_per_min" json:"fetch_rate_per_min"` // fetches per user per minute
+	RetentionDays    int      `yaml:"retention_days" json:"retention_days"`
+	Providers        []string `yaml:"providers" json:"providers"`
+	SearxngURL       string   `yaml:"searxng_url" json:"searxng_url"`
+	BraveKeyFile     string   `yaml:"brave_api_key_file" json:"-"`
+	SearchTimeoutS   float64  `yaml:"search_timeout_s" json:"search_timeout_s"`
+	SearchMaxResults int      `yaml:"search_max_results" json:"search_max_results"`
+	FetchTimeoutS    float64  `yaml:"fetch_timeout_s" json:"fetch_timeout_s"`
+	FetchMaxBytes    int64    `yaml:"fetch_max_bytes" json:"fetch_max_bytes"`
+	FetchMaxChars    int      `yaml:"fetch_max_chars" json:"fetch_max_chars"`
+	FetchMaxPages    int      `yaml:"fetch_max_pages" json:"fetch_max_pages"`
+	FetchAllowedPort []int    `yaml:"fetch_allowed_ports" json:"fetch_allowed_ports"`
+	FetchDenyCIDRs   []string `yaml:"fetch_deny_cidrs" json:"fetch_deny_cidrs"`
+	FetchGlobalConc  int      `yaml:"fetch_global_conc" json:"fetch_global_conc"`
+	FetchPerHostConc int      `yaml:"fetch_per_host_conc" json:"fetch_per_host_conc"`
+}
+
+func defaultWeb() WebConfig {
+	return WebConfig{Enabled: false, DefaultMode: "off", MaxRounds: 3, MaxCalls: 5, MaxSearches: 3, RatePerMin: 10, FetchRatePerMin: 20,
+		RetentionDays: 90, Providers: []string{"searxng"}, SearxngURL: "http://127.0.0.1:8888", SearchTimeoutS: 6, SearchMaxResults: 5,
+		FetchTimeoutS: 10, FetchMaxBytes: 2 << 20, FetchMaxChars: 6000, FetchMaxPages: 3, FetchAllowedPort: []int{80, 443},
+		FetchDenyCIDRs: []string{}, FetchGlobalConc: 4, FetchPerHostConc: 2}
 }
 
 // DBConfig configures conversation persistence (PostgreSQL). An empty URL
@@ -59,6 +94,7 @@ func Default() Config {
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
 		Auth:     AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
 		Database: DBConfig{AutoMigrate: true},
+		Web:      defaultWeb(),
 	}
 }
 
@@ -83,6 +119,13 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	if c.AllowedUsers == nil {
 		c.AllowedUsers = []string{}
+	}
+	switch c.Web.DefaultMode {
+	case "off", "auto", "force":
+	case "":
+		c.Web.DefaultMode = "off"
+	default:
+		return c, fmt.Errorf("web.default_mode must be off|auto|force")
 	}
 	return c, nil
 }
@@ -133,6 +176,66 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)
+	}
+	return applyWebEnv(&c.Web, getenv)
+}
+
+func applyWebEnv(w *WebConfig, getenv func(string) string) error {
+	if v := getenv("GW_WEB_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_WEB_ENABLED: %w", err)
+		}
+		w.Enabled = b
+	}
+	for k, p := range map[string]*string{"WEB_DEFAULT_MODE": &w.DefaultMode, "SEARXNG_URL": &w.SearxngURL, "BRAVE_API_KEY_FILE": &w.BraveKeyFile} {
+		if v := getenv("GW_" + k); v != "" {
+			*p = v
+		}
+	}
+	ints := map[string]*int{"WEB_MAX_ROUNDS": &w.MaxRounds, "WEB_MAX_CALLS": &w.MaxCalls, "WEB_MAX_SEARCHES": &w.MaxSearches, "WEB_RATE_PER_MIN": &w.RatePerMin,
+		"WEB_FETCH_RATE_PER_MIN": &w.FetchRatePerMin, "WEB_RETENTION_DAYS": &w.RetentionDays, "SEARCH_MAX_RESULTS": &w.SearchMaxResults,
+		"FETCH_MAX_CHARS": &w.FetchMaxChars, "FETCH_MAX_PAGES": &w.FetchMaxPages, "FETCH_GLOBAL_CONC": &w.FetchGlobalConc, "FETCH_PER_HOST_CONC": &w.FetchPerHostConc}
+	for k, p := range ints {
+		if v := getenv("GW_" + k); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("GW_%s: %w", k, err)
+			}
+			*p = n
+		}
+	}
+	for k, p := range map[string]*float64{"SEARCH_TIMEOUT": &w.SearchTimeoutS, "FETCH_TIMEOUT": &w.FetchTimeoutS} {
+		if v := getenv("GW_" + k); v != "" {
+			f, err := strconv.ParseFloat(strings.TrimSuffix(v, "s"), 64)
+			if err != nil {
+				return fmt.Errorf("GW_%s: %w", k, err)
+			}
+			*p = f
+		}
+	}
+	if v := getenv("GW_FETCH_MAX_BYTES"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("GW_FETCH_MAX_BYTES: %w", err)
+		}
+		w.FetchMaxBytes = n
+	}
+	if v := getenv("GW_SEARCH_PROVIDERS"); v != "" {
+		w.Providers = splitList(v)
+	}
+	if v := getenv("GW_FETCH_DENY_CIDRS"); v != "" {
+		w.FetchDenyCIDRs = splitList(v)
+	}
+	if v := getenv("GW_FETCH_ALLOWED_PORTS"); v != "" {
+		w.FetchAllowedPort = nil
+		for _, p := range splitList(v) {
+			n, err := strconv.Atoi(p)
+			if err != nil {
+				return fmt.Errorf("GW_FETCH_ALLOWED_PORTS: %w", err)
+			}
+			w.FetchAllowedPort = append(w.FetchAllowedPort, n)
+		}
 	}
 	return nil
 }

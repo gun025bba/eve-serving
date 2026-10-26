@@ -68,3 +68,21 @@ func TestAuthProviders(t *testing.T) {
 		t.Fatal(c.Auth.Providers)
 	}
 }
+
+func TestWebDefaultsOffAndEnv(t *testing.T) {
+	c, err := Load("/nonexistent.yaml", func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Web.Enabled || c.Web.DefaultMode != "off" || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
+		t.Fatalf("%+v", c.Web)
+	}
+	env := map[string]string{"GW_WEB_ENABLED": "true", "GW_WEB_DEFAULT_MODE": "auto", "GW_SEARXNG_URL": "http://127.0.0.1:9999", "GW_FETCH_ALLOWED_PORTS": "80,443,8443", "GW_SEARCH_TIMEOUT": "4s"}
+	c, err = Load("/nonexistent.yaml", func(k string) string { return env[k] })
+	if err != nil || !c.Web.Enabled || c.Web.DefaultMode != "auto" || c.Web.SearxngURL != "http://127.0.0.1:9999" || len(c.Web.FetchAllowedPort) != 3 || c.Web.SearchTimeoutS != 4 {
+		t.Fatalf("%v %+v", err, c.Web)
+	}
+	if _, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_DEFAULT_MODE": "always"}[k] }); err == nil {
+		t.Fatal("bad mode accepted")
+	}
+}

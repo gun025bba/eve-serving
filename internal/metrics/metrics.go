@@ -29,6 +29,17 @@ type Metrics struct {
 	MemSys   *prometheus.GaugeVec
 	MemMLX   prometheus.Gauge
 	Recent   *Window
+
+	// Web tools. Labels never carry domains, URLs or queries.
+	ToolCalls     *prometheus.CounterVec   // tool, provider, status
+	ToolLat       *prometheus.HistogramVec // tool, provider
+	SearchResults *prometheus.HistogramVec // provider
+	SearchErrs    *prometheus.CounterVec   // provider, kind
+	FetchBytes    prometheus.Histogram
+	FetchBlocked  *prometheus.CounterVec // reason
+	ToolRounds    prometheus.Histogram
+	ToolParseFail prometheus.Counter
+	WebPurged     prometheus.Counter
 }
 
 func New(window int) *Metrics {
@@ -48,8 +59,19 @@ func New(window int) *Metrics {
 		MemSys:   prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "llm_system_memory_bytes", Help: "System memory"}, []string{"kind"}),
 		MemMLX:   prometheus.NewGauge(prometheus.GaugeOpts{Name: "llm_mlx_server_rss_bytes", Help: "mlx_lm.server RSS"}),
 		Recent:   NewWindow(window),
+
+		ToolCalls:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_tool_calls_total", Help: "Web tool calls"}, []string{"tool", "provider", "status"}),
+		ToolLat:       prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_tool_latency_seconds", Help: "Web tool latency", Buckets: latBuckets}, []string{"tool", "provider"}),
+		SearchResults: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_search_results", Help: "Results per search", Buckets: []float64{0, 1, 2, 3, 5, 8}}, []string{"provider"}),
+		SearchErrs:    prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_search_provider_errors_total", Help: "Search provider errors"}, []string{"provider", "kind"}),
+		FetchBytes:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_fetch_bytes", Help: "Fetched body bytes (decompressed)", Buckets: prometheus.ExponentialBuckets(1024, 4, 8)}),
+		FetchBlocked:  prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_fetch_blocked_total", Help: "Fetches blocked by policy"}, []string{"reason"}),
+		ToolRounds:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_tool_rounds", Help: "Tool rounds per request", Buckets: []float64{0, 1, 2, 3, 4}}),
+		ToolParseFail: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
+		WebPurged:     prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
 	}
 	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
+		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }
