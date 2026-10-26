@@ -112,6 +112,7 @@ scheduled_jobs (
   send_if_changed BOOLEAN DEFAULT false,
   thread_id TEXT FK threads NULL,  -- follow-up은 원 스레드, 나머지는 job 전용 스레드
   enabled BOOLEAN DEFAULT true,
+  deleted_at TIMESTAMPTZ NULL,     -- 소프트 삭제(삭제 = enabled=false + deleted_at). 하드 DELETE 없음 [S4-7]
   created_by TEXT CHECK (created_by IN ('user','model_confirmed')),
   confirm_action_id TEXT NULL,     -- PR #2 pending_actions 참조 (follow-up)
   next_run_at, last_run_at TIMESTAMPTZ,
@@ -124,7 +125,7 @@ push_subscriptions (id, user_id FK ON DELETE CASCADE, endpoint TEXT UNIQUE, p256
 
 ALTER TABLE messages
   ADD COLUMN origin TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive')),
-  ADD COLUMN job_id TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE SET NULL, -- proactive일 때 필수(아래 CHECK)
+  ADD COLUMN job_id TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE RESTRICT, -- proactive일 때 필수(아래 CHECK). job은 소프트 삭제라 메시지·CHECK와 충돌 없음 [S4-7]
   ADD COLUMN read_at TIMESTAMPTZ NULL,  -- in-app 알림 읽음
   ADD COLUMN push_status TEXT NULL CHECK (push_status IN ('pending','sent','failed','suppressed')),
   ADD COLUMN dedupe_key TEXT NULL,      -- job_id + 기간 키
@@ -206,7 +207,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
    - `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL`(24h), `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
 4. **API·스팸 방지·감사** (`internal/handlers`)
    - `TestProactiveAPI_OriginMissingOrNull403` / `_CSRFRequired` / `_IDOROtherUser404`
-   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
+   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestSchedulerJob_DeleteKeepsProactiveMessages`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
 
 이름이 바뀐 것: `TestFollowup_*` → `TestSchedulerFollowup_*`, `TestJobSpec_TemplateIDOnly` → `TestSchedulerJob_TemplateIDOnly`, `TestNoModelOrToolPathWritesJobs` → `TestSchedulerJob_NoModelOrToolPathWrites`, `TestVAPID_*`/`TestStartup_*`/`TestPayload_*`/`TestRedaction_*` → `TestPush*` 접두, `TestRateCap_*`/`TestQuietHours_*`/`TestAudit_*` → `TestProactive*` 접두(감사 테스트는 스킵 사유까지 포함). 새로 생긴 것: `TestProactiveDedupe_UniqueJobKey`(dedupe 위치 변경). 보안 검토(7336e4f) 반영으로 `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveAudit_EventClassAndSkipAggregated` 추가. 확인 게이트 테스트 이름은 PR #2(`NoTokenUntilUserOpens`, `ExpiresAfterTTL`)로 통일. 빠진 보안 테스트는 없습니다.
 
@@ -244,6 +245,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 | S4-6 | 켜는 env vs 끄는 킬스위치 | 끄기 항상 우선, env 켜기 = 배포 행위·MAJOR·건영님 승인 (§1, §4) |
 | S4-T | 템플릿 분류 | 보안 의견(MINOR 가능 + 보안 리뷰 필수)으로 기록, 최종은 건영님 (§1, §9) |
 | 권고 Low | 테스트 이름 PR #2와 통일 | `NoTokenUntilUserOpens`, `ExpiresAfterTTL` (§5.1 테스트) |
+| S4-7 | (재검토 965aec6) FK `SET NULL`과 NOT NULL CHECK 충돌 | `ON DELETE RESTRICT` + job 소프트 삭제(`enabled=false`, `deleted_at`), 스케줄러는 `deleted_at IS NULL`만 실행, `TestSchedulerJob_DeleteKeepsProactiveMessages` (§3) |
 
 ## 5.3 설계 원칙 반영 (단순성·확장성·청사진)
 
