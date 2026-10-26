@@ -97,6 +97,7 @@ func newWebEnv(t *testing.T, enabled bool) *webEnv {
 	up := webUpstream(seen, mu)
 	t.Cleanup(up.Close)
 	cfg := config.Default()
+	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
 	cfg.Web.Enabled = enabled
@@ -160,6 +161,7 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 	e := newWebEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"go 1.27 나왔어?"}]}`))
 	req.Header.Set("Tailscale-User-Login", "alice@example")
+	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -298,6 +300,7 @@ func TestWebForceStreamAndThreadSetting(t *testing.T) {
 	}
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"thread_id":"`+tid+`","messages":[{"role":"user","content":"go news"}]}`))
 	req.Header.Set("Tailscale-User-Login", "alice@example")
+	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

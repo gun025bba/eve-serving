@@ -29,7 +29,10 @@ type Config struct {
 	StatsWindow     int            `yaml:"stats_window" json:"stats_window"`
 	MinFreeMemGB    float64        `yaml:"min_free_mem_gb" json:"min_free_mem_gb"`
 	CORSOrigins     []string       `yaml:"cors_origins" json:"cors_origins"`
-	StaticDir       string         `yaml:"static_dir" json:"static_dir"`
+	// AllowedOrigins is the exact-match Origin allowlist for browser writes (CSRF).
+	// Must be the gateway's own public origin. Empty = all browser writes rejected.
+	AllowedOrigins []string `yaml:"allowed_origins" json:"allowed_origins"`
+	StaticDir      string   `yaml:"static_dir" json:"static_dir"`
 	// ToolsKillswitchFile is the optional 0600 off-only kill switch file
 	// (docs/tool-platform.md §1.3). Empty = no kill switch (nothing disabled).
 	ToolsKillswitchFile string `yaml:"tools_killswitch_file" json:"tools_killswitch_file"`
@@ -163,6 +166,9 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_CORS_ORIGINS"); v != "" {
 		c.CORSOrigins = splitList(v)
+	}
+	if v := getenv("GW_ALLOWED_ORIGINS"); v != "" {
+		c.AllowedOrigins = splitList(v)
 	}
 	if v := getenv("GW_ALLOWED_USERS"); v != "" {
 		c.AllowedUsers = splitList(v)

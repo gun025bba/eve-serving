@@ -46,6 +46,10 @@ launchctl bootstrap gui/$(id -u) <path-to-gateway.plist>
 curl -s http://127.0.0.1:<port>/health
 ```
 
+## 보안
+
+브라우저 쓰기 요청의 CSRF 방어(`X-Eve-Request`, Origin 허용 목록 `GW_ALLOWED_ORIGINS`)는 [docs/security.md](docs/security.md) 참고.
+
 ## 버전 정책
 
 SemVer(`MAJOR.MINOR.PATCH`)를 따르고, 릴리스는 `vX.Y.Z` 태그로 표시합니다.

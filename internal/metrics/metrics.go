@@ -18,6 +18,7 @@ type Metrics struct {
 	Reqs     *prometheus.CounterVec
 	Errs     *prometheus.CounterVec
 	Auth     *prometheus.CounterVec
+	CSRF     *prometheus.CounterVec
 	Lat      *prometheus.HistogramVec
 	QWait    prometheus.Histogram
 	TTFT     prometheus.Histogram
@@ -47,6 +48,7 @@ func New(window int) *Metrics {
 		Reg:      prometheus.NewRegistry(),
 		Reqs:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_requests_total", Help: "Requests by endpoint/status"}, []string{"endpoint", "status"}),
 		Errs:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_errors_total", Help: "Errors by code"}, []string{"code"}),
+		CSRF:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_csrf_rejected_total", Help: "Browser writes rejected by CSRF checks"}, []string{"reason"}),
 		Auth:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_auth_total", Help: "Auth decisions by provider/result"}, []string{"auth_method", "result"}),
 		Lat:      prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_request_latency_seconds", Help: "Total request latency", Buckets: latBuckets}, []string{"stream"}),
 		QWait:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_queue_wait_seconds", Help: "Time waiting for a slot", Buckets: latBuckets}),
@@ -70,7 +72,7 @@ func New(window int) *Metrics {
 		ToolParseFail: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
 		WebPurged:     prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
 	}
-	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
+	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.CSRF, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
 		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
