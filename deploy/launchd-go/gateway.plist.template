@@ -4,7 +4,7 @@
 <plist version="1.0"><dict>
 <key>Label</key><string>__LABEL__</string>
 <key>ProgramArguments</key><array><string>__HOME__/llm-serving/bin/gateway</string><string>-host</string><string>__BIND_HOST__</string><string>-port</string><string>8000</string></array>
-<key>EnvironmentVariables</key><dict><key>GW_ALLOWED_USERS</key><string>__ALLOWED_USERS__</string></dict>
+<key>EnvironmentVariables</key><dict><key>GW_ALLOWED_USERS</key><string>__ALLOWED_USERS__</string><key>GW_DATABASE_URL</key><string>__DATABASE_URL__</string></dict>
 <key>WorkingDirectory</key><string>__HOME__/llm-serving</string>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer>
 <key>StandardOutPath</key><string>__HOME__/llm-serving/__LOG__.launchd.log</string><key>StandardErrorPath</key><string>__HOME__/llm-serving/__LOG__.launchd.log</string>

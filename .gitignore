@@ -21,3 +21,6 @@ build/
 web/
 config.local.yaml
 /bin/
+.db_env
+backups/
+*.dump

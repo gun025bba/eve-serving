@@ -33,6 +33,14 @@ type Config struct {
 	// header (loopback only). Empty = identity auth disabled.
 	AllowedUsers []string   `yaml:"allowed_users" json:"allowed_users"`
 	Auth         AuthConfig `yaml:"auth" json:"auth"`
+	Database     DBConfig   `yaml:"database" json:"database"`
+}
+
+// DBConfig configures conversation persistence (PostgreSQL). An empty URL
+// disables persistence. Keep the URL out of git: set GW_DATABASE_URL.
+type DBConfig struct {
+	URL         string `yaml:"url" json:"-"` // never serialized (contains a password)
+	AutoMigrate bool   `yaml:"auto_migrate" json:"auto_migrate"`
 }
 
 // AuthConfig selects authentication providers, tried in order.
@@ -48,7 +56,8 @@ func Default() Config {
 		MaxConc:  2, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
-		Auth: AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
+		Auth:     AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
+		Database: DBConfig{AutoMigrate: true},
 	}
 }
 
@@ -110,6 +119,16 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_ALLOWED_USERS"); v != "" {
 		c.AllowedUsers = splitList(v)
+	}
+	if v := getenv("GW_DATABASE_URL"); v != "" {
+		c.Database.URL = v
+	}
+	if v := getenv("GW_DB_AUTO_MIGRATE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_DB_AUTO_MIGRATE: %w", err)
+		}
+		c.Database.AutoMigrate = b
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)

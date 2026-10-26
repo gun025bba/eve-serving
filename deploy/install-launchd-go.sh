@@ -13,6 +13,13 @@
 # Nothing is loaded/unloaded by this script.
 set -euo pipefail
 ALLOWED_USERS="${ALLOWED_USERS:-}"
+# Conversation storage: GW_DATABASE_URL is read from .db_env (written by
+# deploy/pg-setup.sh, chmod 600, gitignored). Missing file = persistence off.
+DB_ENV="${DB_ENV:-$HOME/llm-serving/.db_env}"
+DATABASE_URL=""
+if [ -f "$DB_ENV" ]; then
+  DATABASE_URL="$(sed -n 's/^GW_DATABASE_URL=//p' "$DB_ENV")"
+fi
 t="$(dirname "$0")/launchd-go/gateway.plist.template"
 dir="$HOME/Library/LaunchAgents"
 backup() {
@@ -24,7 +31,8 @@ render() { # label host logname
   out="$dir/$1.plist"
   backup "$out"
   sed -e "s#__HOME__#$HOME#g" -e "s#__BIND_HOST__#$2#g" -e "s#__LABEL__#$1#g" -e "s#__LOG__#$3#g" \
-      -e "s#__ALLOWED_USERS__#$ALLOWED_USERS#g" "$t" > "$out"; echo "wrote $out"
+      -e "s#__ALLOWED_USERS__#$ALLOWED_USERS#g" -e "s#__DATABASE_URL__#$DATABASE_URL#g" "$t" > "$out"
+  chmod 600 "$out"; echo "wrote $out"
 }
 render com.llmserving.gateway 127.0.0.1 gateway
 if [ -n "${BIND_IP:-}" ]; then
@@ -37,5 +45,6 @@ else
     echo "  run: launchctl bootout gui/\$(id -u)/com.llmserving.gateway-ts"
   fi
 fi
+[ -z "$DATABASE_URL" ] && echo "note: no GW_DATABASE_URL in $DB_ENV -> persistence disabled" >&2
 [ -z "$ALLOWED_USERS" ] && echo "note: ALLOWED_USERS empty -> tailscale-identity auth disabled (API key only)" >&2
 exit 0

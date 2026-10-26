@@ -26,3 +26,9 @@ allowed_users: []
 auth:
   # Auth providers, tried in order; first success wins. Env: GW_AUTH_PROVIDERS=a,b
   providers: [tailscale-identity, api-key]
+# Conversation storage (PostgreSQL). Empty url = disabled: chat works, thread
+# endpoints return 503 persistence_disabled. Never commit the url; set
+# GW_DATABASE_URL (deploy/install-launchd-go.sh reads it from .db_env).
+database:
+  url: ""
+  auto_migrate: true   # run embedded goose migrations at startup (GW_DB_AUTO_MIGRATE)

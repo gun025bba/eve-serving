@@ -23,6 +23,8 @@ import (
 	"github.com/gun025bba/llm-serving/internal/metrics"
 	"github.com/gun025bba/llm-serving/internal/proxy"
 	"github.com/gun025bba/llm-serving/internal/queue"
+	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/llm-serving/internal/store/postgres"
 )
 
 var version = "dev"
@@ -43,6 +45,7 @@ func main() {
 	host := flag.String("host", envOr("GW_HOST", "127.0.0.1"), "bind address")
 	port := flag.Int("port", func() int { p, _ := strconv.Atoi(envOr("GW_PORT", "8000")); return p }(), "bind port")
 	showVer := flag.Bool("version", false, "print version")
+	migrateOnly := flag.Bool("migrate", false, "apply database migrations (GW_DATABASE_URL) and exit")
 	flag.Parse()
 	if *showVer {
 		fmt.Println(version)
@@ -58,6 +61,18 @@ func main() {
 	cfg, err := config.Load(config.Expand(*cfgPath), os.Getenv)
 	if err != nil {
 		fatal("config: %v", err)
+	}
+	if *migrateOnly {
+		if cfg.Database.URL == "" {
+			fatal("migrate: GW_DATABASE_URL / database.url is empty")
+		}
+		ctx, c := context.WithTimeout(context.Background(), time.Minute)
+		defer c()
+		if err := postgres.Migrate(ctx, cfg.Database.URL); err != nil {
+			fatal("%v", err)
+		}
+		fmt.Fprintln(os.Stderr, "migrations applied")
+		return
 	}
 	key, err := auth.LoadKey(config.Expand(*keyPath))
 	if err != nil {
@@ -83,7 +98,24 @@ func main() {
 	if err != nil {
 		fatal("%v", err)
 	}
-	srv := &handlers.Server{Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+	var st store.Store
+	if cfg.Database.URL != "" {
+		ctx, c := context.WithTimeout(context.Background(), 30*time.Second)
+		if cfg.Database.AutoMigrate {
+			if err := postgres.Migrate(ctx, cfg.Database.URL); err != nil {
+				c()
+				fatal("database: %v", err)
+			}
+		}
+		pg, err := postgres.Open(ctx, cfg.Database.URL)
+		c()
+		if err != nil {
+			fatal("database: %v", err)
+		}
+		defer pg.Close()
+		st = pg
+	}
+	srv := &handlers.Server{Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
@@ -96,7 +128,7 @@ func main() {
 		hs.Shutdown(sctx)
 	}()
 	log.Info("gateway_start", "addr", addr, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue,
-		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers))
+		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers), "persistence", st != nil)
 	fmt.Fprintf(os.Stderr, "gateway %s listening on %s\n", version, addr)
 	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("gateway_exit", "error", err.Error())

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Daily pg_dump at 04:00. Rendered by deploy/install-pgbackup.sh -->
+<plist version="1.0"><dict>
+<key>Label</key><string>com.llmserving.pgbackup</string>
+<key>ProgramArguments</key><array><string>/bin/bash</string><string>__HOME__/llm-serving/deploy/pg-backup.sh</string></array>
+<key>StartCalendarInterval</key><dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
+<key>WorkingDirectory</key><string>__HOME__/llm-serving</string>
+<key>StandardOutPath</key><string>__HOME__/llm-serving/pgbackup.launchd.log</string><key>StandardErrorPath</key><string>__HOME__/llm-serving/pgbackup.launchd.log</string>
+</dict></plist>
