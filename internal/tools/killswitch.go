@@ -24,8 +24,10 @@ type Killswitch struct {
 	mu     sync.RWMutex
 	allOff bool
 	off    map[string]bool
-	loaded bool
-	OnLoad func(result string, disabled []string, allOff bool) // audit/log hook
+	// proactiveOff turns off proactive messaging and push (off-only).
+	proactiveOff bool
+	loaded       bool
+	OnLoad       func(result string, disabled []string, allOff bool) // audit/log hook
 }
 
 type killFile struct {
@@ -42,17 +44,17 @@ func NewKillswitch(path string, uid int) *Killswitch {
 
 // Reload re-reads the file and returns the outcome string.
 func (k *Killswitch) Reload() string {
-	allOff, off, res := k.read()
+	allOff, off, pOff, res := k.read()
 	k.mu.Lock()
 	switch res {
 	case "missing":
 		if !k.loaded { // startup without file: nothing disabled
-			k.allOff, k.off = false, map[string]bool{}
+			k.allOff, k.off, k.proactiveOff = false, map[string]bool{}, false
 		} // on reload: keep previous state
 	case "ok":
-		k.allOff, k.off = allOff, off
+		k.allOff, k.off, k.proactiveOff = allOff, off, pOff
 	default: // any error: fail closed
-		k.allOff, k.off = true, map[string]bool{}
+		k.allOff, k.off, k.proactiveOff = true, map[string]bool{}, true
 	}
 	k.loaded = true
 	a, names := k.allOff, keys(k.off)
@@ -63,43 +65,43 @@ func (k *Killswitch) Reload() string {
 	return res
 }
 
-func (k *Killswitch) read() (bool, map[string]bool, string) {
+func (k *Killswitch) read() (bool, map[string]bool, bool, string) {
 	f, err := os.OpenFile(k.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil, "missing"
+		return false, nil, false, "missing"
 	}
 	if err != nil {
-		return false, nil, "open_error"
+		return false, nil, false, "open_error"
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || !st.Mode().IsRegular() {
-		return false, nil, "not_regular"
+		return false, nil, false, "not_regular"
 	}
 	if st.Mode().Perm() != 0o600 {
-		return false, nil, "bad_perm"
+		return false, nil, false, "bad_perm"
 	}
 	if sys, ok := st.Sys().(*syscall.Stat_t); !ok || int(sys.Uid) != k.uid {
-		return false, nil, "bad_owner"
+		return false, nil, false, "bad_owner"
 	}
 	raw, err := io.ReadAll(io.LimitReader(f, 64<<10))
 	if err != nil {
-		return false, nil, "read_error"
+		return false, nil, false, "read_error"
 	}
 	var kf killFile
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	if err := dec.Decode(&kf); err != nil && !errors.Is(err, io.EOF) {
-		return false, nil, "parse_error"
+		return false, nil, false, "parse_error"
 	}
 	off := map[string]bool{}
 	for _, n := range kf.Disabled {
 		if !nameRe.MatchString(n) {
-			return false, nil, "parse_error"
+			return false, nil, false, "parse_error"
 		}
 		off[n] = true
 	}
-	return kf.AllOff, off, "ok"
+	return kf.AllOff, off, kf.ProactiveOff, "ok"
 }
 
 // Disabled reports whether tool name is switched off.
@@ -110,6 +112,17 @@ func (k *Killswitch) Disabled(name string) bool {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	return k.allOff || k.off[name]
+}
+
+// ProactiveOff reports whether proactive messaging (and push) is switched
+// off by proactive_off or all_off.
+func (k *Killswitch) ProactiveOff() bool {
+	if k == nil {
+		return false
+	}
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.allOff || k.proactiveOff
 }
 
 func (k *Killswitch) String() string {

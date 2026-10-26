@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"sync"
 )
@@ -39,4 +40,41 @@ func (r *Redactor) Redact(s string) string {
 		}
 	}
 	return s
+}
+
+// RedactJSON redacts every string (keys and values) inside a JSON document.
+// Used for model/tool-derived sub-documents only; callers pick which fields
+// pass through it by struct origin, never by key name.
+func (r *Redactor) RedactJSON(raw []byte) []byte {
+	if r == nil || len(raw) == 0 {
+		return raw
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return []byte(`null`)
+	}
+	out, err := json.Marshal(r.redactAny(v))
+	if err != nil {
+		return []byte(`null`)
+	}
+	return out
+}
+
+func (r *Redactor) redactAny(v any) any {
+	switch x := v.(type) {
+	case string:
+		return r.Redact(x)
+	case []any:
+		for i := range x {
+			x[i] = r.redactAny(x[i])
+		}
+		return x
+	case map[string]any:
+		m := make(map[string]any, len(x))
+		for k, e := range x {
+			m[r.Redact(k)] = r.redactAny(e)
+		}
+		return m
+	}
+	return v
 }
