@@ -121,11 +121,19 @@ and leaves out the top 1M sites; it is a supplement, not a guarantee.
 
 ### Signing key
 
-- **Recommendation:** 건영님 owns the signing key. Keep it offline or in a
-  password manager, and put it on the shared box only for the moment of
-  signing (then delete it). Today the key still sits on the shared box
-  (outside the repo, 0600) and should be moved off it. `*.key` is in
+- **Location:** the private key lives only in the Mac Studio login
+  keychain, generic password service `eve-malware-ed25519` (account `eve`),
+  stored base64-encoded. It is no longer on the shared box. The gateway never
+  needs it; it only verifies with the committed `keys/*.pub`. `*.key` is in
   `.gitignore`.
+- **Signing / renewal (on the Mac Studio):**
+
+      umask 077; k=$(mktemp)
+      security find-generic-password -s eve-malware-ed25519 -w | base64 -d > "$k"
+      eve-policy sign -key "$k" -key-id k2026a deploy/policy/categories/malware.txt
+      rm -P "$k"
+      eve-policy verify -dir deploy/policy
+
 - **Rotation (key id + overlap):** generate a new key (`eve-policy keygen`),
   commit its public key as `keys/malware-ed25519-<newid>.pub` with a
   `# key-id: <newid>` line, add `# not-after: <RFC3339>` to the old key file,
