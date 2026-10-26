@@ -44,7 +44,10 @@ If omitted: `model`, `max_tokens` (1024), `temperature` (0.7), `top_p` (0.9) fro
 | HTTP | code | when |
 |---|---|---|
 | 400 | bad_request | invalid body / invalid params |
-| 401 | invalid_api_key | missing/wrong key |
+| 401 | unauthenticated | no credentials (no key, no trusted tailnet identity) |
+| 401 | invalid_api_key | wrong Bearer key |
+| 401 | identity_not_allowed | tailnet login not in `allowed_users` |
+| 429 | rate_limited | per-user rate-limit hook denied |
 | 429 | queue_full | more than `max_queue` waiting — retry with backoff |
 | 429 | queue_timeout | waited > `queue_timeout_s` for a slot |
 | 502 | upstream_error | model server returned 5xx / garbage |
@@ -60,21 +63,95 @@ If the stream fails after it started (HTTP already 200), the gateway emits `data
 Errors before streaming begins are normal HTTP JSON errors (table above).
 
 ## Observability
-JSON log line per request (`tail -f ~/llm-serving/gateway.log`): `request_id, stream, status, error_code, queue_ms, ttft_ms, total_ms, prompt_tokens, completion_tokens, tokens_per_s, mlx_rss_gb, mem_avail_gb, queue_depth, inflight`.
+JSON log line per request (`tail -f ~/llm-serving/gateway.log`): `request_id, user, auth_provider, stream, status, error_code, queue_ms, ttft_ms, total_ms, prompt_tokens, completion_tokens, tokens_per_s, mlx_rss_gb, mem_avail_gb, queue_depth, inflight`.
 Pretty: `tail -f gateway.log | jq -c '{request_id,status,total_ms,tokens_per_s}'`.
 
 Prometheus metrics (`curl -s localhost:8000/metrics | grep ^llm_`):
-`llm_requests_total{endpoint,status}`, `llm_errors_total{code}`, `llm_request_latency_seconds{stream}`, `llm_queue_wait_seconds`,
+`llm_requests_total{endpoint,status}`, `llm_errors_total{code}`, `llm_auth_total{auth_method,result}`, `llm_request_latency_seconds{stream}`, `llm_queue_wait_seconds`,
 `llm_time_to_first_token_seconds`, `llm_tokens_per_second`, `llm_prompt_tokens_total`, `llm_completion_tokens_total`,
 `llm_inflight_requests`, `llm_queue_depth`, `llm_system_memory_bytes{kind}`, `llm_mlx_server_rss_bytes`.
 Non-stream tok/s = completion tokens / upstream time (includes prefill); stream tok/s = tokens / time after first token.
+
+## Auth
+Every protected route (`/v1/*`, `/admin/*`, `/whoami`) goes through one middleware that runs the
+provider chain from `auth.providers` (env `GW_AUTH_PROVIDERS=a,b`), first success wins:
+
+| provider | credential | identity (`user`) |
+|---|---|---|
+| `tailscale-identity` | `Tailscale-User-Login` header set by `tailscale serve`. Trusted **only** if the TCP peer is loopback (`127.0.0.1`/`::1`) and the login is in `allowed_users` (env `GW_ALLOWED_USERS=a@github,b@example.com`, case-insensitive). Empty allowlist = provider disabled. The header is stripped from non-loopback requests. | the login |
+| `api-key` | `Authorization: Bearer <key>` (`.api_key`) — scripts / server-to-server | `api-key` |
+
+Default `providers: [tailscale-identity, api-key]`. Handlers only read `auth.FromContext(ctx)` → `Identity{User, Provider}`.
+Every authenticated request logs `user` and `auth_provider` (never the key); metric `llm_auth_total{auth_method,result}`.
+A per-user `auth.RateLimiter` hook (keyed by `Identity.User`, default no-op) runs after auth; deny → `429 rate_limited`.
+
+`GET /whoami` (alias `/v1/me`) → `{"authenticated":true,"user":"…","provider":"tailscale-identity|api-key"}`; the UI calls it
+without a key to detect identity mode. 401 codes: `unauthenticated` (no credentials), `invalid_api_key` (wrong Bearer),
+`identity_not_allowed` (tailnet login not in allowlist).
+
+Security note: any local process on the server can send the header to `127.0.0.1:8000`; that is the accepted trust
+boundary (same as the key file being readable by the user). Never bind the gateway to a non-loopback address
+with `tailscale-identity` enabled unless you accept that only the API key protects that listener (the header is ignored there).
+
+### Deployment (loopback + tailscale serve)
+```bash
+cd ~/llm-serving && git pull --ff-only && make build
+ALLOWED_USERS=<login>@github deploy/install-launchd-go.sh     # loopback-only: gateway on 127.0.0.1:8000, -ts plist -> .prev
+launchctl bootout gui/$(id -u)/com.llmserving.gateway-ts        # stop the tailnet-IP listener
+launchctl bootout gui/$(id -u)/com.llmserving.gateway; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway.plist
+tailscale serve --bg --https=443 http://127.0.0.1:8000          # tailnet-only HTTPS (NOT funnel)
+tailscale serve status
+curl -s https://<host>.<your-tailnet>.ts.net/whoami             # from another tailnet device -> provider tailscale-identity
+```
+Access URL: `https://<host>.<your-tailnet>.ts.net/ui/`. Scripts keep working with the key against `http://127.0.0.1:8000`
+or the HTTPS URL. Requires MagicDNS + HTTPS certificates enabled in the Tailscale admin console.
+
+Rollback:
+```bash
+tailscale serve --https=443 off           # or: tailscale serve reset
+mv ~/Library/LaunchAgents/com.llmserving.gateway.plist.prev    ~/Library/LaunchAgents/com.llmserving.gateway.plist
+mv ~/Library/LaunchAgents/com.llmserving.gateway-ts.plist.prev ~/Library/LaunchAgents/com.llmserving.gateway-ts.plist
+launchctl bootout gui/$(id -u)/com.llmserving.gateway; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway-ts.plist
+```
+Code-only rollback: `GW_AUTH_PROVIDERS=api-key` restores key-only behaviour; or check out the previous binary
+(`git checkout <prev-commit> && make build`).
+
+### Adding an auth provider
+1. Create `internal/auth/<name>.go` implementing `Authenticator`; return `ErrNoCredentials` when the request carries nothing
+   for you (chain moves on), another error to reject, or an `Identity` on success.
+2. Register it in `init()`; add needed inputs to `auth.Options` (filled in `cmd/gateway/main.go` from config).
+3. Add the name to `auth.providers` in config (order = precedence). Add tests next to `auth_test.go`.
+```go
+package auth
+
+import "net/http"
+
+func init() {
+	Register("session-cookie", func(o Options) (Authenticator, error) { return cookie{}, nil })
+}
+
+type cookie struct{}
+
+func (cookie) Authenticate(r *http.Request) (Identity, error) {
+	c, err := r.Cookie("sid")
+	if err != nil {
+		return Identity{}, ErrNoCredentials
+	}
+	user, ok := lookupSession(c.Value) // your store
+	if !ok {
+		return Identity{}, ErrForbiddenIdentity
+	}
+	return Identity{User: user, Provider: "session-cookie"}, nil
+}
+```
 
 ## Go gateway
 Layout:
 ```
 cmd/gateway/main.go      flags (-base, -config, -key-file, -host, -port), wiring, graceful shutdown
 internal/config          config.yaml + GW_<KEY> env overrides
-internal/auth            Bearer key file check (constant-time)
+internal/auth            provider registry + chain (tailscale.go, apikey.go), Identity ctx, RateLimiter hook
 internal/apierr          OpenAI-style error envelope / codes
 internal/queue           semaphore (max_conc) + bounded queue (max_queue, queue_timeout_s)
 internal/proxy           upstream client: connect timeout, dial-only retries w/ backoff, idle read timeout
