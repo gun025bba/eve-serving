@@ -15,6 +15,7 @@ Note: these are two separate processes — each has its own queue/semaphore and 
 | gateway.log | JSON lines log (one object per line) |
 | examples/client.py, examples/curl.sh | test clients |
 | gateway.py.bak-m1 | previous version |
+| docs/architecture/memory.md | (planned, design only) per-user personalized memory |
 
 Apply config changes: `launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (and `...gateway-ts`).
 
