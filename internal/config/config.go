@@ -12,7 +12,40 @@ import (
 )
 
 // Config mirrors config.yaml. Field names match the YAML keys.
+// GenConfig bounds detached generation (ui-api-contract.md §3.8).
+type GenConfig struct {
+	UserMaxActive   int     `yaml:"user_max_active" json:"user_max_active"`     // concurrent generations per user (over -> 429)
+	TimeoutS        float64 `yaml:"timeout_s" json:"timeout_s"`                 // one generation, all rounds
+	IdleCancelS     float64 `yaml:"idle_cancel_s" json:"idle_cancel_s"`         // auto-cancel with no subscriber for this long
+	RetainS         float64 `yaml:"retain_s" json:"retain_s"`                   // finished run replayable from memory
+	RunMaxBytes     int     `yaml:"run_max_bytes" json:"run_max_bytes"`         // event log per run (oldest dropped)
+	RunMaxEvents    int     `yaml:"run_max_events" json:"run_max_events"`       // event log per run (oldest dropped)
+	PartialMaxBytes int     `yaml:"partial_max_bytes" json:"partial_max_bytes"` // content+reasoning; over -> failed too_large
+	HubMaxRuns      int     `yaml:"hub_max_runs" json:"hub_max_runs"`           // runs in memory (finished evicted first)
+	HubMaxBytes     int     `yaml:"hub_max_bytes" json:"hub_max_bytes"`         // event bytes in memory (finished evicted first)
+	MaxSubscribers  int     `yaml:"max_subscribers" json:"max_subscribers"`     // per message (over -> 429)
+	WriteTimeoutS   float64 `yaml:"write_timeout_s" json:"write_timeout_s"`     // per SSE write
+}
+
+// Validate fails fast on generation limits that cannot be honoured.
+func (g GenConfig) Validate() error {
+	if g.UserMaxActive < 1 || g.RunMaxBytes < 1 || g.RunMaxEvents < 1 || g.PartialMaxBytes < 1 || g.HubMaxRuns < 1 || g.HubMaxBytes < 1 || g.MaxSubscribers < 1 {
+		return fmt.Errorf("generation: limits must be >= 1")
+	}
+	if int64(g.HubMaxBytes) < int64(g.HubMaxRuns)*int64(g.RunMaxBytes) {
+		return fmt.Errorf("generation.hub_max_bytes (%d) must be >= hub_max_runs (%d) * run_max_bytes (%d) = %d",
+			g.HubMaxBytes, g.HubMaxRuns, g.RunMaxBytes, int64(g.HubMaxRuns)*int64(g.RunMaxBytes))
+	}
+	return nil
+}
+
+func DefaultGen() GenConfig {
+	return GenConfig{UserMaxActive: 2, TimeoutS: 900, IdleCancelS: 300, RetainS: 600, RunMaxBytes: 2 << 20, RunMaxEvents: 10000,
+		PartialMaxBytes: 64 << 10, HubMaxRuns: 64, HubMaxBytes: 128 << 20, MaxSubscribers: 4, WriteTimeoutS: 30}
+}
+
 type Config struct {
+	Generation      GenConfig      `yaml:"generation" json:"generation"`
 	Upstream        string         `yaml:"upstream" json:"upstream"`
 	Model           string         `yaml:"model" json:"model"`
 	Defaults        map[string]any `yaml:"defaults" json:"defaults"`
@@ -111,9 +144,10 @@ func Default() Config {
 		MaxConc:  2, MaxTokensCap: 16384, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
-		Auth:     AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
-		Database: DBConfig{AutoMigrate: true},
-		Web:      defaultWeb(),
+		Auth:       AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
+		Database:   DBConfig{AutoMigrate: true},
+		Web:        defaultWeb(),
+		Generation: DefaultGen(),
 	}
 }
 
@@ -133,6 +167,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
 		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
+	}
+	if err := c.Generation.Validate(); err != nil {
+		return c, err
 	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
@@ -176,7 +213,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			*p = int(f)
 		}
 	}
-	floats := map[string]*float64{"QUEUE_TIMEOUT_S": &c.QueueTimeoutS, "CONNECT_TIMEOUT_S": &c.ConnectTimeoutS, "READ_TIMEOUT_S": &c.ReadTimeoutS, "RETRY_BACKOFF_S": &c.RetryBackoffS, "MIN_FREE_MEM_GB": &c.MinFreeMemGB}
+	floats := map[string]*float64{"QUEUE_TIMEOUT_S": &c.QueueTimeoutS, "CONNECT_TIMEOUT_S": &c.ConnectTimeoutS, "READ_TIMEOUT_S": &c.ReadTimeoutS, "RETRY_BACKOFF_S": &c.RetryBackoffS, "MIN_FREE_MEM_GB": &c.MinFreeMemGB, "GEN_IDLE_CANCEL_S": &c.Generation.IdleCancelS, "GEN_TIMEOUT_S": &c.Generation.TimeoutS}
 	for k, p := range floats {
 		if v := getenv("GW_" + k); v != "" {
 			f, err := strconv.ParseFloat(v, 64)

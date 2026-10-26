@@ -169,6 +169,35 @@ SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.
 | Sec-L5 | reissue 경로 정정(§3.5.1), 결정 (1)~(3) 조건, push endpoint userinfo·쿼리·프래그먼트 거부·길이 상한·p256dh 곡선 검증, 404 헤더 동일·같은 쿼리 경로 | §3.5.1, §3.5.3, §3.5.4, §3.7 |
 | 디자이너 | 위험 스타일 send·delete만, job 스레드 첫 실행 생성, 후보 `updated_at`, 고정 error_code, 빈 본문 revise, `template_kind` | §1 Q4·Q5·Q9·Q11·Q13·Q14 |
 
+### 3.8 분리 생성·재연결 (detached generation, MINOR, gateway 3.1.0)
+iPhone PWA가 백그라운드로 가면 SSE가 끊긴다. 저장되는 채팅(`thread_id` 있음)은 이제 **클라이언트 연결과 무관하게 끝까지 생성·저장**한다.
+
+- **생성 수명**: 요청 컨텍스트와 분리된 컨텍스트(`context.WithoutCancel` + 자체 타임아웃 15분)로 실행. 큐·동시성 한도(`max_concurrency`/`max_queue`)는 그대로. 끊긴 클라이언트는 구독만 끝난다. `thread_id` 없는 채팅은 기존대로 연결이 끊기면 취소된다.
+- **행 선생성**: 생성을 시작할 때 assistant 메시지 행을 `status:"generating"`으로 만든다(재생성은 같은 id를 `generating`으로 표시하고 끝날 때 덮어씀). 끝나면 `complete` 또는 `failed`.
+- **status 값 (API)**: `"generating" | "complete" | "failed"`. `failed`면 `error_code`(문자열)가 붙는다: `upstream_error`, `upstream_timeout`, `timeout`(15분 초과), `queue_full`/`queue_timeout` 등 게이트웨이 에러 코드, `gateway_restart`(재시작 시 남은 `generating` 행을 기동 시 일괄 `failed` 처리), `internal_error`. 기존 메시지는 `complete`; 레거시 `incomplete` 행은 `failed` + `error_code`=기존 `metadata.reason`으로 보인다.
+- **스트림 첫 이벤트**: `POST /v1/chat/completions`(stream, thread 저장) 응답의 첫 SSE 이벤트는
+  ```
+  id: 1
+  event: eve.meta
+  data: {"thread_id":"01J…","message_id":"01J…"}
+  ```
+  헤더 `X-Message-Id`도 같은 값. 이후 **모든 이벤트에 `id: <seq>`**(1부터 단조 증가)가 붙는다. 그 뒤 순서는 기존과 같다(persist 청크 → 콘텐츠 청크/툴 이벤트 → sources → `chat.completion.persisted` → `[DONE]`). `persisted.status`도 `complete|failed`.
+- **어드미션 전 에러 = HTTP 상태 (3.0.0과 동일)**: 요청 검증(400/404/503), 큐 포화 `429 queue_full`, 큐 대기 초과 `queue_timeout` 등 **큐 슬롯을 얻기 전** 실패는 기존과 같은 HTTP 상태·본문으로 오고 **assistant 행을 만들지 않는다**(`generating` 행은 어드미션 후에만 생성). 웹검색 경로도 동일(3.0.0에서는 스트림 안 에러였음 → 이제 HTTP 429).
+  추가 HTTP 에러: `429 too_many_generations`(사용자당 동시 생성 2개 초과), `429 server_busy`(허브 전체 한도), `409 generation_in_progress`(이미 `generating`인 메시지를 동시에 재생성 — 조건부 UPDATE로 한 요청만 성공). 모든 429에는 `Retry-After` 헤더.
+- **어드미션 후 에러 = 스트림 안**: 업스트림 연결 실패·중간 에러·타임아웃은 HTTP 200 SSE 안에서 에러 이벤트(`{"error":{"code","message",…,"retry_after"?}}`) → persisted(`failed`) → `[DONE]`. 원래 상태·코드는 서버 로그와 `eve_gen_stream_errors_total{code,status}`에 남는다.
+- **취소**: `POST /v1/threads/{thread_id}/messages/{message_id}/cancel` (CSRF 헤더 필요, 본문 없음) → 항상 **204**(멱등: 이미 끝난 메시지도 204, 상태 변화 없음). 진행 중이면 생성을 멈추고 `failed` + `error_code:"cancelled"`. 없는/남의 메시지 → 같은 404.
+- **자동 취소**: 구독자(원 스트림 + 재연결)가 하나도 없는 상태가 5분(`generation.idle_cancel_s`, env `GW_GEN_IDLE_CANCEL_S`) 이어지면 `failed` + `no_subscriber`. 백그라운드 PWA는 5분 안에 재연결해야 이어서 받는다.
+- **한도**: 런당 이벤트 로그 2MB/10k 이벤트 — 넘으면 오래된 이벤트부터 버리고, 버린 구간 이후를 요청한 재연결은 `eve.snapshot`(현재까지의 content, `status`, `last_event_id`)로 시작한 뒤 이어서 실시간 이벤트. 부분 응답(content+reasoning) 64KB 초과 → `failed` + `too_large`. 허브 전체 런 64개/128MB, 넘으면 끝난 런부터 퇴출(퇴출된 런 재연결 = DB 스냅숏); 진행 중 런만으로 바이트 한도에 차면 새 생성은 `429 server_busy`. 기동 시 `hub_max_bytes >= hub_max_runs × run_max_bytes`를 검사해 어긋나면 시작하지 않는다. 메시지당 구독자 4개, 5번째 → `429 too_many_subscribers`. 구독자 쓰기 데드라인 30초(느린 클라이언트는 끊김 → 재연결).
+- **새 `error_code`**: `cancelled`, `no_subscriber`, `too_large`, `timeout`, `gateway_restart`, `internal_error` + 기존 게이트웨이 코드.
+- **캐시**: 스트림·재연결 응답 모두 `Cache-Control: no-store`.
+- **기동 스윕은 단일 인스턴스 전용**: 기동 시 남은 `generating` 행을 모두 `failed`(`gateway_restart`)로 바꾼다. 같은 DB를 쓰는 게이트웨이를 2개 이상 띄우면 서로의 진행 중 생성을 실패 처리하므로 지원하지 않는다.
+- **메트릭**: `eve_gen_runs`, `eve_gen_bytes`, `eve_gen_evictions_total`, `eve_gen_overflows_total{kind}`, `eve_gen_rejected_total{reason}`, `eve_gen_cancelled_total{code}`, `eve_gen_stream_errors_total{code,status}`.
+- **목록**: `GET /v1/threads/{id}/messages`는 `status`(+`error_code`)를 주고, `generating`인 메시지는 **지금까지의 부분 content/reasoning**을 준다(스트림으로 보낸 것과 같은 delta를 같은 방식으로 누적한 값 = 저장될 값과 동일).
+- **재연결**: `GET /v1/threads/{thread_id}/messages/{message_id}/stream` + `Last-Event-ID: <seq>` 헤더(또는 `?after=<seq>`, 0 이상 정수, 아니면 400). seq 이후 이벤트를 재생하고 진행 중이면 실시간으로 이어서 보낸 뒤 `[DONE]`으로 끝난다. 생성 완료 후 10분간은 메모리에서 같은 방식으로 재생된다. 그 이후(또는 게이트웨이 재시작 후)는 `event: eve.snapshot` 한 개(data = 목록과 같은 Message 객체) + `data: [DONE]`. 15초마다 `: keepalive`.
+- **권한**: 없는 메시지·남의 메시지·다른 스레드의 메시지·assistant가 아닌 메시지 → 모두 같은 404(§3.7, user 범위 조회). GET이라 CSRF 헤더 불필요, CORS 허용 없음(같은 출처만).
+- **클라이언트 권장 흐름**: `eve.meta`에서 `message_id`와 마지막 `id`를 저장 → `visibilitychange`로 돌아오거나 스트림이 끊기면 `.../stream`에 `Last-Event-ID`로 재연결(또는 목록을 다시 불러 `status`가 `generating`이면 재연결, `complete`면 그대로 표시).
+- **마이그레이션**: `00006_message_generating.sql` — `messages.status` CHECK에 `generating`,`failed` 추가(확장만). Down은 두 값을 `incomplete`로 되돌린다.
+
 ## 4. 확장 메모 (청사진)
 - **job 스레드 표시(Q5)**: 목록에서 job이 만든 스레드를 구분해야 하면 Thread에 `job_id`를 노출(MINOR). P1은 메시지 `provenance`·`template_kind`로 충분.
 - **매칭 없음 신호(Q16)**: 필요하면 SSE `tool_result`에 `status:"no_match"`를 노출(MINOR).

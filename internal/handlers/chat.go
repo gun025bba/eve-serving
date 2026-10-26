@@ -147,6 +147,19 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	if pr != nil {
+		// Saved chats run detached from the client connection (§3.8).
+		s.runDetached(w, r, body, pr, func(w http.ResponseWriter, r *http.Request) {
+			s.chatRun(w, r, body, webMode, webExplicit, pr)
+		})
+		return
+	}
+	s.chatRun(w, r, body, webMode, webExplicit, nil)
+}
+
+// chatRun generates the reply. For saved chats r carries a context detached
+// from the client and w is the run's event log (genRun).
+func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string]any, webMode tools.Mode, webExplicit bool, pr *chatPersist) {
 	if mode := s.resolveWebMode(r.Context(), webMode, webExplicit, pr); mode == tools.ModeAuto || mode == tools.ModeForce {
 		s.webChat(w, r, body, mode, pr)
 		return
@@ -163,7 +176,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	payload, _ := json.Marshal(body)
 
 	t0 := time.Now()
-	q, err := s.Q.Acquire(r.Context())
+	q, rel, err := s.acquire(r.Context())
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return
@@ -171,12 +184,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.M.QWait.Observe(q.Seconds())
 	released := false
 	release := func() {
 		if !released {
 			released = true
-			s.Q.Release()
+			rel()
 		}
 	}
 	defer release()
@@ -309,7 +321,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 	persistEvent := func(status, reason string) []byte {
 		pr.finish(r, acc.content.String(), acc.reasoning.String(), acc.model, rec.pt, rec.ct, status, reason)
 		v := pr.ids()
-		v["object"], v["created"], v["status"] = "chat.completion.persisted", created, status
+		v["object"], v["created"], v["status"] = "chat.completion.persisted", created, pr.apiStatus(status)
 		return event(v)
 	}
 	if pr != nil {
@@ -399,6 +411,10 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 }
 
 func (s *Server) parseSSELine(l []byte, rec *record, ctCount *int64, acc *streamAcc) {
+	parseSSEInto(l, rec, ctCount, acc)
+}
+
+func parseSSEInto(l []byte, rec *record, ctCount *int64, acc *streamAcc) {
 	ls := strings.TrimRight(string(l), "\r")
 	if !strings.HasPrefix(ls, "data: ") {
 		return

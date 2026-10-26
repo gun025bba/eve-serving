@@ -25,8 +25,8 @@ Timestamps are RFC 3339 in UTC. Ids are ULIDs (26 chars, time-sortable).
 { "id": "01J…", "thread_id": "01J…", "role": "user|assistant|system|tool",
   "content": "…", "reasoning": "…"?, "model": "…"?, "params": {"temperature":0.7,…}?,
   "usage": {"prompt_tokens":12,"completion_tokens":34}?, "latency_ms": 812?,
-  "metadata": {"incomplete":true,"reason":"client_disconnected"}?,
-  "status": "complete|incomplete", "client_id": "…"?, "created_at": "…Z",
+  "metadata": {"incomplete":true,"reason":"…","error_code":"…"}?,
+  "status": "generating|complete|failed", "error_code": "…"? /* only when failed */, "client_id": "…"?, "created_at": "…Z",
   "updated_at": "…Z"? /* set when regenerated */,
   "feedback": {"message_id","rating":"up|down","reasons":["…"],"comment":null|"…","created_at","updated_at"}? }
 ```
@@ -41,6 +41,8 @@ Timestamps are RFC 3339 in UTC. Ids are ULIDs (26 chars, time-sortable).
 | `GET /v1/threads/{id}` | | Thread |
 | `PATCH /v1/threads/{id}` | `{"title"?: "…", "archived"?: bool}` | Thread (unknown fields → 400) |
 | `DELETE /v1/threads/{id}` | | **204** (soft delete = `archived:true`; undo with PATCH) |
+| `GET /v1/threads/{id}/messages/{message_id}/stream` | `Last-Event-ID` header or `after=<seq>` | SSE replay + live follow, ends `[DONE]`; snapshot event if no longer in memory or the cursor is older than the retained log (§3.8). `Cache-Control: no-store`; max 4 subscribers per message (5th → 429 `too_many_subscribers`) |
+| `POST /v1/threads/{id}/messages/{message_id}/cancel` | (CSRF headers, no body) | **204** always for an owned assistant message (idempotent); a running generation becomes `failed`/`cancelled`. Unknown/foreign → 404 |
 | `GET /v1/threads/{id}/messages` | `limit` (1–200, def 50), `before=<message_id>` | `{"data":[Message] oldest→newest, "has_more": bool}` — the newest `limit` messages older than `before` |
 
 Titles are trimmed to one line, max 200 chars. `updated_at` moves on new messages, rename,
@@ -59,9 +61,11 @@ Behaviour
 1. The **last user message** is saved immediately, before the upstream call (not on regenerate).
 2. The assistant reply is saved when generation ends: content, `reasoning` (`delta.reasoning`/`reasoning_content`),
    `model`, `params` (request fields except messages/model/stream/stream_options), `usage`, `latency_ms`, `status:"complete"`.
-3. Stream aborted by upstream error/timeout or client disconnect → whatever was received is saved with
-   `status:"incomplete"` and `metadata:{"incomplete":true,"reason":"client_disconnected|upstream_error|upstream_timeout"}`.
-   Upstream errors before any output save no assistant message.
+3. **Since 3.1.0 (detached generation, ui-api-contract.md §3.8):** the assistant row is created when generation
+   starts (`status:"generating"`); generation runs to the end even if the client disconnects, then the row becomes
+   `complete`, or `failed` with `error_code` (upstream error/timeout, 15-minute limit, gateway restart). A client
+   disconnect no longer cancels or truncates the reply. Resume with
+   `GET /v1/threads/{id}/messages/{message_id}/stream` (`Last-Event-ID` or `?after=`); see §3.8.
 4. Regenerate (`replace_message_id`): no new user message; the reply **overwrites the same message id**
    (content, reasoning, model, params, usage, latency, status, metadata), keeps `created_at`, sets `updated_at`,
    and **clears its feedback**. Response `message_id` = the replaced id, `user_message_id` = null.
@@ -69,7 +73,8 @@ Behaviour
 Non-stream response: headers `X-Thread-Id`, `X-Message-Id`, `X-User-Message-Id` (absent on regenerate), and the
 JSON body gains `thread_id`, `message_id`, `user_message_id` (and `replaced_message_id` on regenerate).
 
-Stream response: header `X-Thread-Id` (+`X-User-Message-Id`). The **first** SSE event is
+Stream response: headers `X-Thread-Id`, `X-Message-Id` (+`X-User-Message-Id`). Every event carries `id: <seq>`.
+The **first** event is `event: eve.meta` with `{"thread_id","message_id"}`; the next is
 
 ```json
 {"id":"persist-<request_id>","object":"chat.completion.chunk","created":1761462000,"model":"…","choices":[],
@@ -81,7 +86,13 @@ then upstream chunks unchanged, then **right before `data: [DONE]`**:
 {"object":"chat.completion.persisted","created":1761462000,"status":"complete",
  "thread_id":"01J…","message_id":"01J…","user_message_id":"01J…"}
 ```
-(On upstream mid-stream errors: error event, then the persisted event with `status:"incomplete"`, then `[DONE]`.)
+(On upstream mid-stream errors: error event, then the persisted event with `status:"failed"`, then `[DONE]`.)
+
+Limits (§3.8): 2 concurrent generations per user (429 `too_many_generations` + `Retry-After`); hub-wide (64 runs / 128MB, also when running runs alone fill the byte cap) 429
+`server_busy`; partial reply > 64KB → `failed`/`too_large`; no subscriber for 5 min → `failed`/`no_subscriber`.
+Queue errors (`queue_full` 429 etc.) happen **before** the assistant row is created and keep their 3.0.0 HTTP status.
+Regenerating a message that is already `generating` → 409 `generation_in_progress`. The startup sweep that marks
+leftover `generating` rows `gateway_restart` assumes a **single gateway instance** per database.
 
 Errors: unknown/foreign `thread_id` or `replace_message_id` → 404; `replace_message_id` that is not an assistant
 message → 400; no user message in the request → 400; no database → 503 `persistence_disabled`.

@@ -50,6 +50,14 @@ type Metrics struct {
 	PolicyFallback    prometheus.Gauge     // 1 = malware.prev.txt in use (snapshot_fallback=true)
 	AuditBreakerOpen  prometheus.Gauge     // 1 = web tools disabled by the audit circuit breaker
 	WebAuditDisabled  *prometheus.GaugeVec // reason: breaker|memory_ledger
+	// Detached generation (§3.8)
+	GenRuns      prometheus.Gauge
+	GenBytes     prometheus.Gauge
+	GenEvictions prometheus.Counter
+	GenOverflows *prometheus.CounterVec // kind: events|too_large
+	GenRejected  *prometheus.CounterVec // reason: user_cap|hub_full|subscribers|conflict
+	GenCancelled *prometheus.CounterVec // code: cancelled|no_subscriber|too_large|timeout
+	GenStreamErr *prometheus.CounterVec // code, status (errors delivered in-stream)
 }
 
 func New(window int) *Metrics {
@@ -88,10 +96,18 @@ func New(window int) *Metrics {
 		PolicyFallback:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_policy_snapshot_fallback", Help: "1 when the previous malware snapshot is in use"}),
 		AuditBreakerOpen:  prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_audit_breaker_open", Help: "1 when the audit circuit breaker has disabled the web tools"}),
 		WebAuditDisabled:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "eve_web_tools_audit_disabled", Help: "1 when the web tools are disabled for an audit reason"}, []string{"reason"}),
+		GenRuns:           prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_gen_runs", Help: "Detached generation runs held in memory"}),
+		GenBytes:          prometheus.NewGauge(prometheus.GaugeOpts{Name: "eve_gen_bytes", Help: "SSE event bytes held for detached runs"}),
+		GenEvictions:      prometheus.NewCounter(prometheus.CounterOpts{Name: "eve_gen_evictions_total", Help: "Finished runs evicted early by hub caps"}),
+		GenOverflows:      prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_gen_overflows_total", Help: "Per-run buffer overflows"}, []string{"kind"}),
+		GenRejected:       prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_gen_rejected_total", Help: "Detached generation/subscription rejections"}, []string{"reason"}),
+		GenCancelled:      prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_gen_cancelled_total", Help: "Generations ended by cancel/limits"}, []string{"code"}),
+		GenStreamErr:      prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_gen_stream_errors_total", Help: "Errors delivered inside the SSE stream"}, []string{"code", "status"}),
 	}
 	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.CSRF, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
 		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
 		m.ToolDenied, m.AuditWriteFail, m.AuditVerifyFail, m.PolicySnapshotAge, m.PolicyFallback, m.AuditBreakerOpen, m.WebAuditDisabled,
+		m.GenRuns, m.GenBytes, m.GenEvictions, m.GenOverflows, m.GenRejected, m.GenCancelled, m.GenStreamErr,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }

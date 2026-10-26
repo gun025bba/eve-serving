@@ -128,6 +128,14 @@ func main() {
 			fatal("refusing to start: %v", err)
 		}
 		st, ledger, pgStore = pg, pg, pg
+		// No generation survives a restart: close out rows left "generating".
+		sctx, sc := context.WithTimeout(context.Background(), 10*time.Second)
+		if n, err := pg.FailStaleGenerating(sctx); err != nil {
+			log.Error("stale_generating_sweep_failed", "error", err.Error())
+		} else if n > 0 {
+			log.Warn("stale_generating_failed", "count", n)
+		}
+		sc()
 	} else {
 		// no database: nothing is persisted; audit rows live in memory only
 		ledger = &audit.Memory{}

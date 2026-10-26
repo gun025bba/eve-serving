@@ -523,3 +523,36 @@ func (s *Store) ExportFeedback(ctx context.Context, since time.Time, fn func(sto
 	}
 	return rows.Err()
 }
+
+func (s *Store) MarkGenerating(ctx context.Context, user, id string) error {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE messages SET status='generating', updated_at=now()
+		WHERE id=$1 AND user_id=$2 AND role='assistant' AND status<>'generating'`, id, u)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM messages WHERE id=$1 AND user_id=$2 AND role='assistant')`, id, u).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return store.ErrGenerating
+	}
+	return store.ErrNotFound
+}
+
+func (s *Store) FailStaleGenerating(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE messages SET status='failed',
+		metadata = COALESCE(metadata, '{}'::jsonb) || '{"incomplete":true,"reason":"gateway_restart","error_code":"gateway_restart"}'::jsonb,
+		updated_at=now() WHERE status='generating'`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

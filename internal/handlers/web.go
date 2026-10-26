@@ -228,12 +228,11 @@ func (s *Server) upstreamJSON(ctx context.Context, body map[string]any) (map[str
 	body["stream"] = false
 	delete(body, "stream_options")
 	payload, _ := json.Marshal(body)
-	q, err := s.Q.Acquire(ctx)
+	_, rel, err := s.acquire(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	s.M.QWait.Observe(q.Seconds())
-	defer s.Q.Release()
+	defer rel()
 	resp, err := s.Up.Do(ctx, "POST", "/v1/chat/completions", payload, 0)
 	if err != nil {
 		return nil, 0, err
@@ -494,7 +493,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	status, reason := "complete", ""
 	if ferr != nil {
 		status, reason = "incomplete", "upstream_error"
-		if errors.Is(ferr, context.Canceled) || ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = "timeout"
+		} else if errors.Is(ferr, context.Canceled) || ctx.Err() != nil {
 			reason = "client_disconnected"
 		}
 	}
@@ -543,7 +544,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
 	if pr != nil {
 		v := pr.ids()
-		v["object"], v["status"] = "chat.completion.persisted", status
+		v["object"], v["status"] = "chat.completion.persisted", pr.apiStatus(status)
 		out.event(v)
 	}
 	out.raw([]byte("data: [DONE]\n\n"))
@@ -572,12 +573,11 @@ func (s *Server) streamFinal(ctx context.Context, body map[string]any, out *sseO
 	delete(body, "tool_choice")
 	payload, _ := json.Marshal(body)
 	var m upMsg
-	q, err := s.Q.Acquire(ctx)
+	_, rel, err := s.acquire(ctx)
 	if err != nil {
 		return m, nil, nil, err
 	}
-	s.M.QWait.Observe(q.Seconds())
-	defer s.Q.Release()
+	defer rel()
 	resp, err := s.Up.Do(ctx, "POST", "/v1/chat/completions", payload, 0)
 	if err != nil {
 		return m, nil, nil, err
