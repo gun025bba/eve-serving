@@ -41,7 +41,8 @@ Timestamps are RFC 3339 in UTC. Ids are ULIDs (26 chars, time-sortable).
 | `GET /v1/threads/{id}` | | Thread |
 | `PATCH /v1/threads/{id}` | `{"title"?: "…", "archived"?: bool}` | Thread (unknown fields → 400) |
 | `DELETE /v1/threads/{id}` | | **204** (soft delete = `archived:true`; undo with PATCH) |
-| `GET /v1/threads/{id}/messages/{message_id}/stream` | `Last-Event-ID` header or `after=<seq>` | SSE replay + live follow, ends `[DONE]`; snapshot event if no longer in memory (§3.8) |
+| `GET /v1/threads/{id}/messages/{message_id}/stream` | `Last-Event-ID` header or `after=<seq>` | SSE replay + live follow, ends `[DONE]`; snapshot event if no longer in memory or the cursor is older than the retained log (§3.8). `Cache-Control: no-store`; max 4 subscribers per message (5th → 429 `too_many_subscribers`) |
+| `POST /v1/threads/{id}/messages/{message_id}/cancel` | (CSRF headers, no body) | **204** always for an owned assistant message (idempotent); a running generation becomes `failed`/`cancelled`. Unknown/foreign → 404 |
 | `GET /v1/threads/{id}/messages` | `limit` (1–200, def 50), `before=<message_id>` | `{"data":[Message] oldest→newest, "has_more": bool}` — the newest `limit` messages older than `before` |
 
 Titles are trimmed to one line, max 200 chars. `updated_at` moves on new messages, rename,
@@ -86,6 +87,12 @@ then upstream chunks unchanged, then **right before `data: [DONE]`**:
  "thread_id":"01J…","message_id":"01J…","user_message_id":"01J…"}
 ```
 (On upstream mid-stream errors: error event, then the persisted event with `status:"failed"`, then `[DONE]`.)
+
+Limits (§3.8): 2 concurrent generations per user (429 `too_many_generations` + `Retry-After`); hub-wide 429
+`server_busy`; partial reply > 64KB → `failed`/`too_large`; no subscriber for 5 min → `failed`/`no_subscriber`.
+Queue errors (`queue_full` 429 etc.) happen **before** the assistant row is created and keep their 3.0.0 HTTP status.
+Regenerating a message that is already `generating` → 409 `generation_in_progress`. The startup sweep that marks
+leftover `generating` rows `gateway_restart` assumes a **single gateway instance** per database.
 
 Errors: unknown/foreign `thread_id` or `replace_message_id` → 404; `replace_message_id` that is not an assistant
 message → 400; no user message in the request → 400; no database → 503 `persistence_disabled`.
