@@ -188,7 +188,16 @@ func (s *Server) webDefault() string {
 func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.FromContext(r.Context())
 	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider,
+		"version":      s.version(),
 		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "persistence": s.Store != nil}})
+}
+
+// version is the build version injected via -ldflags (see Makefile), "dev" when unset.
+func (s *Server) version() string {
+	if s.Version == "" {
+		return "dev"
+	}
+	return s.Version
 }
 
 // Handler returns the full router with middleware (request id, recovery, CORS).
@@ -251,6 +260,7 @@ func (s *Server) withRequestID(next http.Handler) http.Handler {
 			id = newID()
 		}
 		w.Header().Set("X-Request-ID", id)
+		w.Header().Set("X-Eve-Version", s.version())
 		auth.StripUntrusted(r)
 		next.ServeHTTP(w, r.WithContext(contextWith(r, id)))
 	})
@@ -299,7 +309,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"status": "ok", "uptime_s": int(time.Since(s.Start).Seconds())})
+	writeJSON(w, 200, map[string]any{"status": "ok", "version": s.version(), "uptime_s": int(time.Since(s.Start).Seconds())})
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {

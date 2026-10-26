@@ -1,6 +1,7 @@
 # Go gateway build helpers.
 BIN      ?= bin/gateway
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# SemVer from the nearest git tag (v1.1.0 -> 1.1.0); see docs/versioning.md.
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 LDFLAGS  := -s -w -X main.version=$(VERSION)
 HOST     ?= 127.0.0.1
 PORT     ?= 8001
