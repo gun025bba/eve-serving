@@ -104,8 +104,11 @@
   - **명시적 hex 키 패턴**: 32자 이상 연속 hex(`[0-9a-fA-F]{32,}`)는 엔트로피와 무관하게 "확인 필요(키로 보임)" 이유로 거부한다(hex 최대 엔트로피가 4.0이라 엔트로피로는 못 잡음). 공개 해시 오탐은 사용자가 설정 화면에서 문맥을 바꿔 다시 입력하는 것으로 처리 [ME-4].
   - **엔트로피 검사(ASCII run 추출)** [ME-4][S10-M1][S10-M2]: 토큰 전체가 아니라 **원문과 NFKC 사본 양쪽에서 `[A-Za-z0-9+/=_\-]{20,}` run을 모두 추출**해 하나씩 검사한다. 한글이 섞인 토큰도 제외하지 않는다(한글 사이에 낀 키도 run으로 잡힘). 한글 자체는 run에 들어가지 않으므로 공백 없는 한국어 문장의 오탐은 생기지 않는다.
     - 임계값은 **문자 집합 × 길이 구간**별로 둔다(20자 run의 최대 엔트로피는 log2(20)≈4.32라 고정 4.5는 짧은 키를 못 잡음): 구간 20–24 / 25–32 / 33–48 / 49+, 문자 집합 hex 전용 / base64·영숫자 혼합. 값은 구간별 ROC로 정한다(초기 제안값: hex 33+ ≥3.5, 혼합 49+ ≥4.5, 짧은 구간은 ROC 결과로).
+    - **hex 20–31 구간**: hex 20자 run의 최대 엔트로피는 log2(16)=4.0이므로 이 구간 임계값은 **반드시 4.0 미만**이어야 한다(4.0 이상이면 아무것도 못 잡음). 32자 이상은 명시 hex 패턴이 먼저 거부한다 [S10-F1].
+    - **혼합 20–24 구간 대체 규칙** [S10-F1]: 임계값 약 4.0 부근에서 긴 식별자(변수명·경로 등) 오탐 없이 탐지 ≥95%를 못 맞추면, 이 구간은 엔트로피 대신 **대문자+소문자+숫자를 모두 포함한 run을 거부**하는 문자 구성 규칙으로 바꾼다. 그것도 오탐 기준(≤2%)을 넘기면 규칙을 적용하지 않고, 이 구간의 **실제 탐지율을 '수용한 잔여 위험'으로 기록**한다(§8.5 README, 보안 리뷰 대상).
     - URL은 **userinfo(`user:pass@`)·경로 세그먼트·쿼리 값**을 모두 검사한다(호스트만 제외). userinfo가 있으면 엔트로피와 무관하게 거부. 정확한 형식의 UUID·ULID만 제외.
-    - 새로 추가하는 패턴(hex 키, URL userinfo)은 별도 목록이 아니라 **PR #2 공용 Redactor 패턴 파일에 추가**한다 [S10-L2]. 검사 오류는 거부(fail-closed).
+    - 새로 추가하는 패턴(hex 키, URL userinfo)은 별도 목록이 아니라 **PR #2 공용 Redactor 패턴 파일에 추가**한다 [S10-L2].
+    - **로그 영향** [S10-F2]: 공용 Redactor의 hex ≥32 패턴은 로그·감사 상세의 git SHA(40자)·sha256(64자)도 마스킹한다. 이는 수용한다. 로그에는 짧은 SHA 접두(12자, 패턴 길이 미만)만 쓰고, 해시가 꼭 필요한 필드는 **필드 이름 허용 목록**(예: `payload_sha256`, `prev_hash`, `row_hash`, `commit`)으로만 원문 유지한다. 허용 목록은 Redactor 설정이며 추가는 보안 리뷰 대상이다. 메모리 쓰기 필터에는 허용 목록이 적용되지 않는다(항목 텍스트의 hex ≥32는 항상 거부). 검사 오류는 거부(fail-closed).
   - 필터 오류·패턴 파일 로드 실패 시 **거부(fail-closed)**.
   - 민감정보 범주 정책: 인증정보·결제정보·정부 식별번호 = 거부, 건강·정치 등 민감 범주 = 사용자 직접 입력만 허용(모델 제안 거부).
 - 백업 [S5-M1]: `deploy/pg-backup.sh`에 `memory/` 백업을 추가하되 **평문 tar가 아니라 사용자별 암호화**. 사용자마다 데이터 키(Keychain/0600 키 파일)로 AES-256-GCM 암호화, 보존은 7일(DB 14일보다 짧게). 백업에도 umask 077. **사용자 데이터 키는 백업 대상에서 제외**하고 백업과 다른 위치(Keychain 또는 별도 0700 키 디렉터리, 백업 스크립트 경로 밖)에 둔다. 키가 백업에 있으면 crypto-shred가 무력화되기 때문이다 [S5-R1].
@@ -158,7 +161,7 @@
 | 그룹 | 테스트 |
 |---|---|
 | 쓰기 경로 | `TestMemory_DeniedInTaintedThread`, `TestMemory_ForgetNeedsDeleteCard`, `TestMemory_ForgetAmbiguousListsCandidates`, `TestMemory_ForgetDeniedInTaintedThread`, `TestMemory_ForgetPayloadHashBindsItemIDs`, `TestMemory_SchedulerCannotWrite`, `TestMemory_ExplicitRememberNeedsConfirm`, `TestMemory_ConfirmShowsNormalizedText`, `TestMemory_NormalizeStripsControlAndZeroWidth` |
-| 시크릿 필터 | `TestMemory_SecretFilterRejects`, `TestMemorySecret_HexKeyPattern`, `TestMemorySecret_MixedScriptRunStillChecked`, `TestMemorySecret_KoreanSentenceNoFalsePositive`, `TestMemorySecret_PerLengthBucketThresholds`, `TestMemorySecret_URLUserinfoAndPathChecked`, `TestMemorySecret_BypassCorpus`(공백·제로폭·전각·분할·base64/hex·URL 인코딩·미등록 공급자), `TestMemorySecret_HighEntropyRejected`, `TestMemorySecret_FilterErrorFailsClosed`, `TestMemorySecret_SharesRedactorPatterns` |
+| 시크릿 필터 | `TestMemory_SecretFilterRejects`, `TestMemorySecret_HexKeyPattern`, `TestMemorySecret_MixedScriptRunStillChecked`, `TestMemorySecret_KoreanSentenceNoFalsePositive`, `TestMemorySecret_PerLengthBucketThresholds`, `TestMemorySecret_URLUserinfoAndPathChecked`, `TestMemorySecret_Hex20to31ThresholdBelow4`, `TestMemorySecret_Mixed20to24CompositionFallback`, `TestRedactor_HexPatternMasksSHAExceptAllowlistedFields`(짧은 SHA 접두·허용 필드 유지, 그 외 40/64자 hex 마스킹), `TestMemorySecret_BypassCorpus`(공백·제로폭·전각·분할·base64/hex·URL 인코딩·미등록 공급자), `TestMemorySecret_HighEntropyRejected`, `TestMemorySecret_FilterErrorFailsClosed`, `TestMemorySecret_SharesRedactorPatterns` |
 | 주입·파일 | `TestMemory_InjectionCap`(1,000 토큰, 항목 단위 자르기), `TestMemoryInject_CapErrorInjectsNothing`, `TestMemoryInject_BlockAtPromptEnd`, `TestMemoryInject_JSONEscapedWithNonce`, `TestMemoryInject_ForgedClosingTagInert`, `TestMemory_FilePerms0600`, `TestMemory_AtomicWriteConcurrent`, `TestMemoryFile_RejectsSymlinkWrongOwner`, `TestMemoryFile_UserIDMismatchRejected`, `TestMemoryBackup_EncryptedAndTombstoneReapplied`, `TestMemoryBackup_KeyRevokedUnreadable`, `TestMemoryRestore_RebuildsTombstonesFromAudit` |
 | API·감사 | `TestMemoryAPI_OriginCSRF`, `TestMemoryAPI_NoCrossUser`, `TestMemoryAPI_NoCORSNoStore`, `TestMemoryUI_TaintedEditSessionOnlyNoPrefill`, `TestMemoryUI_NoPrefillFromQuery`, `TestMemory_AuditNoPlaintext`, `TestMemoryAudit_HMACNotPlainHash`, `TestMemoryAudit_FailureRefusesWrite` |
 
@@ -195,6 +198,8 @@
 | S10-L3 | URL 검사 범위 | userinfo·경로·쿼리 검사, userinfo는 무조건 거부 | §7 |
 | S10-L4 | 삭제 카드 바인딩·taint | `payload_hash` = item id 목록, `TestMemory_ForgetDeniedInTaintedThread` | §2, §11 |
 | S10-L5 | 지시 우선 규칙의 성격 | 품질 규칙이며 인젝션 방어 아님 명시 | §3 |
+| S10-F1 | 짧은 구간 탐지 한계 | hex 20–31 임계 <4.0, 혼합 20–24는 대문자+소문자+숫자 구성 규칙으로 대체, 안 되면 탐지율을 잔여 위험으로 기록 | §7, §8.5 |
+| S10-F2 | 공용 hex 패턴이 로그 SHA 마스킹 | 영향 수용, 짧은 SHA 접두·필드 허용 목록, 메모리 필터엔 허용 목록 미적용, `TestRedactor_HexPatternMasksSHAExceptAllowlistedFields` | §7, §11 |
 
 새 프로세스·테이블·다이어그램 상자는 추가하지 않았다(단순성 원칙 유지).
 
