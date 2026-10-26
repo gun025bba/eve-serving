@@ -33,11 +33,11 @@ job = { when: rrule | at, template_id, send_if_changed: bool }
 
 ### 템플릿 (PR #2 manifest 레지스트리 재사용)
 - `templates/<id>.yaml`: 사용할 read 툴 목록, 프롬프트, 필요한 스코프(`*.read`만), 기본 rrule, 결과 해시 대상 필드를 담습니다. 저장소에 선언하고 `go:embed`로 넣으며 **런타임 등록은 없습니다**(PR #2 §1.1과 같은 원칙). 
-- 템플릿 추가는 툴 추가와 같은 규칙을 따릅니다. 기존 read 툴만 쓰면 MINOR 후보이지만, 판단이 애매하면 MAJOR로 합니다. 이 분류는 건영님이 결정합니다(§9).
+- 템플릿 추가는 툴 추가와 같은 규칙을 따릅니다. **보안 의견**: 기존 read 툴만 쓰고 새 스코프·egress·시크릿이 없으며 보안 리뷰를 통과한 템플릿은 MINOR 가능. 단 템플릿 프롬프트는 사용자 부재 실행의 입력이므로 **보안 리뷰 필수**이고, 새 rrule 하한(예: 15분 미만 폴링)·`send_if_changed` 해시 대상 변경도 리뷰 대상입니다. `when` 새 종류·새 채널은 MAJOR. **최종 분류는 건영님 결정**입니다(§9) [S4-T].
 
 ### 스케줄러 위치
 - **gateway 프로세스 안의 단일 goroutine** (`internal/scheduler`, 이름 TBD). 인증·store·tools·**기존 queue(semaphore)**를 그대로 재사용하고 새 프로세스나 포트를 만들지 않습니다. 사용자 요청보다 낮은 우선순위로 실행하며, 큐가 차 있으면 다음 주기로 미룹니다.
-- 전역 스위치 `GW_PROACTIVE_ENABLED`는 **기본 false**입니다(켜는 방향). 끄는 방향은 PR #2 킬스위치 파일의 `proactive_off: true`로도 할 수 있습니다. [Med]
+- 전역 스위치 `GW_PROACTIVE_ENABLED`는 **기본 false**입니다(켜는 방향). 끄는 방향은 PR #2 킬스위치 파일의 `proactive_off: true`로도 할 수 있습니다. 둘이 충돌하면 **끄기가 항상 우선**합니다(`proactive_off`·사용자/job off 중 하나라도 off면 실행 안 함). env를 켜는 것은 재시작이 필요한 **배포 행위**이고 MAJOR 기능의 활성화이므로 건영님 승인 사항입니다 [S4-6]. [Med]
 - **PostgreSQL advisory lock으로 단일 리더**만 실행합니다. **lock을 잃으면 진행 중인 실행을 즉시 중단**하고(발송 전이면 발송 안 함) 다시 얻을 때까지 대기합니다. [Med] 테스트용 `:8001` 인스턴스는 기본 비활성입니다.
 - 폴링: `next_run_at <= now()`인 job을 `FOR UPDATE SKIP LOCKED`로 가져옵니다. 시간대는 job의 `tz`(기본 `Asia/Seoul`)를 씁니다.
 - `actor=scheduler`는 **write/send 스코프를 하드 거부**합니다(정책 파일 설정과 무관, 코드 상수). [H2]
@@ -56,7 +56,7 @@ type Deliverer interface {
 
 ### 2.1 in-app 알림 (1차)
 - 별도 알림 테이블 없이 **읽지 않은 proactive 메시지**(`messages.origin='proactive' AND read_at IS NULL`)가 곧 in-app 알림입니다. API: `GET /v1/notifications`(위 조건의 메시지 목록 뷰), `POST /v1/messages/{id}/read` (계획).
-- 구독·알림·job API 공통: **CSRF 토큰 + Origin 검사**(Origin 없음 또는 `null` → 403), 모든 조회·수정은 `user_id = 현재 Identity`로 범위 제한해 **IDOR 방지**(타 사용자 id → 404). [Med]
+- 구독·알림·job API 공통: **CSRF 토큰 + Origin 검사**(Origin 없음 또는 `null` → 403), 모든 조회·수정은 `user_id = 현재 Identity`로 범위 제한해 **IDOR 방지**(타 사용자 id → 404). `messages`에는 `user_id`가 없으므로 `POST /v1/messages/{id}/read`와 `GET /v1/notifications`는 **`JOIN threads ON threads.id = messages.thread_id WHERE threads.user_id = 현재 Identity`**로 범위를 제한합니다(`_IDOROtherUser404`가 이 두 경로 포함) [S4-3]. [Med]
 - UI는 앱을 열 때와 포그라운드 주기적 조회로 배지와 스레드 목록을 갱신합니다. SSE 상시 연결은 TBD.
 
 ### 2.2 iPhone Web Push (2차)
@@ -124,20 +124,22 @@ push_subscriptions (id, user_id FK ON DELETE CASCADE, endpoint TEXT UNIQUE, p256
 
 ALTER TABLE messages
   ADD COLUMN origin TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive')),
-  ADD COLUMN job_id TEXT NULL,          -- scheduled_jobs 참조 (proactive일 때)
+  ADD COLUMN job_id TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE SET NULL, -- proactive일 때 필수(아래 CHECK)
   ADD COLUMN read_at TIMESTAMPTZ NULL,  -- in-app 알림 읽음
   ADD COLUMN push_status TEXT NULL CHECK (push_status IN ('pending','sent','failed','suppressed')),
-  ADD COLUMN dedupe_key TEXT NULL;      -- job_id + 기간 키
+  ADD COLUMN dedupe_key TEXT NULL,      -- job_id + 기간 키
+  ADD CONSTRAINT messages_proactive_keys CHECK (origin <> 'proactive' OR (job_id IS NOT NULL AND dedupe_key IS NOT NULL)); -- NULL 중복 구멍 차단 [S4-1]
 CREATE UNIQUE INDEX messages_proactive_dedupe ON messages (job_id, dedupe_key) WHERE origin = 'proactive';
 
 ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
--- settings.proactive = {enabled:false, quiet_start:"22:00", quiet_end:"08:00", daily_cap:3}, 서버에서 스키마 검증
+-- settings.proactive = {enabled:false, quiet_start:"22:00", quiet_end:"08:00", daily_cap:3, memory_read:false}
+-- 서버 스키마 검증: 알 수 없는 키 거부, 타입·범위 검증(daily_cap 0..10, 시각 HH:MM), 서버 상한(하루 10건)은 코드 상수 [S4-4]
 ```
 
 - **테이블 목록 (단순화 후):** 신규 테이블은 **2개**(`scheduled_jobs`, `push_subscriptions`)입니다. 나머지는 `messages` 컬럼 추가와 `users.settings` JSONB로 처리합니다.
   - 없앤 것: `job_runs`(→ `scheduled_jobs.last_status` + 이력은 `tool_audit`), `notifications`(→ `messages.read_at/push_status`), `notification_prefs`(→ `users.settings`).
   - 감사는 PR #2의 `tool_audit`(M2), 확인은 `pending_actions`(M4)를 재사용하며 새로 만들지 않습니다.
-- **dedupe는 job 쪽 키**로 합니다: `dedupe_key = job_id + 기간 키(예: 브리핑은 날짜, watch는 결과 해시)`이고, `UNIQUE(job_id, dedupe_key)` 부분 인덱스로 막습니다.
+- **dedupe는 job 쪽 키**로 합니다(proactive 행은 CHECK로 `job_id`·`dedupe_key` NOT NULL이므로 NULL끼리 중복 통과 불가): `dedupe_key = job_id + 기간 키(예: 브리핑은 날짜, watch는 결과 해시)`이고, `UNIQUE(job_id, dedupe_key)` 부분 인덱스로 막습니다.
 - role은 그대로 `assistant`입니다 (OpenAI 호환 유지). 기존 행은 기본값으로 채워져 하위 호환됩니다.
 - 선톡 메시지는 job 전용 스레드("Eve 브리핑", job당 하나)에 들어가고, follow-up이면 원 스레드에 들어갑니다.
 - `push_subscriptions.endpoint/p256dh/auth`는 비밀은 아니지만 민감 정보로 취급해 export·로그에서 제외합니다. 404/410 응답을 받으면 `disabled_at`을 설정합니다.
@@ -148,7 +150,8 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 - 스케줄 실행은 **사용자가 없는 실행**이므로 PR #2 파이프라인을 똑같이 거치고, 더 엄격하게 적용합니다:
   - **read 툴만** 자동 실행합니다 (예: `web.read`). write/send 툴은 **자동 실행 금지**이며, 필요하면 `pending_actions` 확인 카드만 만들고 사용자 승인을 기다립니다 (M4).
   - 스케줄 실행은 **시작부터 tainted**입니다(외부 데이터를 읽었는지와 무관). 그래서 새 job이나 follow-up을 만들 수 없습니다 (연쇄 방지). [N2]
-  - 모든 실행(스킵 사유 포함)·job 생성/변경·발송은 **단일 감사 로그 `tool_audit`(M2)** 에 `actor=scheduler|user`, `job_id`와 함께 기록합니다. 별도 감사 테이블이나 실행 이력 테이블은 없습니다. [Med]
+  - job 생성/변경·발송·실행은 **단일 감사 로그 `tool_audit`(M2)** 에 `actor=scheduler|user`, `job_id`와 함께 기록합니다. 별도 감사 테이블이나 실행 이력 테이블은 없습니다. [Med]
+  - 이벤트 분류 [S4-5]: `event_class=security`(job 생성·변경, 발송, 거부, 차단)와 `event_class=ops`(run, skip). `skipped_dedupe`와 결과 변화 없음(`send_if_changed`)은 행마다 기록하지 않고 job별 일 단위 집계 1행만 남깁니다(hash chain 잠금 경합·노이즈 억제). 보존 기간은 동일합니다.
   - 확인 토큰은 **사용자 세션 POST로만 소비**됩니다(scheduler·모델 경로에서 소비 불가). [H2]
   - **scheduler 발 확인 흐름:**
     1. scheduler는 **토큰 없이 제안(proposal)**만 만듭니다. 제안은 `payload_hash`로 고정되고, 수명은 job TTL과 같되 **최대 24시간**입니다.
@@ -160,9 +163,9 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 ## 4. 스팸 방지
 - **기본 off.** 사용자가 명시적으로 켜야 동작합니다 (`users.settings.proactive.enabled`).
 - **Quiet hours** (Asia/Seoul, 기본 22:00–08:00): 이 시간에는 push를 보내지 않고(`push_status='suppressed'`) in-app에만 남긴 뒤, 종료 시각에 1건으로 요약합니다. iOS Focus 모드와도 연동됩니다 [webkit-ios].
-- **Rate cap**: 사용자별 하루 push 3건(설정 가능), job별 하루 1건, 시간당 최대 1건. **cap 계산은 `messages`(origin='proactive', push_status='sent')를 기준으로, 메시지 insert와 같은 트랜잭션**(사용자 행 잠금) 안에서 수행해 경쟁 조건으로 넘지 않게 합니다. [Med] cap을 넘으면 `last_status=skipped_cap`으로 두고 `tool_audit`에 기록하며, in-app에만 남깁니다.
+- **Rate cap**: 사용자별 하루 push 3건(설정 가능), job별 하루 1건, 시간당 최대 1건. **cap 계산은 `messages`(origin='proactive', push_status IN ('pending','sent'))를 기준으로(발송 중도 셈 [S4-2]), 메시지 insert와 같은 트랜잭션**(사용자 행 잠금) 안에서 수행해 경쟁 조건으로 넘지 않게 합니다. [Med] cap을 넘으면 `last_status=skipped_cap`으로 두고 `tool_audit`에 기록하며, in-app에만 남깁니다.
 - **Dedupe**: job 쪽 키 `UNIQUE(job_id, dedupe_key)`로 막습니다. `send_if_changed` job은 `last_result_hash`가 같으면 메시지를 만들지 않습니다.
-- **Off 스위치**: job별(`scheduled_jobs.enabled`), 사용자 전체(`users.settings.proactive.enabled`), 운영 전역(`GW_PROACTIVE_ENABLED` 기본 false, 또는 PR #2 킬스위치 파일의 `proactive_off`, 끄기만 가능)이 있습니다.
+- **Off 스위치**: job별(`scheduled_jobs.enabled`), 사용자 전체(`users.settings.proactive.enabled`), 운영 전역(`GW_PROACTIVE_ENABLED` 기본 false, 또는 PR #2 킬스위치 파일의 `proactive_off`, 끄기만 가능)이 있습니다. 어느 하나라도 off면 off입니다(끄기 우선).
 - 모델 출력이 비거나 "보낼 내용 없음"이면 보내지 않습니다.
 
 ## 5. 보안 검토 항목 (보안 담당 봇용)
@@ -200,12 +203,12 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
    - `TestSchedulerRun_TaintedFromStart`, `TestSchedulerFollowup_InheritsOriginThreadTaint`, `TestScheduler_StopsOnLockLoss`
    - `TestSchedulerJob_TemplateIDOnly`(자유 텍스트·추가 키 거부), `TestSchedulerJob_NoModelOrToolPathWrites`(툴 레지스트리·모델 tool_call로 job 생성 불가)
 3. **확인 게이트** (PR #2 `pending_actions`와 공유)
-   - `TestSchedulerProposal_TokenlessUntilUserOpens`, `TestSchedulerProposal_TTL24h`, `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
+   - `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL`(24h), `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
 4. **API·스팸 방지·감사** (`internal/handlers`)
    - `TestProactiveAPI_OriginMissingOrNull403` / `_CSRFRequired` / `_IDOROtherUser404`
-   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준), `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5]
+   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
 
-이름이 바뀐 것: `TestFollowup_*` → `TestSchedulerFollowup_*`, `TestJobSpec_TemplateIDOnly` → `TestSchedulerJob_TemplateIDOnly`, `TestNoModelOrToolPathWritesJobs` → `TestSchedulerJob_NoModelOrToolPathWrites`, `TestVAPID_*`/`TestStartup_*`/`TestPayload_*`/`TestRedaction_*` → `TestPush*` 접두, `TestRateCap_*`/`TestQuietHours_*`/`TestAudit_*` → `TestProactive*` 접두(감사 테스트는 스킵 사유까지 포함). 새로 생긴 것: `TestProactiveDedupe_UniqueJobKey`(dedupe 위치 변경). 빠진 보안 테스트는 없습니다.
+이름이 바뀐 것: `TestFollowup_*` → `TestSchedulerFollowup_*`, `TestJobSpec_TemplateIDOnly` → `TestSchedulerJob_TemplateIDOnly`, `TestNoModelOrToolPathWritesJobs` → `TestSchedulerJob_NoModelOrToolPathWrites`, `TestVAPID_*`/`TestStartup_*`/`TestPayload_*`/`TestRedaction_*` → `TestPush*` 접두, `TestRateCap_*`/`TestQuietHours_*`/`TestAudit_*` → `TestProactive*` 접두(감사 테스트는 스킵 사유까지 포함). 새로 생긴 것: `TestProactiveDedupe_UniqueJobKey`(dedupe 위치 변경). 보안 검토(7336e4f) 반영으로 `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveAudit_EventClassAndSkipAggregated` 추가. 확인 게이트 테스트 이름은 PR #2(`NoTokenUntilUserOpens`, `ExpiresAfterTTL`)로 통일. 빠진 보안 테스트는 없습니다.
 
 **PR #2(툴 플랫폼)와 맞춰야 할 항목 (PR #2 §15.1d·§15.1g에 반영됨):**
 1. 외부 egress는 gateway 단일 적용 계층(§13 도메인 정책)으로만 나가며, push 발송도 이 계층을 사용.
@@ -228,6 +231,19 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 | L1 | 구독 보존 기간·cascade 삭제 (§3) |
 | 권고(승인 후) | DNS 거부 목록에 IPv4-mapped IPv6·미지정·멀티캐스트 추가, 테스트 이름을 PR #2 규칙(`Test<대상>_<동작>`, `TestActorScheduler_*`, `TestSchedulerProposal_*`)에 맞춤 |
 | L3 | '연결 필요' 화면 처리 (§2.3) |
+
+## 5.4 보안 검토 반영 (단순화 커밋 7336e4f 리뷰)
+
+| ID | 지적 | 반영 |
+|---|---|---|
+| S4-1 | dedupe NULL 구멍 | `CHECK (origin <> 'proactive' OR (job_id, dedupe_key NOT NULL))`, `job_id` FK → `scheduled_jobs` (§3) |
+| S4-2 | cap이 `sent`만 셈 | `pending`+`sent` 집계, tx·행 잠금 유지 (§4) |
+| S4-3 | `messages`에 user_id 없음 → IDOR | `threads.user_id` 조인으로 범위 제한 명시 (§2.1) |
+| S4-4 | `users.settings` 검증 | 알 수 없는 키 거부, 타입·범위, 서버 상한 코드 상수, 테스트 추가 (§3) |
+| S4-5 | 운영 이벤트가 감사 원장에 | `event_class` security/ops 구분, 스킵·변화 없음은 일 단위 집계, 보존 동일 (§3) |
+| S4-6 | 켜는 env vs 끄는 킬스위치 | 끄기 항상 우선, env 켜기 = 배포 행위·MAJOR·건영님 승인 (§1, §4) |
+| S4-T | 템플릿 분류 | 보안 의견(MINOR 가능 + 보안 리뷰 필수)으로 기록, 최종은 건영님 (§1, §9) |
+| 권고 Low | 테스트 이름 PR #2와 통일 | `NoTokenUntilUserOpens`, `ExpiresAfterTTL` (§5.1 테스트) |
 
 ## 5.3 설계 원칙 반영 (단순성·확장성·청사진)
 
@@ -302,7 +318,7 @@ sequenceDiagram
 ```
 
 ## 9. 미결정 사항 (TBD)
-- `when` 형식은 RRULE(rrule)·ISO 시각(at)으로 정했습니다. 템플릿은 `templates/<id>.yaml`(PR #2 레지스트리)로 정했습니다. **남은 결정: 기존 read 툴만 쓰는 템플릿 추가를 MINOR로 볼지 MAJOR로 볼지 (건영님)**
+- `when` 형식은 RRULE(rrule)·ISO 시각(at)으로 정했습니다. 템플릿은 `templates/<id>.yaml`(PR #2 레지스트리)로 정했습니다. **남은 결정: 기존 read 툴만 쓰는 템플릿 추가를 MINOR로 볼지 MAJOR로 볼지 (건영님). 보안 의견은 조건부 MINOR(§1 템플릿, S4-T).**
 - 브리핑 내용 범위 (어떤 read 툴을 쓸지). 현재 저장소에는 web 툴만 있습니다.
 - in-app 실시간 전달 (SSE 상시 연결 vs 폴링)
 - 잠금 화면 미리보기 허용 여부
