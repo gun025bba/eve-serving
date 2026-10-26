@@ -4,7 +4,7 @@
 대상: eve-chat-ui-design `PROACTIVE-MEMORY-SPEC.md`의 열린 질문 Q1–Q18.
 
 ## 0. 원칙
-- **가장 단순하게**: 새 엔드포인트는 4개(`GET/PATCH /v1/settings`, `POST /v1/threads/{id}/read`, `POST /v1/proposals/{id}/revise`)뿐이고, 나머지는 기존 응답에 필드를 더한다.
+- **가장 단순하게**: 새 엔드포인트는 `GET/PATCH /v1/settings`, `POST /v1/threads/{id}/read`, `POST /v1/proposals/{id}/revise`, `GET /v1/actions`, push 구독 3개(§3.5)뿐이고, 나머지는 기존 응답에 필드를 더한다.
 - **기존 필드 재사용**: PM §3 컬럼(`origin`, `job_id`, `read_at`), `users.settings` JSONB, TP `pending_actions`·`payload_view`·`provenance`를 그대로 노출한다.
 - **확장 메모**: 지금 안 하는 것은 §3에 청사진으로 남긴다.
 - **SemVer**: 이 문서의 API 추가는 모두 **필드·엔드포인트 추가(하위 호환) = MINOR**. 다만 기능 자체(선톡·메모리)의 출시는 PM·MEM에 적힌 대로 MAJOR이며, 이 계약은 그 MAJOR 릴리스 안에 들어간다.
@@ -26,7 +26,7 @@
 | Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
 | Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. 보안 규칙은 §3.2. | MINOR |
 | Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
-| Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `kill_switch` \| `invalid`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
+| Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `payload_mismatch` \| `kill_switch` \| `invalid`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
 | Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400 `invalid`). 새 제안·새 `payload_hash`·새 토큰, 원 제안 `voided`. approve 본문은 그대로(TP). 규칙은 §3.1. | MINOR |
 | Q16 | 매칭 없음 = **카드 없음**, 모델이 답한다. 별도 신호 필드 없음(P1). UI의 "메모리 관리 열기" 링크는 붙이지 않거나 고정 도움말로. (청사진 §3) | — |
 | Q17 | 메모리 읽기 전용(MEM S5-R6)은 `GET /v1/settings`의 `system.memory_read_only`. `GET /v1/memory`에는 추가 필드 없음. | MINOR |
@@ -90,13 +90,38 @@ GET /v1/settings
 |---|---|---|
 | 400 | `invalid` | 본문·형식·범위 오류, 허용 외 필드 |
 | 403 | `scope_denied` / `tainted` / `kill_switch` | 스코프·taint·킬스위치 거부 |
-| 404 | `not_found` | 없음 또는 다른 사용자(본문 동일) |
+| 404 | `not_found` | 없음, 다른 사용자 소유(본문 동일), push 비활성 시 push 엔드포인트 |
 | 409 | `item_gone` | revise 대상 항목이 그사이 삭제됨 |
-| 409 | `conflict` | 원 제안이 이미 approve·void됨 |
+| 409 | `conflict` | 제안이 이미 approve·void됨 (approve·revise 공통) |
 | 410 | `expired` | root + 24h 경과 |
-| 422 | `secret_detected` / `cap_exceeded` | 시크릿 필터·상한 |
+| 422 | `secret_detected` | 시크릿 필터 |
+| 422 | `cap_exceeded` | 토큰 재발급 3회 상한, follow-up 활성 10개(제안·approve 때 모두) |
+| 422 | `payload_mismatch` | approve의 `payload_hash`가 제안과 다름 (MINOR, 새 코드) |
 
-SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). 테스트 `TestErrorCodes_StatusMapping`.
+SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.3 approve 응답 코드도 이 이름을 쓴다(구 `action_already_decided`·`action_expired`·`not_owner`는 쓰지 않음). 테스트 `TestErrorCodes_StatusMapping`, `TestApprove_PayloadMismatch422`, `TestApprove_NonOwner404SameBody`.
+
+### 3.5 추가 엔드포인트 (모두 MINOR)
+
+#### 3.5.1 `GET /v1/actions` — 대기 중 제안 목록
+- 응답 `{data:[…]}`: 각 항목은 SSE confirmation 객체에서 **토큰 관련 필드 전부를 뺀 것**(`confirm_token`, `token_expires_at`, 해시 없음) + `thread_id` + `message_id`(nullable, scheduler 제안처럼 메시지가 없으면 `null`). 세션 사용자의 `status='pending'` 제안만.
+- 토큰이 필요하면 카드에서 `revise`를 호출해 새로 받는다(§3.5.4).
+- 테스트: `TestActionsList_NoTokenFields`, `TestActionsList_OnlySessionUser`.
+
+#### 3.5.2 미읽음 — `/v1/notifications` 없음
+- 별도 알림 리소스를 만들지 않고 `GET /v1/threads?unread=true`(기존 목록 + 필터, 각 Thread의 `unread_count` > 0만).
+- Web Push payload는 그대로 `{v, type, nid}` ≤256B이며 **`nid` = `message_id`**. 클라이언트는 받은 뒤 API로 본문을 가져온다(push에 본문 없음).
+- 테스트: `TestThreadsList_UnreadFilter`, `TestPushPayload_NidIsMessageIDUnder256B`.
+
+#### 3.5.3 Push 구독
+- `GET /v1/push/vapid-public-key` → `{key, key_id}`.
+- `POST /v1/push/subscriptions` `{endpoint, keys:{p256dh, auth}, vapid_key_id}` → 201. `vapid_key_id`가 현재 키와 다르면 400 `invalid`.
+- `DELETE /v1/push/subscriptions` `{endpoint}` → 204(세션 사용자 구독만 삭제).
+- push가 꺼져 있으면(설정·킬스위치) **세 엔드포인트 모두 404** `not_found`. CSRF·Origin 동일.
+- 테스트: `TestPushVapidKey_Returns`, `TestPushSubscribe_201`, `TestPushUnsubscribe_204OwnOnly`, `TestPush_DisabledAll404`.
+
+#### 3.5.4 revise 응답
+- `POST /v1/proposals/{id}/revise` 응답 = **새 confirmation 객체 전체(토큰 포함)**. 토큰은 이 세션 POST 응답에만 담기고 **SSE에는 절대 싣지 않는다**(§3.4 규칙 유지). 보안 리뷰 확인 필요.
+- 테스트: `TestProposalRevise_ResponseHasTokenSSEHasNone`.
 
 ### 3.4 기타 [Sec-L]
 - **SSE에는 토큰·토큰 해시를 절대 넣지 않는다**(토큰은 사용자 세션 POST 응답으로만). SSE는 해당 세션 사용자에게만 전송. 테스트 `TestSSEConfirmation_NoTokenOrHash`, `TestSSEConfirmation_OnlyToSessionUser`.

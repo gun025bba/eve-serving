@@ -309,7 +309,7 @@ SSE(기존 이벤트 유지 + 추가):
 {"object":"chat.completion.action_result","action_id":"01J...","status":"executed|failed|rejected|expired"}
 ```
 엔드포인트:
-- `POST /v1/actions/{id}/approve` `{confirm_token, payload_hash}` → 200 `{status:"executed",result}` / 409 `action_already_decided`(같은 결과 반환) / 410 `action_expired` / 422 `payload_mismatch` / 403 `not_owner`.
+- `POST /v1/actions/{id}/approve` `{confirm_token, payload_hash}` → 200 `{status:"executed",result}` / 409 `conflict`(이미 결정됨, 같은 결과 반환) / 410 `expired` / 422 `payload_mismatch` / 422 `cap_exceeded` / 404 `not_found`(다른 사용자 포함, 본문 동일). 코드 이름은 ui-api-contract.md §3.3 enum과 같다.
 - `POST /v1/actions/{id}/reject` → 200.
 - `GET /v1/actions?status=pending` → 새로고침 후 카드 복원(**토큰 없음**, payload_view·만료만).
 - `POST /v1/actions/{id}/reissue` → 새 1회용 토큰(이전 토큰 무효, ≤3회, §3.2). 모든 POST는 Origin 검사(누락·`null` 거부).
