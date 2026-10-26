@@ -51,6 +51,10 @@ services:
     logging: {driver: json-file, options: {max-size: "1m", max-file: "1"}}
 
 networks:
-  searxng: {}          # egress for upstream search engines
+  searxng:             # egress for upstream search engines
+    ipam:
+      config:
+        - subnet: 172.18.0.0/24   # pinned so limiter pass_ip (gateway 172.18.0.1/32) stays valid
+          gateway: 172.18.0.1
   valkey:
     internal: true     # no egress, no host access; SearXNG <-> Valkey only

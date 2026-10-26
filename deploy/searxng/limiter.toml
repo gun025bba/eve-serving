@@ -10,5 +10,8 @@ link_token = false
 
 [botdetection.ip_lists]
 # pass_ip: requests from these addresses skip the limiter (the gateway).
-pass_ip = ["127.0.0.1", "::1"]
+# Measured after install: colima's port-forward lands on docker-proxy, so SearXNG
+# sees the bridge gateway of the pinned "searxng" network (docker-compose.yml) as
+# the source. Exactly that /32, nothing wider (review item 2).
+pass_ip = ["172.18.0.1/32"]
 block_ip = []
