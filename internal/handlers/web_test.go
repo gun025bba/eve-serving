@@ -397,6 +397,7 @@ func TestWebDomainBlockAuditedCountOnly(t *testing.T) {
 	e.fs.extra = []search.Result{{Title: "short", URL: "https://bit.ly/abc"}, {Title: "ip", URL: "http://0177.0.0.1/"}}
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"q"}]}`))
 	req.Header.Set("Tailscale-User-Login", "alice@example")
+	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
