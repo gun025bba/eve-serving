@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gun025bba/eve-serving/internal/listen"
@@ -20,13 +22,16 @@ import (
 func TestIdentityTrustedOnlyOnUnixSocket(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	s := csrfServer(t, up.URL, []string{testOrigin}, io.Discard)
+	var logBuf syncBuf
+	s := csrfServer(t, up.URL, []string{testOrigin}, &logBuf)
 	h := s.Handler()
 
 	tcp := httptest.NewServer(h) // no trusted ConnContext: the TCP listener
 	defer tcp.Close()
 
-	dir, _ := os.MkdirTemp("/tmp", "evs")
+	// not /tmp: world-writable ancestors are refused by listen.CheckAncestors
+	dir, _ := os.MkdirTemp(".", "s")
+	dir, _ = filepath.Abs(dir)
 	defer os.RemoveAll(dir)
 	os.Chmod(dir, 0o700)
 	sock := filepath.Join(dir, "gw.sock")
@@ -102,4 +107,19 @@ func TestIdentityTrustedOnlyOnUnixSocket(t *testing.T) {
 	if c, _ := do(uc, sockBase, "POST", "/v1/chat/completions", chat, bad); c != 403 {
 		t.Fatal("socket cross-origin chat", c)
 	}
+	// request log records which listener was used
+	logs := logBuf.String()
+	for _, want := range []string{"unix", "tcp"} {
+		if !strings.Contains(logs, `"conn":"`+want+`"`) && !strings.Contains(logs, "conn="+want) {
+			t.Errorf("request log lacks conn=%s:\n%s", want, logs)
+		}
+	}
 }
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
+func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }

@@ -3,7 +3,8 @@
 // Only requests arriving on this socket may carry Tailscale identity headers,
 // so the socket must be reachable by `tailscale serve` and nobody else: the
 // directory must be a real directory owned by the gateway user with mode 0700
-// (no group/other bits), and the socket is created 0660. Looser permissions
+// (no group/other bits), every ancestor must be root- or self-owned and not
+// group/world-writable, and the socket is created 0660. Looser permissions
 // abort startup.
 package listen
 
@@ -36,7 +37,33 @@ func CheckDir(dir string) error {
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
 		return fmt.Errorf("unix socket dir %s must be owned by the gateway user (uid %d), not uid %d", dir, os.Getuid(), st.Uid)
 	}
-	return nil
+	return CheckAncestors(dir)
+}
+
+// CheckAncestors verifies every parent of dir (symlinks resolved) up to "/":
+// each must be owned by root or the gateway user and must not be group- or
+// world-writable. Otherwise another user could rename the socket dir away
+// and plant their own.
+func CheckAncestors(dir string) error {
+	parent, err := filepath.EvalSymlinks(filepath.Dir(filepath.Clean(dir)))
+	if err != nil {
+		return fmt.Errorf("unix socket dir parent: %w", err)
+	}
+	for p := parent; ; p = filepath.Dir(p) {
+		fi, err := os.Stat(p)
+		if err != nil {
+			return fmt.Errorf("unix socket dir ancestor: %w", err)
+		}
+		if m := fi.Mode().Perm(); m&0o022 != 0 {
+			return fmt.Errorf("unix socket dir ancestor %s has mode %#o; must not be group/world-writable", p, m)
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid != 0 && int(st.Uid) != os.Getuid() {
+			return fmt.Errorf("unix socket dir ancestor %s is owned by uid %d; must be root or the gateway user", p, st.Uid)
+		}
+		if p == "/" || p == filepath.Dir(p) {
+			return nil
+		}
+	}
 }
 
 // CheckSocket verifies the socket file is a socket with no bits beyond 0660.

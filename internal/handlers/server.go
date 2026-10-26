@@ -189,7 +189,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		sw := &statusWriter{ResponseWriter: w}
 		h(sw, r)
 		s.Log.Info("request", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "status", sw.status,
-			"user", auth.LogUser(id), "auth_provider", id.Provider, "ms", time.Since(t0).Milliseconds())
+			"user", auth.LogUser(id), "auth_provider", id.Provider, "conn", connKind(r), "ms", time.Since(t0).Milliseconds())
 	}
 }
 
@@ -434,4 +434,12 @@ func docs(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head>
 <body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',persistAuthorization:true});</script></body></html>`)
+}
+
+// connKind reports which listener a request arrived on, for the request log.
+func connKind(r *http.Request) string {
+	if auth.ViaTrustedSocket(r.Context()) {
+		return "unix"
+	}
+	return "tcp"
 }

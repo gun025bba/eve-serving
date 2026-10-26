@@ -8,11 +8,16 @@ import (
 )
 
 func shortDir(t *testing.T) string {
-	// unix socket paths are limited to ~104 bytes on macOS
-	d, err := os.MkdirTemp("/tmp", "evs")
+	// /tmp is world-writable (and fails CheckAncestors), so use a dir under
+	// the package dir; keep it short for the ~104-byte macOS path limit.
+	d, err := os.MkdirTemp(".", "s")
+	if err == nil {
+		d, err = filepath.Abs(d)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
+	os.Chmod(d, 0o700)
 	t.Cleanup(func() { os.RemoveAll(d) })
 	return d
 }
@@ -59,5 +64,39 @@ func TestUnixPerms(t *testing.T) {
 	}
 	if _, err := Unix("rel.sock"); err == nil {
 		t.Fatal("relative path accepted")
+	}
+}
+
+func TestUnixAncestors(t *testing.T) {
+	base := shortDir(t)
+	mid := filepath.Join(base, "m")
+	run := filepath.Join(mid, "run")
+	if err := os.MkdirAll(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(run, 0o700)
+	os.Chmod(mid, 0o755)
+	if err := CheckDir(run); err != nil {
+		t.Fatal("good tree rejected:", err)
+	}
+	for _, m := range []os.FileMode{0o775, 0o757, 0o1777} {
+		os.Chmod(mid, m)
+		if err := CheckDir(run); err == nil || !strings.Contains(err.Error(), "ancestor") {
+			t.Fatalf("ancestor mode %#o accepted: %v", m, err)
+		}
+		if _, err := Unix(filepath.Join(run, "gw.sock")); err == nil {
+			t.Fatalf("Unix accepted ancestor mode %#o", m)
+		}
+	}
+	os.Chmod(mid, 0o755)
+	// world-writable /tmp-style ancestor
+	if d, err := os.MkdirTemp("/tmp", "evs"); err == nil {
+		defer os.RemoveAll(d)
+		os.Chmod(d, 0o700)
+		if st, _ := os.Stat("/tmp"); st != nil && st.Mode().Perm()&0o002 != 0 {
+			if err := CheckDir(d); err == nil {
+				t.Fatal("dir under world-writable /tmp accepted")
+			}
+		}
 	}
 }
