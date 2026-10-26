@@ -34,7 +34,7 @@ const (
 	ModeAllowlistOnly     = "allowlist_only"
 	MaxSnapshotAge        = 30 * 24 * time.Hour
 	categoryMalware       = "malware"
-	malwareKeyFile        = "keys/malware-ed25519.pub"
+	malwareKeyGlob        = "keys/malware-ed25519*.pub"
 	malwareCurrent        = "categories/malware.txt"
 	malwarePrevious       = "categories/malware.prev.txt"
 	signatureSuffix       = ".sig"

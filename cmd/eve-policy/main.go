@@ -2,8 +2,8 @@
 // (docs/tool-platform.md §13).
 //
 //	eve-policy verify [-dir deploy/policy]          # CI: policy loads, snapshot signatures verify, age <= 30 days
-//	eve-policy import -source NAME -in FEED -out FILE  # hosts/domain feed -> snapshot (IP entries dropped)
-//	eve-policy sign -key KEYFILE FILE                  # writes FILE.sig (ed25519, base64)
+//	eve-policy import -source NAME -upstream-commit SHA -in FEED -out FILE  # feed -> snapshot (IP entries dropped)
+//	eve-policy sign -key KEYFILE -key-id ID FILE       # writes FILE.sig ("ID:base64 ed25519 signature")
 //	eve-policy keygen -out KEYFILE                     # new private key (0600) + prints the public key
 //
 // Private keys never go into the repository; only keys/*.pub is committed.
@@ -79,9 +79,10 @@ func importFeed(args []string) error {
 	in := fs.String("in", "", "feed file (hosts format or one domain per line)")
 	out := fs.String("out", "", "snapshot file to write")
 	source := fs.String("source", "", "feed name/URL recorded in the header")
+	upstream := fs.String("upstream-commit", "", "upstream feed commit/version the feed file was taken from")
 	fs.Parse(args)
-	if *in == "" || *out == "" || *source == "" {
-		return errors.New("-in, -out and -source are required")
+	if *in == "" || *out == "" || *source == "" || *upstream == "" {
+		return errors.New("-in, -out, -source and -upstream-commit are required")
 	}
 	f, err := os.Open(*in)
 	if err != nil {
@@ -89,9 +90,13 @@ func importFeed(args []string) error {
 	}
 	defer f.Close()
 	set := map[string]bool{}
+	updated := ""
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		l := strings.TrimSpace(sc.Text())
+		if v, ok := strings.CutPrefix(l, "# Updated:"); ok && updated == "" {
+			updated = strings.TrimSpace(v)
+		}
 		if l == "" || strings.HasPrefix(l, "#") || strings.HasPrefix(l, "!") {
 			continue
 		}
@@ -116,7 +121,11 @@ func importFeed(args []string) error {
 	sort.Strings(hosts)
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Malware/phishing hosts: offline snapshot, verified by signature (docs/tool-platform.md §13).\n")
-	fmt.Fprintf(&b, "# generated: %s\n# source: %s\n# entries: %d\n", time.Now().UTC().Format(time.RFC3339), *source, len(hosts))
+	fmt.Fprintf(&b, "# generated: %s\n# source: %s\n# upstream-commit: %s\n", time.Now().UTC().Format(time.RFC3339), *source, *upstream)
+	if updated != "" {
+		fmt.Fprintf(&b, "# upstream-updated: %s\n", updated)
+	}
+	fmt.Fprintf(&b, "# entries: %d\n", len(hosts))
 	for _, h := range hosts {
 		b.WriteString(h + "\n")
 	}
@@ -145,9 +154,10 @@ func readKey(path string) (ed25519.PrivateKey, error) {
 func sign(args []string) error {
 	fs := flag.NewFlagSet("sign", flag.ExitOnError)
 	key := fs.String("key", "", "private key file (base64 seed, 0600)")
+	keyID := fs.String("key-id", "", "key id of the matching keys/*.pub (recorded in the signature)")
 	fs.Parse(args)
-	if *key == "" || fs.NArg() != 1 {
-		return errors.New("usage: sign -key KEYFILE FILE")
+	if *key == "" || *keyID == "" || fs.NArg() != 1 || strings.ContainsAny(*keyID, ": \n") {
+		return errors.New("usage: sign -key KEYFILE -key-id ID FILE")
 	}
 	k, err := readKey(*key)
 	if err != nil {
@@ -157,7 +167,7 @@ func sign(args []string) error {
 	if err != nil {
 		return err
 	}
-	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(k, body))
+	sig := *keyID + ":" + base64.StdEncoding.EncodeToString(ed25519.Sign(k, body))
 	return os.WriteFile(fs.Arg(0)+".sig", []byte(sig+"\n"), 0o644)
 }
 

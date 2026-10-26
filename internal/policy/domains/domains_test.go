@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"net/netip"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -219,5 +220,65 @@ func TestMalwareSnapshot_Rules(t *testing.T) {
 	}
 	if err := CheckSnapshotFiles(fs, now); err == nil {
 		t.Fatal("CI check must fail for a snapshot older than 30 days")
+	}
+}
+
+// Low (PR #13 review): key ids and an overlapping rotation window.
+func TestMalwareSnapshot_KeyRotationOverlap(t *testing.T) {
+	now := time.Now()
+	oldPub, oldPriv, _ := ed25519.GenerateKey(rand.Reader)
+	newPub, newPriv, _ := ed25519.GenerateKey(rand.Reader)
+	body := []byte("# generated: " + now.UTC().Format(time.RFC3339) + "\nx.example\n")
+	sig := func(id string, k ed25519.PrivateKey) []byte {
+		return []byte(id + ":" + base64.StdEncoding.EncodeToString(ed25519.Sign(k, body)))
+	}
+	keys := []Key{{ID: "k1", Pub: oldPub, NotAfter: now.Add(7 * 24 * time.Hour)}, {ID: "k2", Pub: newPub}}
+	for _, tc := range []struct {
+		sig  []byte
+		at   time.Time
+		ok   bool
+		name string
+	}{
+		{sig("k1", oldPriv), now, true, "old key inside overlap"},
+		{sig("k2", newPriv), now, true, "new key"},
+		{sig("k1", oldPriv), now.Add(8 * 24 * time.Hour), false, "old key after not-after"},
+		{sig("k2", oldPriv), now, false, "wrong key for id"},
+		{sig("k9", newPriv), now, false, "unknown id"},
+		{[]byte(base64.StdEncoding.EncodeToString(ed25519.Sign(newPriv, body))), now, true, "legacy bare signature"},
+	} {
+		_, err := VerifySnapshot(keys, body, tc.sig, tc.at)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: err=%v", tc.name, err)
+		}
+	}
+	k, err := PublicKey([]byte("# key-id: k1\n# not-after: 2030-01-01T00:00:00Z\n" + base64.StdEncoding.EncodeToString(oldPub)))
+	if err != nil || k.ID != "k1" || k.NotAfter.Year() != 2030 {
+		t.Fatal(k, err)
+	}
+}
+
+// Low (PR #13 review): the repo ships a verified fallback snapshot and the
+// header records source and upstream commit.
+func TestRepoSnapshot_FallbackAndProvenance(t *testing.T) {
+	if err := CheckSnapshotFiles(policydata.FS, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := policydata.FS.ReadFile("categories/malware.txt")
+	for _, h := range []string{"source", "upstream-commit"} {
+		if v, ok := SnapshotHeader(cur, h); !ok || v == "" {
+			t.Errorf("missing %s header", h)
+		}
+	}
+}
+
+// Low (PR #13 review): 6to4 and Teredo are non-public in the policy layer.
+func TestIsNonPublic_6to4Teredo(t *testing.T) {
+	for _, s := range []string{"2002:c0a8:0101::1", "2002:7f00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001::1"} {
+		if !IsNonPublic(netip.MustParseAddr(s)) {
+			t.Errorf("%s must be non-public", s)
+		}
+	}
+	if IsNonPublic(netip.MustParseAddr("2001:4860:4860::8888")) {
+		t.Error("public IPv6 must stay public")
 	}
 }

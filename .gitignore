@@ -25,3 +25,4 @@ config.local.yaml
 backups/
 *.dump
 !deploy/searxng/.env.example
+*.key

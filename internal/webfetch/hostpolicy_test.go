@@ -71,3 +71,17 @@ func TestDNSAnswerDenyList_MappedUnspecifiedMulticast(t *testing.T) {
 		mustBlocked(t, err, ReasonSSRF)
 	}
 }
+
+// Low (PR #13 review): Teredo and 6to4 answers are refused at connect time.
+func TestDNSAnswerDenyList_TeredoAnd6to4(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("reached %s", r.Host)
+	}))
+	defer srv.Close()
+	for _, ip := range []string{"2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001::1", "2002:c0a8:0101::1"} {
+		res := &fakeResolver{m: map[string][]string{"evil.example.com": {ip}}}
+		f := newTestFetcher(t, srv, res, Options{})
+		_, err := f.Fetch(context.Background(), "http://evil.example.com/", 0)
+		mustBlocked(t, err, ReasonSSRF)
+	}
+}

@@ -29,4 +29,9 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go run ./cmd/eve-policy verify
       - run: go test -race -count=1 ./...
+      - name: Postgres integration tests must run (not skip)
+        run: |
+          go test -count=1 -v -run 'TestAudit_|TestPostgres' ./internal/store/postgres | tee pg.out
+          ! grep -q -- '--- SKIP' pg.out
+          for t in TestAudit_PrivilegesAndAppendOnly TestAudit_ConcurrentChainAndTamper TestPostgresStore; do grep -q -- "--- PASS: $t" pg.out || { echo "$t did not run"; exit 1; }; done
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

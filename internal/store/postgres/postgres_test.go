@@ -15,6 +15,9 @@ import (
 func open(t *testing.T) *Store {
 	dsn := os.Getenv("GW_TEST_DATABASE_URL")
 	if dsn == "" {
+		if os.Getenv("CI") != "" {
+			t.Fatal("GW_TEST_DATABASE_URL must be set in CI (Postgres tests may not be skipped)")
+		}
 		t.Skip("GW_TEST_DATABASE_URL not set")
 	}
 	ctx := context.Background()

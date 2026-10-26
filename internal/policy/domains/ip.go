@@ -124,6 +124,9 @@ var nonPublic = func() []netip.Prefix {
 		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
 		"192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
 		"::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8", "fd7a:115c:a1e0::/48",
+		// IPv6 transition tunnels can carry an internal IPv4 destination:
+		// 6to4 (2002::/16) and Teredo (2001::/32) are treated as non-public.
+		"2002::/16", "2001::/32",
 	} {
 		out = append(out, netip.MustParsePrefix(s))
 	}
@@ -148,7 +151,7 @@ func embeddedV4(a netip.Addr) (netip.Addr, bool) {
 }
 
 // IsNonPublic reports loopback, RFC 1918, link-local, CGNAT/tailnet, ULA,
-// unspecified, multicast and broadcast addresses, looking through mapped,
+// unspecified, multicast, broadcast, 6to4 and Teredo addresses, looking through mapped,
 // compatible and NAT64 IPv6 forms.
 func IsNonPublic(a netip.Addr) bool {
 	cands := []netip.Addr{a}
