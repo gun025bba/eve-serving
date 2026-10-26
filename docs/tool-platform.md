@@ -52,7 +52,11 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 - 작은 모델용 규칙: 인자 ≤4개, 중첩 객체 금지, 자유 문자열 대신 enum 우선, 날짜는 `YYYY-MM-DD` 문자열.
 
 ### 1.3 enable/disable와 킬스위치
-- **disable(끄는 방향)은 재배포 없이 즉시**: **킬스위치는 0600 파일 하나**(`tools-killswitch.yaml`: `all_off: bool`, `disabled: [<tool>…]`)뿐이며 SIGHUP으로 재로드합니다(이전 안의 `GW_TOOLS_DISABLED`·`GW_TOOLS_ALL_OFF` env는 폐기). 같은 파일에 선톡 전역 끄기 `proactive_off: true`도 둘 수 있습니다(PR #4, 끄기 전용). 파일이 없으면 아무것도 끄지 않고, 파일이 있는데 권한이 0600이 아니거나 파싱에 실패하면 **전부 끈 상태**로 둡니다(fail-closed). 알 수 없는 키가 있으면 거부합니다. 끄는 것은 위험을 줄이는 방향이라 승인 없이 가능(사후 보고).
+- **disable(끄는 방향)은 재배포 없이 즉시**: **킬스위치는 0600 파일 하나**(`tools-killswitch.yaml`: `all_off: bool`, `disabled: [<tool>…]`)뿐이며 SIGHUP으로 재로드합니다(이전 안의 `GW_TOOLS_DISABLED`·`GW_TOOLS_ALL_OFF` env는 폐기). 같은 파일에 선톡 전역 끄기 `proactive_off: true`도 둘 수 있습니다(PR #4, 끄기 전용). **기동 시** 파일이 없으면 아무것도 끄지 않습니다(기본 상태). 파일이 있는데 권한이 0600이 아니거나 파싱에 실패하거나 알 수 없는 키가 있으면 **전부 끈 상태**로 둡니다(fail-closed).
+  - **재로드(SIGHUP) 시 파일이 사라졌으면 직전 상태를 유지**하고 경고 로그를 남깁니다(파일 삭제로 켜져 있던 끄기가 풀리는 fail-open 차단). 끄기를 풀려면 파일을 고쳐서(`all_off: false`, 목록에서 제거) 재로드해야 합니다 [S2-K1].
+  - 파일 열기는 `O_NOFOLLOW`(symlink 거부)이고, 소유자 uid가 gateway 서비스 계정이 아니면 전부 끔(fail-closed) [S2-K2].
+  - 재로드 결과(성공·실패, 파일 해시, 적용된 끄기 목록)는 `tool_audit`의 `killswitch` 이벤트로 기록합니다 [S2-K3].
+  - 테스트: `TestKillswitch_PermOrParseErrorAllOff`, `TestKillswitch_UnknownKeyAllOff`, `TestKillswitch_FileRemovedKeepsOff`, `TestKillswitch_RejectsSymlinkWrongOwner`, `TestKillswitch_ReloadAudited`. 끄는 것은 위험을 줄이는 방향이라 승인 없이 가능(사후 보고).
 - **enable(켜는 방향)은 메이저 배포**: 처음 켜기, 다시 켜기 모두 코드/선언 변경으로만. 설정 파일로는 "끄기 목록"만 표현 가능하게 해서 설정으로 권한이 넓어지는 경로를 없앤다.
 - 정책 로드 실패 시 **전부 꺼진 상태로** 기동(fail-closed).
 
@@ -268,7 +272,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 | M0 | 이 설계 문서 PR, 보안 리뷰 | 문서 | — |
 | M1 | 레지스트리/매니페스트 검증, 실행기 파이프라인(감사 기록은 현행처럼 실패해도 web 툴 실행), 킬스위치(끄기 전용), 리다크터, `GW_TOOL_MOCK_DIR`, 관측 지표, web 툴 이전(§8). **CHECK 제거·fail-closed 전환 제외** | 마이너 1.2.0 (툴 집합·동작 불변, §15.2) | 보고만 |
 | M2 | 감사 원장 `tool_audit`(해시 체인, 소유자 분리, 멤버십 검사, advisory lock, Down 미DROP), DB 역할/권한 생성, 00004 마이그레이션(additive, CHECK 유지), 일일 verify, 이상 탐지 알림 | 마이너 1.3.0 | **배포 전 보안 리뷰 필수**(통과 후 보고) |
-| M3 | 스코프 정책 + 대화 단위 taint 엔진 + 유출 차단 + 인젝션 회귀 세트 CI + `tool_calls` CHECK 제거 + 감사 실패 fail-closed 전환 + **웹 도메인 허용/차단 정책(§13), IP 리터럴 정규화, 기본 차단 카테고리, block_reason 버그 정리**(구 M3.5 통합) | **메이저 2.0.0** (보안 경계 도입·변경) | 건영님 승인 |
+| M3 | 스코프 정책 + 대화 단위 taint 엔진 + 유출 차단 + 인젝션 회귀 세트 CI + `tool_calls` CHECK 제거 + 감사 실패 fail-closed 전환 + **웹 도메인 허용/차단 정책(§13), IP 리터럴 정규화, 기본 차단 카테고리, block_reason 버그 정리**(구 M3.5 통합). **구현은 PR 2개로 분리**: M3a taint·스코프(유출 차단·인젝션 CI·CHECK 제거·감사 fail-closed 포함), M3b 도메인 정책(§13). 각각 보안 리뷰 후 함께 2.0.0으로 출시 [S2-M3] | **메이저 2.0.0** (보안 경계 도입·변경) | 건영님 승인 |
 | M4 | 확인 게이트(pending_actions, approve/reject API, SSE 카드) — 아직 write 툴 없음, 테스트 툴로만 | **메이저 3.0.0** (API 표면·보안 경계 변경) | 건영님 승인 |
 | M5+ | 첫 신규 툴 등록(종류는 건영님 결정) | **메이저** | 건영님 승인 |
 | 이후 | 툴 추가·제거·버전 변경·스코프 확대·enable·MCP 서버 도입 | **항상 메이저** | 매번 승인 |
@@ -291,7 +295,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 ```
 - **호출 메커니즘**: OpenAI tools + `tool_choice:"auto"`, 라운드마다 non-stream 업스트림 호출. `message.tool_calls` 우선, 없으면 `<tool_call>` 정규식 파서(`parse.go`). 한 응답의 여러 호출 허용, 순차 실행. MaxRounds 3 / MaxCalls 5, 소진 시 FinalNotice 후 tools 없이 최종 답변. force 모드는 게이트웨이가 선실행.
 - **목 주입 지점(현재)**: `search.Provider`(`internal/search/search.go`), `tools.Fetcher`·`tools.Deps`(`internal/tools/session.go`), `webfetch.Resolver`(`internal/webfetch/fetch.go`), fake: `internal/tools/tools_test.go`, `internal/handlers/web_test.go`, `internal/search/search_test.go`, fixture `internal/search/testdata/searxng.json`.
-- **계획**: `GW_TOOL_MOCK_DIR`(fixtures/<tool>/<sha256(args)>.json, 운영 환경에서는 기동 거부), `Adapter` fake 등록, `tool_calls` 시퀀스 export, 노출 툴 수별 정확도·인젝션 fixture 지표.
+- **계획**: `GW_TOOL_MOCK_DIR`(fixtures/<tool>/<sha256(args)>.json, 운영 환경에서는 기동 거부). **'운영 환경' 판정**(하나라도 해당하면 운영으로 보고 mock 기동 거부, 판정 불가도 운영으로 봄) [S2-P]: (1) 빌드가 릴리스 태그(`git describe`가 `vX.Y.Z` 정확 일치), (2) DB 이름이 `_test`로 끝나지 않음, (3) 루프백 외 주소에서 수신하거나 tailscale serve 리스너 설정이 감지됨, (4) launchd 서비스로 기동(서비스 라벨 env 존재). 테스트 `TestMockDir_RefusedInProduction`(조건별 표 테스트), `Adapter` fake 등록, `tool_calls` 시퀀스 export, 노출 툴 수별 정확도·인젝션 fixture 지표.
 
 ### 10.3 프론트엔드 계약
 SSE(기존 이벤트 유지 + 추가):
@@ -501,6 +505,17 @@ SSE(기존 이벤트 유지 + 추가):
 | 다이어그램 | 파이프라인을 4단계로 묶음(단계는 전부 유지) | §4 |
 | 열린 결정 | read 전용 내부 툴 완화 기준(규칙은 그대로) | §14-12 |
 | PR #4 정합 | 선톡 전역 끄기도 같은 킬스위치 파일의 `proactive_off: true`로 표현 가능(끄기 전용) | §1.3, PR #4 |
+
+### 15.1h 보안 검토 반영 (단순화 커밋 c94ba97 리뷰)
+| ID | 지적 | 반영 | 위치 |
+|---|---|---|---|
+| S2-K1 | 재로드 시 파일 삭제로 끄기가 풀림(fail-open) | 직전 상태 유지 + 경고, 해제는 파일 수정으로만 | §1.3 |
+| S2-K2 | 소유자·symlink 검사 없음 | `O_NOFOLLOW`, 서비스 계정 uid 아니면 전부 끔 | §1.3 |
+| S2-K3 | 재로드 감사 없음 | `tool_audit` `killswitch` 이벤트(결과·파일 해시·목록) | §1.3, §5 |
+| S2-KT | 킬스위치 테스트 | `_PermOrParseErrorAllOff`, `_UnknownKeyAllOff`, `_FileRemovedKeepsOff`, `_RejectsSymlinkWrongOwner`, `_ReloadAudited` | §1.3 |
+| S2-M3 | M3 통합으로 리뷰 범위 확대 | 구현 PR 2개(M3a taint·스코프 / M3b 도메인 정책), 각각 보안 리뷰, 함께 2.0.0 출시 | §9 |
+| S2-P | '운영 환경' 판정 기준 | 4개 조건 중 하나라도 해당·판정 불가 → 운영, `TestMockDir_RefusedInProduction` | §10 |
+| 의견 | MCP 청사진화·열린 결정 12 현 규칙 유지 | 변경 없음(완화해도 보안 리뷰 필수) | §1.4, §14-12 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
