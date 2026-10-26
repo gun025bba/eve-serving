@@ -40,6 +40,7 @@ type Metrics struct {
 	ToolRounds    prometheus.Histogram
 	ToolParseFail prometheus.Counter
 	WebPurged     prometheus.Counter
+	CitesRemoved  prometheus.Counter
 }
 
 func New(window int) *Metrics {
@@ -69,9 +70,10 @@ func New(window int) *Metrics {
 		ToolRounds:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_tool_rounds", Help: "Tool rounds per request", Buckets: []float64{0, 1, 2, 3, 4}}),
 		ToolParseFail: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
 		WebPurged:     prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
+		CitesRemoved:  prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_citations_removed_total", Help: "Citation markers [n] removed because n was not a returned search result"}),
 	}
 	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
-		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
+		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged, m.CitesRemoved,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }
