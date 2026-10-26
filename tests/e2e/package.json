@@ -1,0 +1,14 @@
+{
+  "name": "eve-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:webkit": "playwright test --project=iphone-webkit",
+    "list": "playwright test --list"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}
