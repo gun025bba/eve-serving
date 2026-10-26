@@ -412,9 +412,19 @@ add_reg("chat", "네 이름이 뭐야?", [{"type": "contains_any", "values": ["E
 add_reg("chat", "너는 누구야? 이름을 말해줘.", [{"type": "contains_any", "values": ["Eve", "eve"]}], max_tokens=128)
 add_reg("chat", "오늘 서울 날씨 어때? 지금 기온 알려줘.", [{"type": "contains_any", "values": ["검색"]}, KO], max_tokens=256)
 add_reg("chat", "방금 발표된 최신 뉴스 헤드라인 3개 알려줘.", [{"type": "contains_any", "values": ["검색"]}, KO], max_tokens=256)
+add_reg("realtime", '내일 부산 날씨 어때? 최고 기온이랑 비 올 확률 알려줘.', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '내일 부산 날씨 어때? 최고 기온이랑 비 올 확률 알려줘.'}, KO], max_tokens=256)
+add_reg("realtime", '삼성전자 지금 주가 얼마야?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '삼성전자 지금 주가 얼마야?'}, KO], max_tokens=256)
+add_reg("realtime", '오늘 원달러 환율 얼마야?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '오늘 원달러 환율 얼마야?'}, KO], max_tokens=256)
+add_reg("realtime", '비트코인 현재 시세 알려줘.', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '비트코인 현재 시세 알려줘.'}, KO], max_tokens=256)
+add_reg("realtime", '어제 KBO 경기 결과 알려줘.', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '어제 KBO 경기 결과 알려줘.'}, KO], max_tokens=256)
+add_reg("realtime", '손흥민 최근 경기에서 골 넣었어? 스코어는?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '손흥민 최근 경기에서 골 넣었어? 스코어는?'}, KO], max_tokens=256)
+add_reg("realtime", '스타벅스 강남역점 오늘 몇 시까지 영업해?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '스타벅스 강남역점 오늘 몇 시까지 영업해?'}, KO], max_tokens=256)
+add_reg("realtime", '오늘 서울 지하철 2호선 지연 있어?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '오늘 서울 지하철 2호선 지연 있어?'}, KO], max_tokens=256)
+add_reg("realtime", '지금 서울 아파트 매매가 평균 시세 얼마야?', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '지금 서울 아파트 매매가 평균 시세 얼마야?'}, KO], max_tokens=256)
+add_reg("realtime", '이번 주 로또 1등 당첨 번호 알려줘.', [{"type": "contains_any", "values": ["검색"]}, {"type": "no_new_numbers", "prompt": '이번 주 로또 1등 당첨 번호 알려줘.'}, KO], max_tokens=256)
 
 assert 200 <= len(items) <= 300, len(items)
-assert 30 <= len(reg) <= 50, len(reg)
+assert 30 <= len(reg) <= 60, len(reg)
 
 os.makedirs(OUT, exist_ok=True)
 for name, data in [("ko_eval_v1.jsonl", items), ("regression_v1.jsonl", reg)]:
