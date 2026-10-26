@@ -30,6 +30,9 @@ type Config struct {
 	MinFreeMemGB    float64        `yaml:"min_free_mem_gb" json:"min_free_mem_gb"`
 	CORSOrigins     []string       `yaml:"cors_origins" json:"cors_origins"`
 	StaticDir       string         `yaml:"static_dir" json:"static_dir"`
+	// ToolsKillswitchFile is the optional 0600 off-only kill switch file
+	// (docs/tool-platform.md §1.3). Empty = no kill switch (nothing disabled).
+	ToolsKillswitchFile string `yaml:"tools_killswitch_file" json:"tools_killswitch_file"`
 	// AllowedUsers are Tailscale logins accepted via the Tailscale-User-Login
 	// header (loopback only). Empty = identity auth disabled.
 	AllowedUsers []string   `yaml:"allowed_users" json:"allowed_users"`
@@ -131,7 +134,7 @@ func Load(path string, getenv func(string) string) (Config, error) {
 }
 
 func applyEnv(c *Config, getenv func(string) string) error {
-	str := map[string]*string{"UPSTREAM": &c.Upstream, "MODEL": &c.Model, "LOG_LEVEL": &c.LogLevel, "LOG_FILE": &c.LogFile, "STATIC_DIR": &c.StaticDir}
+	str := map[string]*string{"UPSTREAM": &c.Upstream, "MODEL": &c.Model, "LOG_LEVEL": &c.LogLevel, "LOG_FILE": &c.LogFile, "STATIC_DIR": &c.StaticDir, "TOOLS_KILLSWITCH_FILE": &c.ToolsKillswitchFile}
 	for k, p := range str {
 		if v := getenv("GW_" + k); v != "" {
 			*p = v
