@@ -16,18 +16,18 @@
 | Q1 | `GET /v1/threads/{id}/messages`의 Message에 `origin`(`user`\|`assistant`\|`proactive`), `job_id`(proactive만, 아니면 null), `read_at`(proactive만 의미, 아니면 null) 포함. DB `origin='user_turn'`은 기존 `role`로 `user`/`assistant`를 나눠 내보낸다. | MINOR |
 | Q2 | Thread에 서버 계산 `unread_count`(읽지 않은 proactive 메시지 수, `threads.user_id` 조인 범위). 선톡 도착 시 `threads.updated_at`을 올린다(기존 `updated_at` 정렬 그대로). | MINOR |
 | Q3 | proactive Message에 `provenance: {actor:"scheduler", job_id, job_name}`. `job_name`은 템플릿 `templates/<id>.yaml`의 `display_name`(서버 고정 문자열, 사용자 입력 아님). SSE confirmation `provenance`에도 같은 `job_name`. | MINOR |
-| Q4 | 플래그 대신 Message `kind` 필드 하나: `null`(일반) \| `digest`(quiet hours 종료 요약). 새 값 추가는 MINOR, UI는 모르는 값을 `null`처럼 처리. | MINOR |
-| Q5 | **P1에는 job 전용 스레드 없음.** 선톡은 job의 `thread_id`(사용자 스레드 또는 follow-up 원 스레드)에만 들어간다. 스레드 표시는 메시지 `provenance`로 충분. (청사진 §3) | — |
-| Q6 | `POST /v1/threads/{id}/read` → 해당 스레드의 미읽음 proactive 메시지를 모두 `read_at=now()`, 응답 `{unread_count:0}`. 기존 `POST /v1/messages/{id}/read`도 유지. CSRF·Origin 동일. | MINOR |
+| Q4 | 플래그 대신 Message `kind` 필드 하나: `null`(일반) \| `digest`(quiet hours 종료 요약). 그리고 proactive Message에 `template_kind`(`briefing`\|`watch`\|`followup`, 템플릿 yaml의 선언값)를 둬 UI가 출처 아이콘을 고른다. 새 값 추가는 MINOR, UI는 모르는 값을 기본 아이콘·`null`처럼 처리. | MINOR |
+| Q5 | 별도 "job 전용 스레드" 종류는 없다. `scheduled_jobs.thread_id`는 nullable: follow-up은 원 스레드, 원 스레드가 없는 job(브리핑·watch)은 **첫 실행 때 서버가 스레드를 하나 만들고**(제목 = `job_name`) 그 id를 `thread_id`에 저장, 이후 실행은 재사용. 보통 Thread라 새 필드 없음(PM §3 갱신, 컬럼 추가만 = MINOR). | MINOR |
+| Q6 | `POST /v1/threads/{id}/read` → 해당 스레드의 미읽음 proactive 메시지를 모두 `read_at=now()`, 응답 `{unread_count:0}`. 다른 사용자 스레드는 **404**. 기존 `POST /v1/messages/{id}/read`도 유지. CSRF·Origin 동일. | MINOR |
 | Q7 | `GET /v1/settings`, `PATCH /v1/settings`(부분 갱신, merge). 키는 §2. 알 수 없는 키·타입·범위 오류는 400(PM S4-4). | MINOR |
 | Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17). PATCH로 `system`을 보내면 400. | MINOR |
-| Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`에 **원래와 같은 `item_ids`**(또는 add 제안은 빈 본문)를 보내 재발급. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 재발급 횟수 상한은 TP 규칙(3회) 공유. | MINOR |
+| Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §4.1. | MINOR |
 | Q10 | SSE confirmation 이벤트에 `token_expires_at` 포함(`expires_at`과 별개, TP 두 만료 규칙). | MINOR |
-| Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete는 저장된 `id`·`text`·`kind`. `created_at` 등 추가 필드 없음. | MINOR |
-| Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. | MINOR |
-| Q13 | SSE confirmation에 `scopes:["memory.write"]` 등 툴의 선언 스코프를 그대로 포함. UI는 verb가 `write`/`send`면 위험 스타일(삭제 op는 payload_view로 구분). | MINOR |
-| Q14 | 서버 거부(시크릿 필터·상한·taint)는 **카드 error 상태**: SSE confirmation이 `status:"denied", error_code:"secret_detected"\|"too_long"\|"tainted_thread"\|…`로 온다(본문 없음). 모델 답변은 별개로 이어짐. 카드 문구는 UI가 코드로 결정. | MINOR |
-| Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400). 새 제안·새 `payload_hash`·새 토큰을 돌려주고 원 제안은 `voided`. approve 본문은 그대로(TP). | MINOR |
+| Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
+| Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. 보안 규칙은 §4.2. | MINOR |
+| Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
+| Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `kill_switch` \| `invalid`. **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
+| Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400 `invalid`). 새 제안·새 `payload_hash`·새 토큰, 원 제안 `voided`. approve 본문은 그대로(TP). 규칙은 §4.1. | MINOR |
 | Q16 | 매칭 없음 = **카드 없음**, 모델이 답한다. 별도 신호 필드 없음(P1). UI의 "메모리 관리 열기" 링크는 붙이지 않거나 고정 도움말로. (청사진 §3) | — |
 | Q17 | 메모리 읽기 전용(MEM S5-R6)은 `GET /v1/settings`의 `system.memory_read_only`. `GET /v1/memory`에는 추가 필드 없음. | MINOR |
 | Q18 | 스레드별 "메모리 없이"는 **P1 범위 밖**. (청사진 §3) | — |
@@ -54,10 +54,45 @@ GET /v1/settings
 | `proactive.daily_cap` | **P1에 없음** | 서버 고정 하루 3건. 키는 예약: 나중에 1–3 범위, **낮추기만** 허용(MINOR). P1에 보내면 400(알 수 없는 키). |
 
 - PM §3의 `quiet_start`/`quiet_end`/`daily_cap` 예시는 이 계약(`quiet_hours` 객체, `daily_cap` 미노출)으로 대체한다. PM의 서버 상한(코드 상수)은 그대로.
-- PATCH는 부분 merge, `system` 키 거부, 알 수 없는 키·범위 오류 400, CSRF·Origin 필수, 결과는 `tool_audit`(본문 값만, 시크릿 없음).
+- PATCH는 **고정 구조체 strict decode**(Go struct + `DisallowUnknownFields`)로 받고, 지정된 키만 덮어쓴다(일반 map deep-merge 없음). 알 수 없는 키, `null`, 중복 키, 허용 깊이(2단계) 초과, 타입·범위 오류, `system` 키 → 400 `invalid`. CSRF·Origin 필수.
+- 감사: `proactive.enabled`·`proactive.memory_read`·`memory.enabled` 변경은 `tool_audit` **security 이벤트**로 before/after 값을 기록(불리언만). quiet hours는 ops 이벤트.
+- **킬스위치가 항상 우선**: 사용자 설정이 on이어도 `proactive_off`·`all_off`면 실행하지 않고, `system.*_available=false`로 보인다.
+
+## 4. 보안 규칙 (보안 리뷰 반영)
+
+### 4.1 `POST /v1/proposals/{id}/revise` [Sec-M1]
+- 다른 사용자의 제안이면 **404**(존재 여부 노출 없음). CSRF·Origin 필수.
+- `item_ids`는 원 제안의 부분집합이고, **지금도 현재 사용자 소유로 존재하는지 다시 확인**(그사이 삭제된 id면 400 `not_found`).
+- 원 제안 무효화는 조건부 UPDATE: `UPDATE pending_actions SET status='voided' WHERE id=$1 AND user_id=$2 AND status='pending'` → **정확히 1행**이어야 하며, 같은 트랜잭션에서 새 제안 생성 + 원 토큰 무효화. 0행이면(이미 approve·void·만료) 409. approve와 경쟁하면 둘 중 하나만 성공한다(approve도 같은 `status='pending'` 조건부 UPDATE).
+- 제안에는 `root_id`(첫 제안 id)를 둔다. **토큰 발급 3회 상한은 revise 체인 전체(`root_id`)로 센다**.
+- 제안 만료는 **`root.created_at + 24h`를 넘지 않는다**. 그 뒤 revise는 **410 `expired`**.
+- 새 제안은 원 제안의 `actor`, `job_id`, taint 표시, `scopes`를 그대로 물려받는다(revise로 권한·출처를 바꿀 수 없음).
+- add 제안(메모리 add)의 재발급도 **시크릿 필터·정규화를 다시 실행**한다(패턴 갱신 반영).
+- 테스트: `TestProposalRevise_OtherUser404`, `_ItemIDsMustStillBeOwned`, `_ConditionalVoidSingleRow`, `_RaceWithApproveOnlyOneWins`, `_IssueCapAcrossChain`, `_ExpiryCappedAtRoot24h410`, `_InheritsActorJobTaintScope`, `_AddRerunsSecretFilter`, `_EmptyBodyReissuesSamePayload`.
+
+### 4.2 `proactive.propose_followup` [Sec-M2]
+- **scheduler 실행과 tainted 스레드에서 `proactive.write`를 하드 거부**(선톡이 선톡을 만드는 자기 루프 차단). `scope_denied` / `tainted`.
+- `thread_id`는 모델 인자가 아니라 **서버가 현재 스레드로 고정**한다.
+- `when.at`은 미래이고 **현재로부터 30일 이내**(아니면 `invalid`).
+- 사용자별 활성 follow-up(`enabled AND deleted_at IS NULL`) **최대 10개**(코드 상수, 초과 시 `cap_exceeded`). 청사진: 필요하면 서버 설정값으로 옮기되 낮추기만 MINOR, 올리기는 리뷰.
+- `template_id`는 follow-up 허용 목록(템플릿 yaml `allow_followup: true`)에 있는 것만.
+- 테스트: `TestProposeFollowup_DeniedInSchedulerRun`, `_DeniedInTaintedThread`, `_ThreadIDPinnedToCurrent`, `_WhenFutureWithin30Days`, `_ActiveCap10`, `_TemplateAllowlist`.
+
+### 4.3 기타 [Sec-L]
+- **SSE에는 토큰·토큰 해시를 절대 넣지 않는다**(토큰은 사용자 세션 POST 응답으로만). SSE는 해당 세션 사용자에게만 전송. 테스트 `TestSSEConfirmation_NoTokenOrHash`, `TestSSEConfirmation_OnlyToSessionUser`.
+- `POST /v1/threads/{id}/read`의 다른 사용자 스레드 → 404. 테스트 `TestThreadRead_OtherUser404`.
+- 설정: `TestSettingsPatch_StrictDecodeRejectsNullDupDeep`, `TestSettingsPatch_NoMapMerge`, `TestSettingsAudit_SecurityKeysBeforeAfter`, `TestSettings_KillSwitchWins`.
+- 거부 카드: `TestConfirmationDenied_FixedErrorCodeNoText`.
+
+| ID | 지적 | 반영 |
+|---|---|---|
+| Sec-M1 | revise 규칙 | §4.1 (404, 소유 재확인, 조건부 1행 void, 체인 상한, root+24h, 상속, 필터 재실행) |
+| Sec-M2 | follow-up 툴 | §4.2 (scheduler·taint 거부, thread 고정, 30일, 활성 10개, 템플릿 허용 목록) |
+| Sec-L | settings strict decode·감사·킬스위치, SSE 토큰 금지, read 404 | §2, §4.3 |
+| 디자이너 | 위험 스타일 send·delete만, job 스레드 첫 실행 생성, 후보 `updated_at`, 고정 error_code, 빈 본문 revise, `template_kind` | §1 Q4·Q5·Q9·Q11·Q13·Q14 |
 
 ## 3. 확장 메모 (청사진)
-- **job 전용 스레드(Q5)**: 필요해지면 Thread에 `kind:"job"` + `job_id`를 추가(MINOR). P1에서는 기존 스레드만 사용.
+- **job 스레드 표시(Q5)**: 목록에서 job이 만든 스레드를 구분해야 하면 Thread에 `job_id`를 노출(MINOR). P1은 메시지 `provenance`·`template_kind`로 충분.
 - **매칭 없음 신호(Q16)**: 필요하면 SSE `tool_result`에 `status:"no_match"`를 노출(MINOR).
 - **스레드별 메모리 끄기(Q18)**: `threads.settings` JSONB(`{"memory":false}`) 또는 `PATCH /v1/threads/{id} {"memory":false}`. 프롬프트 동작 변경이라 리뷰 대상.
 - **`kind` 값 추가(Q4)**: `digest` 외 값은 MINOR, UI 기본 처리 규칙으로 하위 호환.

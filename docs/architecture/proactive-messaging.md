@@ -110,7 +110,7 @@ scheduled_jobs (
   tz TEXT DEFAULT 'Asia/Seoul',
   template_id TEXT NOT NULL,       -- templates/<id>.yaml, 자유 텍스트 금지
   send_if_changed BOOLEAN DEFAULT false,
-  thread_id TEXT FK threads NULL,  -- follow-up은 원 스레드, 나머지는 job 전용 스레드
+  thread_id TEXT FK threads NULL,  -- follow-up은 원 스레드. NULL이면 첫 실행 때 서버가 스레드를 만들고(제목 = 템플릿 display_name) 저장, 이후 재사용 (ui-api-contract.md Q5)
   enabled BOOLEAN DEFAULT true,
   deleted_at TIMESTAMPTZ NULL,     -- 소프트 삭제(삭제 = enabled=false + deleted_at). 앱의 하드 DELETE 없음(사용자 삭제 cascade만 예외). 소프트 삭제는 `tool_audit`에 `event_class=security` 이벤트(`job_deleted`, actor, job_id)로 기록 [S4-7][S4-10]
   created_by TEXT CHECK (created_by IN ('user','model_confirmed')),
