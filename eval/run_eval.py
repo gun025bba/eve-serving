@@ -319,6 +319,34 @@ def chat_completion(base: str, key: str, model: str, item: dict, append_no_think
             "finish_reason": None,
             "usage": {},
         }
+    try:
+        body = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "status": status,
+            "latency_s": latency,
+            "error": "invalid json",
+            "content": "",
+            "finish_reason": None,
+            "usage": {},
+        }
+    choice = (body.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    content = msg.get("content") or ""
+    content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
+    usage = body.get("usage") or {}
+    return {
+        "ok": status == 200,
+        "status": status,
+        "latency_s": latency,
+        "error": None if status == 200 else str(body)[:500],
+        "content": content,
+        "finish_reason": choice.get("finish_reason"),
+        "usage": usage,
+        "raw_id": body.get("id"),
+    }
+
 
 def aggregate(results: list[dict]) -> dict:
     by_cat: dict[str, list] = defaultdict(list)
