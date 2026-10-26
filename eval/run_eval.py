@@ -33,7 +33,7 @@ import http.client
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -423,6 +423,8 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
         "omit_max_tokens": bool(args.omit_max_tokens),
         "system_prompt_file": args.system_prompt_file or None,
         "category_max_tokens": args.category_max_tokens or None,
+        "web_state": args.web_state,
+        "system_prompt_rendered": args.system_prompt,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary,
         "results": results,
@@ -441,6 +443,8 @@ def main():
     ap.add_argument("--append-no-think", type=int, default=int(os.getenv("EVAL_APPEND_NO_THINK", "1")))
     ap.add_argument("--omit-max-tokens", type=int, default=int(os.getenv("EVAL_OMIT_MAX_TOKENS", "0")), help="1=omit max_tokens (use server default); 0=send item max_tokens (default)")
     ap.add_argument("--system-prompt-file", default=os.getenv("EVAL_SYSTEM_PROMPT_FILE", ""), help="UTF-8 text file injected as system message for every request")
+    ap.add_argument("--web-state", choices=["off", "on", "unavailable"], default=os.getenv("EVAL_WEB_STATE", "off"), help="fills {{WEB}} in the system prompt like the gateway (default off)")
+    ap.add_argument("--prompt-date", default=os.getenv("EVAL_PROMPT_DATE", ""), help="override {{DATE}} (default: today KST, gateway format)")
     ap.add_argument("--category-max-tokens", dest="category_max_tokens_spec", default=os.getenv("EVAL_CATEGORY_MAX_TOKENS", ""), help="cap max_tokens by category, e.g. chat=1536,safety=1536")
     args = ap.parse_args()
     if not args.base_url:
@@ -453,6 +457,21 @@ def main():
         args.system_prompt = sp.read_text(encoding="utf-8").strip()
         if not args.system_prompt:
             raise SystemExit(f"system prompt file is empty: {sp}")
+    if args.system_prompt and ("{{DATE}}" in args.system_prompt or "{{WEB}}" in args.system_prompt):
+        if args.prompt_date:
+            date_s = args.prompt_date
+        else:
+            d = datetime.now(timezone.utc) + timedelta(hours=9)  # Asia/Seoul, no DST
+            date_s = f"{d.year}년 {d.month}월 {d.day}일 (" + "월화수목금토일"[d.weekday()] + ")"
+        web_s = ""
+        if args.web_state in ("off", "on"):
+            wp = Path(args.system_prompt_file).with_name(Path(args.system_prompt_file).stem.replace("_v1", "") + f"_web_{args.web_state}.txt")
+            if not wp.is_file():
+                raise SystemExit(f"web section file not found: {wp}")
+            web_s = wp.read_text(encoding="utf-8").strip()
+        args.system_prompt = args.system_prompt.replace("{{DATE}}", date_s).replace("{{WEB}}", web_s)
+        while "\n\n\n" in args.system_prompt:
+            args.system_prompt = args.system_prompt.replace("\n\n\n", "\n\n")
     args.category_max_tokens = {}
     for part in (args.category_max_tokens_spec or "").split(","):
         part = part.strip()
