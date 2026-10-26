@@ -92,7 +92,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 흐름:
 1. 모델이 write/send 툴 호출 → 실행기는 **실행하지 않고** 인자를 스키마 검증·정규화(RFC 8785 JCS) → `payload_hash = sha256(user|tool|tool_version|canonical_args)`.
 2. `pending_actions` 행 생성, SSE `chat.completion.confirmation` 카드 송출(실제 실행될 페이로드 그대로: 수신자, 본문 요약, 일시). 모델에게는 `{"status":"pending_confirmation","action_id":...}`만 반환.
-3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at`(발급 후 120~300초, 기본 120초, **제안 만료를 넘지 않게 `LEAST(now()+ttl, expires_at)`로 상한**) 둘 다 미경과**, `token_sha256 IS NOT NULL`(토큰 미발급 제안은 승인 불가, `confirm_token` 누락·빈 값은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
+3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at` 둘 다 미경과**(토큰은 발급 후 120~300초, 기본 120초, 제안 만료를 넘지 않게 `LEAST(now()+ttl, expires_at)`로 상한), `token_sha256 IS NOT NULL`(토큰 미발급 제안은 승인 불가, `confirm_token` 누락·빈 값은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
 - **멱등성**: `idempotency_key = payload_hash + action_id`를 외부 API에 전달 가능하면 전달, 아니면 `executing` 상태 락 + `executed` 후 재시도 차단. 같은 approve 재요청은 저장된 결과를 반환.
@@ -351,7 +351,7 @@ SSE(기존 이벤트 유지 + 추가):
 | 3-3 Keychain/600 | §3.3 | 600 아니면 기동 거부 |
 | 3-4 회전·폐기 | §3.3 runbook | 리허설 기록, 폐기 토큰 실패 |
 | 3-5 에러 리다크션 | §3.3 | 업스트림 에러 주입 검사 |
-| 4-1 서버 1회용 토큰, 해시 바인딩, ≤2분 | §3.2 | 재사용/만료/1자 변경 거부 |
+| 4-1 서버 1회용 토큰, 해시 바인딩, 120~300초(기본 120초, 제안 만료로 상한) | §3.2 | 재사용/만료/1자 변경 거부 |
 | 4-2 UI 사람 확인만 | §3.2 | 모델 확인 문구로 실행 안 됨 |
 | 4-3 실제 페이로드 표시 | §3.2, §10.3 payload_view | UI 테스트 |
 | 4-4 결제·주문·송금 기본 비활성 | §3.1 trade 금지(코드 경로 없음) | 해당 스코프 거부 |
@@ -376,7 +376,7 @@ SSE(기존 이벤트 유지 + 추가):
 | 레지스트리 원천 = 저장소 선언 파일, 런타임 등록 API 없음 | §1.1. `tools/<name>/manifest.yaml`(+`deploy/policy/*.yaml`)만 원천, `go:embed`. `/v1/tools*` 쓰기 엔드포인트는 존재하지 않으며 404/405 테스트로 고정 |
 | 스코프 read/write/send/trade, 기본 거부, 신규 툴 read 전용 | §3.1. `trade`는 정책 로드 시 거부되는 금지값 |
 | 시크릿은 한 툴에만 주입, 권한 불량 시 기동 거부, canary·gitleaks | §3.3 |
-| 확인 토큰 ≤2분, (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(토큰 120~300초·제안 만료로 상한, tool_version까지 바인딩), §10.3 `payload_view` |
+| 확인 토큰 120~300초(기본 120초), (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(토큰 120~300초·제안 만료로 상한, tool_version까지 바인딩), §10.3 `payload_view` |
 | 턴당 N회 호출·쓰기 1회, 모델이 만든 URL fetch 금지, 외부 콘텐츠 system prompt 금지 | §4.1(N=5), §7 유출 차단(URL은 사용자 메시지/이번 검색 결과에서 온 값만 — 현행 `Session.allow` 일반화), §7 |
 | 감사 테이블 앱 역할 UPDATE/DELETE 없음, 거부 급증·taint 턴 쓰기 시도·신규 수신자 알림 | §5 `REVOKE`, 해시 체인, 이상 탐지 |
 | 정책·시크릿·감사·확인 서비스 장애 시 fail-closed, 타임아웃·응답 크기·레이트 한도, 별도 사용자/컨테이너 실행 권장 | §4 파이프라인, §12-5, 매니페스트 `timeout`/`max_result_chars`/`rate_per_min`, §1.4(MCP는 별도 사용자 필수, builtin 분리는 §14-3) |
