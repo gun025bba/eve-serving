@@ -58,8 +58,8 @@ type Server struct {
 }
 
 // uiCSP keeps the UI from loading external resources (no remote images =
-// no markdown-image exfiltration channel). Inline style attributes are used
-// by the UI. Neither inline scripts nor inline styles are allowed (UI v13 verified: no violations).
+// no markdown-image exfiltration channel).
+// Neither inline scripts nor inline styles are allowed (UI v13 verified: no violations).
 const uiCSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'; " +
 	"font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
 
