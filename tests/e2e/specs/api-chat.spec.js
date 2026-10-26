@@ -28,11 +28,18 @@ test.describe('chat', () => {
     expect(s.status()).toBe(200);
     expect(parseSSE(await s.text()).pop().data).toBe('[DONE]');
   });
-  test('cancel is 204 and idempotent; unknown message is 404', async ({ request }) => {
-    const r = await request.post('/v1/chat/completions', { headers: auth(), data: body('Write a long essay about rivers', { stream: true, max_tokens: 2000 }) });
-    const meta = JSON.parse(parseSSE(await r.text())[0].data);
+  test('cancel mid-generation stops it: 204 idempotent, row cancelled/failed, no further tokens', async ({ request }) => {
+    const { streamUntilMeta, waitSettled } = require('./helpers');
+    const { meta, drain } = await streamUntilMeta('Write a detailed multi-paragraph essay about rivers of the world. /no_think', { max_tokens: 256 });
     const url = `/v1/threads/${meta.thread_id}/messages/${meta.message_id}/cancel`;
     expect((await request.post(url, { headers: auth() })).status()).toBe(204);
+    const after = await drain(10000);
+    console.log('[cancel] after-cancel content chunks:', after.contentChunks, 'ended:', after.ended, 'done:', after.done);
+    expect(after.ended, 'stream should end promptly after cancel').toBe(true);
+    expect(after.contentChunks, 'no (or only in-flight) tokens after cancel').toBeLessThanOrEqual(3);
+    const m = await waitSettled(request, meta.thread_id, meta.message_id);
+    console.log('[cancel] row status:', m?.status, m?.error_code);
+    expect(['cancelled', 'failed', 'incomplete']).toContain(m?.status);
     expect((await request.post(url, { headers: auth() })).status()).toBe(204);
     expect((await request.post(`/v1/threads/${meta.thread_id}/messages/01J0000000000000000000000/cancel`, { headers: auth() })).status()).toBe(404);
   });
