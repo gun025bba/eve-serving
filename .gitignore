@@ -24,3 +24,4 @@ config.local.yaml
 .db_env
 backups/
 *.dump
+!deploy/searxng/.env.example

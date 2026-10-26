@@ -423,3 +423,21 @@ DROP TABLE tool_calls;
 - [ ] 8. 보관 90일 자동 삭제, 로그에는 해시만, 기본 모드 `off` — §2.8-9, §2.9, §2.12
 - [ ] 9. fetch 전역(4)·도메인(2) 동시성 제한, 검색어 시크릿 패턴 필터 — §2.8-7, §2.4, §2.10
 - [ ] 10. §3.2의 SSRF·유출 테스트(7.2-6) CI 통과 — §3.2
+
+## 4. Implementation status (branch `feat/web-search`)
+
+Code paths: `internal/search` (registry; `searxng`, `brave` stub), `internal/webfetch`
+(SSRF guard + fetcher), `internal/tools` (policy, session, parser), `internal/handlers/web.go`
+(tool loop, events, persistence), migration `00002_web_search.sql`, `deploy/searxng/`.
+
+- Feature is off unless `web.enabled: true` / `GW_WEB_ENABLED=true`; default mode `off`.
+- Auto mode: tool rounds are non-streaming upstream calls; an answer produced inside a tool
+  round is sent as one SSE chunk. Only the post-cap / force-mode final answer streams token by
+  token. (Known limitation; acceptable for v1.)
+- Force mode: gateway searches the last user message, fetches the top results, and inserts one
+  **user-role** wrapped message before it. No web text is ever placed in a system message.
+- History: prior `role:"tool"` messages are replaced by a metadata-only note; system messages
+  containing the untrusted delimiter are rejected (400).
+- Logs carry `arg_sha256`/`arg_len` only; metrics have no URL/domain/query labels.
+- Retention: a daily job deletes `tool_calls`/`web_sources` older than `retention_days` (90).
+- Deploy: `deploy/searxng/install-colima.sh check|install|verify|rollback`.
