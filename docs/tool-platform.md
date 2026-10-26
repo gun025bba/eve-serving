@@ -92,7 +92,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 흐름:
 1. 모델이 write/send 툴 호출 → 실행기는 **실행하지 않고** 인자를 스키마 검증·정규화(RFC 8785 JCS) → `payload_hash = sha256(user|tool|tool_version|canonical_args)`.
 2. `pending_actions` 행 생성, SSE `chat.completion.confirmation` 카드 송출(실제 실행될 페이로드 그대로: 수신자, 본문 요약, 일시). 모델에게는 `{"status":"pending_confirmation","action_id":...}`만 반환.
-3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at`(발급 후 120~300초, 기본 120초) 둘 다 미경과**, 토큰 존재(토큰 없는 승인은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
+3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at`(발급 후 120~300초, 기본 120초, **제안 만료를 넘지 않게 `LEAST(now()+ttl, expires_at)`로 상한**) 둘 다 미경과**, `token_sha256 IS NOT NULL`(토큰 미발급 제안은 승인 불가, `confirm_token` 누락·빈 값은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
 - **멱등성**: `idempotency_key = payload_hash + action_id`를 외부 API에 전달 가능하면 전달, 아니면 `executing` 상태 락 + `executed` 후 재시도 차단. 같은 approve 재요청은 저장된 결과를 반환.
@@ -376,7 +376,7 @@ SSE(기존 이벤트 유지 + 추가):
 | 레지스트리 원천 = 저장소 선언 파일, 런타임 등록 API 없음 | §1.1. `tools/<name>/manifest.yaml`(+`deploy/policy/*.yaml`)만 원천, `go:embed`. `/v1/tools*` 쓰기 엔드포인트는 존재하지 않으며 404/405 테스트로 고정 |
 | 스코프 read/write/send/trade, 기본 거부, 신규 툴 read 전용 | §3.1. `trade`는 정책 로드 시 거부되는 금지값 |
 | 시크릿은 한 툴에만 주입, 권한 불량 시 기동 거부, canary·gitleaks | §3.3 |
-| 확인 토큰 ≤2분, (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(120초, tool_version까지 바인딩), §10.3 `payload_view` |
+| 확인 토큰 ≤2분, (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(토큰 120~300초·제안 만료로 상한, tool_version까지 바인딩), §10.3 `payload_view` |
 | 턴당 N회 호출·쓰기 1회, 모델이 만든 URL fetch 금지, 외부 콘텐츠 system prompt 금지 | §4.1(N=5), §7 유출 차단(URL은 사용자 메시지/이번 검색 결과에서 온 값만 — 현행 `Session.allow` 일반화), §7 |
 | 감사 테이블 앱 역할 UPDATE/DELETE 없음, 거부 급증·taint 턴 쓰기 시도·신규 수신자 알림 | §5 `REVOKE`, 해시 체인, 이상 탐지 |
 | 정책·시크릿·감사·확인 서비스 장애 시 fail-closed, 타임아웃·응답 크기·레이트 한도, 별도 사용자/컨테이너 실행 권장 | §4 파이프라인, §12-5, 매니페스트 `timeout`/`max_result_chars`/`rate_per_min`, §1.4(MCP는 별도 사용자 필수, builtin 분리는 §14-3) |
@@ -385,7 +385,7 @@ SSE(기존 이벤트 유지 + 추가):
 ## 12. '설계 문서와 대조할 때 특히 볼 점' 답변
 
 1. **등록·해제·버전 변경·스코프 확대가 마이너/설정으로 분류되지 않았나?** — 모두 게이트웨이 **MAJOR**(§2, §9). 설정으로는 "끄기"만 가능하고 켜기·확대는 표현 불가(§1.3). 런타임 등록 API 없음(§1.1). 예외 후보는 M1의 web 툴 이전(툴 집합 불변) 하나뿐이며, 이것도 건영님이 메이저로 보길 원하면 메이저로 처리(열린 결정).
-2. **확인 게이트가 서버에서 페이로드 해시에 바인딩되나?** — 예. 토큰 발급·검증·상태 전이 모두 게이트웨이, (user, tool, tool_version, JCS 정규화 args) sha256 바인딩, 1회용, ≤120초, 원자적 상태 전이(§3.2). 클라이언트는 버튼만, 모델 텍스트는 무효.
+2. **확인 게이트가 서버에서 페이로드 해시에 바인딩되나?** — 예. 토큰 발급·검증·상태 전이 모두 게이트웨이, (user, tool, tool_version, JCS 정규화 args) sha256 바인딩, 1회용, 제안 만료+토큰 만료(120~300초, 제안 만료로 상한) 이중 검사, 원자적 상태 전이(§3.2). 클라이언트는 버튼만, 모델 텍스트는 무효.
 3. **taint 전파와 쓰기 차단이 명시됐나?** — §7: 외부 결과가 들어오면 **스레드(대화) 전체가 그 시점부터** tainted(서버 저장, 자동 해제 없음), tainted 스레드의 write는 자동 실행 불가(확인 강제), 대상이 툴 결과에서만 온 경우 차단, 감사에 `tainted` 기록.
 4. **시크릿이 DB/모델 컨텍스트로 가는 경로가 없나?** — 시크릿은 어댑터 `Input.Secrets`로만 전달되고 모델 입력·결과·로그·DB·SSE·에러 5개 출구 모두 리다크터 통과, DB엔 참조 ID만, `payload_view`엔 시크릿 필드 정의 금지(§3.3). canary 테스트로 검증.
 5. **fail-open 기본값이 없나?** — 정책 로드 실패 → 전부 off로 기동, 시크릿 조회 실패 → 해당 호출 denied, 감사 `started` 기록 실패 → 실행 안 함, 확인 서비스(DB) 장애 → write 거부, 파일 권한 불량 → 기동 거부, MCP `tools/list` 불일치 → 로드 거부, 스키마 검증 실패 → 실행 안 함, 미등록 툴 이름 → 거부(§1, §3, §4). 단 **현재 web 툴은 감사 기록 실패 시에도 실행되는 구조**라 M1에서 fail-closed로 바뀌는 점이 유일한 동작 차이 후보 → 감사 실패 시 web 툴도 막을지 건영님 결정.
@@ -516,7 +516,7 @@ SSE(기존 이벤트 유지 + 추가):
 | S2-M3 | M3 통합으로 리뷰 범위 확대 | 구현 PR 2개(M3a taint·스코프 / M3b 도메인 정책), 각각 보안 리뷰, 함께 2.0.0 출시 | §9 |
 | S2-P | '운영 환경' 판정 기준 | 4개 조건 중 하나라도 해당·판정 불가 → 운영, `TestMockDir_RefusedInProduction` | §10 |
 | S2-B | (재검토 5545305) 운영 판정 조건이 약함(수동 실행·DB 이름) | 1차 통제 = `-tags toolmock` 빌드 태그, 릴리스에 mock 없음, CI `TestReleaseBuild_HasNoMockSymbols`; 4조건은 2차 통제 | §10 |
-| S2-L | §3.2 approve 조건 '≤120초' 문구 | 제안 만료와 토큰 만료(120~300초) 둘 다 검사로 수정 | §3.2 |
+| S2-L | §3.2 approve 조건 '≤120초' 문구 | 제안 만료와 토큰 만료(120~300초, 제안 만료로 상한) 둘 다 검사 + `token_sha256 IS NOT NULL` 명시, §11·§12-2 문구도 통일 | §3.2, §11, §12 |
 | 의견 | MCP 청사진화·열린 결정 12 현 규칙 유지 | 변경 없음(완화해도 보안 리뷰 필수) | §1.4, §14-12 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
