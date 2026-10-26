@@ -201,10 +201,10 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
    - `TestPushVAPID_AudExactAppleHost`, `TestPushStartup_RefusesOnVAPIDKeyLoadFailure`, `TestPush_DisabledUntilHostConfirmed`, `TestPushPayload_FixedKeysAndSizeCap`, `TestPushRedaction_EndpointVAPIDJWTKeys` [N5]
 2. **Scheduler 실행 경계** (`internal/scheduler`)
    - `TestActorScheduler_RejectsWriteScope` / `_RejectsSendScope` / `_IgnoresGrantsFileOverride`
-   - `TestSchedulerRun_TaintedFromStart`, `TestSchedulerFollowup_InheritsOriginThreadTaint`, `TestScheduler_StopsOnLockLoss`
+   - `TestSchedulerRun_TaintedFromStart`, `TestSchedulerFollowup_InheritsOriginThreadTaint`, `TestScheduler_StopsOnLockLoss`, `TestActorScheduler_RequiresJobID`, `TestActor_NotClientSettable`
    - `TestSchedulerJob_TemplateIDOnly`(자유 텍스트·추가 키 거부), `TestSchedulerJob_NoModelOrToolPathWrites`(툴 레지스트리·모델 tool_call로 job 생성 불가)
 3. **확인 게이트** (PR #2 `pending_actions`와 공유)
-   - `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL`(24h), `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
+   - `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestApprove_RejectsTokenlessProposal`, `TestProposal_ExpiresAfterTTL`(24h), `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
 4. **API·스팸 방지·감사** (`internal/handlers`)
    - `TestProactiveAPI_OriginMissingOrNull403` / `_CSRFRequired` / `_IDOROtherUser404`
    - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestSchedulerJob_DeleteKeepsProactiveMessages`, `TestUserDelete_CascadesJobsAndProactiveMessages`, `TestScheduler_SkipsSoftDeletedJobs`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
@@ -249,6 +249,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 | S4-8 | (최종) 폴링 조건에 소프트 삭제 누락 | `enabled AND deleted_at IS NULL` 조건, `TestScheduler_SkipsSoftDeletedJobs` (§1) |
 | S4-9 | (최종) `RESTRICT`는 사용자 삭제 cascade를 막음 | FK `ON DELETE NO ACTION`(문장 끝 검사), `TestUserDelete_CascadesJobsAndProactiveMessages` (§3) |
 | S4-10 | (최종) job 소프트 삭제 감사 | `tool_audit` security 이벤트 `job_deleted` (§3) |
+| S4-11 | (후속) PR #2와 테스트 목록 정렬 | `TestActorScheduler_RequiresJobID`, `TestActor_NotClientSettable`(§5.1 그룹 2), `TestApprove_RejectsTokenlessProposal`(그룹 3) 추가 |
 
 ## 5.3 설계 원칙 반영 (단순성·확장성·청사진)
 
