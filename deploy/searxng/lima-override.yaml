@@ -1,0 +1,30 @@
+# Copy to ~/.colima/_lima/_config/override.yaml BEFORE `colima start`.
+# Without it, colima/lima forwards the guest dnsmasq (port 53) to *:53 on the
+# host, i.e. reachable from the LAN and the tailnet. This keeps every forward on
+# host loopback and never forwards port 53.
+portForwards:
+  - guestPort: 53
+    proto: any
+    ignore: true
+  - guestIP: "0.0.0.0"
+    guestPort: 53
+    proto: any
+    ignore: true
+  - guestIP: "::"
+    guestPort: 53
+    proto: any
+    ignore: true
+  - guestIP: "0.0.0.0"
+    guestPortRange: [1, 65535]
+    hostIP: "127.0.0.1"
+  - guestIP: "::"
+    guestPortRange: [1, 65535]
+    hostIP: "127.0.0.1"
+  - guestIP: "::1"
+    guestPortRange: [1, 65535]
+    hostIP: "127.0.0.1"
+hostResolver:
+  enabled: false
+dns:
+  - 1.1.1.1
+  - 8.8.8.8

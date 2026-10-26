@@ -24,6 +24,7 @@ check() {
 install() {
   check
   confirm "brew install colima docker docker-compose?" && brew install colima docker docker-compose
+  mkdir -p ~/.colima/_lima/_config && cp lima-override.yaml ~/.colima/_lima/_config/override.yaml
   confirm "start colima (2 cpu, 2 GiB, no k8s)?" && colima start --cpu 2 --memory 2 --disk 10
   confirm "docker compose up -d?" && docker compose --env-file .env up -d
   verify
@@ -32,7 +33,7 @@ Next (manual):
   1. In the gateway config set web.enabled: true (or GW_WEB_ENABLED=true), keep default_mode: off.
   2. Restart the gateway the usual way; check /v1/me -> capabilities.web_search=true.
   3. Try one request with "web_search":"auto"; watch llm_tool_calls_total and logs.
-Autostart: brew services start colima (compose services use restart: unless-stopped).
+Autostart: brew services start colima (DOCKER_CONFIG=~/.docker-colima avoids Docker Desktop creds; compose services use restart: unless-stopped).
 NEXT
 }
 
@@ -40,6 +41,7 @@ verify() {
   echo "- listening sockets for :$PORT (must be 127.0.0.1 only):"
   lsof -nP -iTCP:$PORT -sTCP:LISTEN || true
   if lsof -nP -iTCP:$PORT -sTCP:LISTEN | grep -v '127.0.0.1' | grep -q LISTEN; then echo "FAIL: $PORT bound beyond loopback"; exit 1; fi
+  if lsof -nP -iTCP -sTCP:LISTEN | grep -E '^(limactl|ssh) ' | grep -v '127.0.0.1:' | grep -q LISTEN; then echo "FAIL: colima forwards a port beyond loopback (see lima-override.yaml)"; exit 1; fi
   if lsof -nP -iTCP:6379 -sTCP:LISTEN >/dev/null 2>&1; then echo "FAIL: 6379 published on host"; exit 1; fi
   echo "- JSON search:"
   curl -fsS "http://127.0.0.1:$PORT/search?q=test&format=json" | head -c 200; echo

@@ -59,8 +59,8 @@ type Server struct {
 
 // uiCSP keeps the UI from loading external resources (no remote images =
 // no markdown-image exfiltration channel). Inline style attributes are used
-// by the UI, so style-src allows 'unsafe-inline'; scripts are 'self' only.
-const uiCSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+// by the UI. Neither inline scripts nor inline styles are allowed (UI v13 verified: no violations).
+const uiCSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'; " +
 	"font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
 
 func withCSP(h http.Handler) http.Handler {
