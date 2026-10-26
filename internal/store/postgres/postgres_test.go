@@ -80,14 +80,37 @@ func TestPostgresStore(t *testing.T) {
 
 	// feedback + replace clears it
 	c := "good"
-	if _, err := s.SetFeedback(ctx, a, ids[1], "up", &c); err != nil {
+	if _, err := s.SetFeedback(ctx, a, ids[1], "up", nil, &c); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetFeedback(ctx, b, ids[1], "up", nil); err != store.ErrNotFound {
+	if _, err := s.SetFeedback(ctx, b, ids[1], "up", nil, nil); err != store.ErrNotFound {
 		t.Fatal(err)
 	}
 	m, _ := s.GetMessage(ctx, a, ids[1])
 	if m.Feedback == nil || m.Feedback.Rating != "up" {
+		t.Fatal(m.Feedback)
+	}
+	if len(m.Feedback.Reasons) != 0 || *m.Feedback.Comment != "good" {
+		t.Fatal(m.Feedback)
+	}
+	if f, err := s.SetFeedback(ctx, a, ids[1], "down", []string{"wrong_info", "bad_source"}, nil); err != nil || len(f.Reasons) != 2 || f.Comment != nil {
+		t.Fatal(f, err)
+	}
+	// DB CHECKs back up the API validation
+	if _, err := s.SetFeedback(ctx, a, ids[1], "up", []string{"wrong_info"}, nil); err == nil {
+		t.Fatal("polarity check missing")
+	}
+	long := strings.Repeat("가", 141)
+	if _, err := s.SetFeedback(ctx, a, ids[1], "up", nil, &long); err == nil {
+		t.Fatal("comment length check missing")
+	}
+	var ex []store.FeedbackExport
+	if err := s.ExportFeedback(ctx, time.Time{}, func(e store.FeedbackExport) error { ex = append(ex, e); return nil }); err != nil || len(ex) != 1 ||
+		ex[0].MessageID != ids[1] || ex[0].Message == "" || ex[0].Rating != "down" || len(ex[0].Reasons) != 2 {
+		t.Fatal(ex, err)
+	}
+	m, _ = s.GetMessage(ctx, a, ids[1])
+	if m.Feedback.Rating != "down" || len(m.Feedback.Reasons) != 2 {
 		t.Fatal(m.Feedback)
 	}
 	pt := int64(5)

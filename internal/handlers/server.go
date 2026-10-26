@@ -217,6 +217,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/threads/{id}/messages", s.persisted(s.listMessages))
 	mux.HandleFunc("PUT /v1/messages/{id}/feedback", s.persisted(s.putFeedback))
 	mux.HandleFunc("DELETE /v1/messages/{id}/feedback", s.persisted(s.deleteFeedback))
+	mux.HandleFunc("GET /v1/feedback/export", s.persisted(s.exportFeedback))
 	mux.HandleFunc("GET /v1/search", s.persisted(s.search))
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)

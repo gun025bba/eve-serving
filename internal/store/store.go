@@ -48,6 +48,7 @@ type Usage struct {
 type Feedback struct {
 	MessageID string    `json:"message_id"`
 	Rating    string    `json:"rating"`
+	Reasons   []string  `json:"reasons"`
 	Comment   *string   `json:"comment"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -126,8 +127,30 @@ type MessageStore interface {
 }
 
 type FeedbackStore interface {
-	SetFeedback(ctx context.Context, user, messageID, rating string, comment *string) (Feedback, error)
+	// SetFeedback fully replaces the feedback on a message (reasons nil = none).
+	SetFeedback(ctx context.Context, user, messageID, rating string, reasons []string, comment *string) (Feedback, error)
 	DeleteFeedback(ctx context.Context, user, messageID string) error
+	// ExportFeedback calls fn for every feedback row (all users) updated at or
+	// after since, oldest first.
+	ExportFeedback(ctx context.Context, since time.Time, fn func(FeedbackExport) error) error
+}
+
+// FeedbackExport is one evaluation row; JSON field order is the contract.
+type FeedbackExport struct {
+	Message   string    `json:"message"`
+	Response  string    `json:"response"`
+	Rating    string    `json:"rating"`
+	Reasons   []string  `json:"reasons"`
+	Comment   *string   `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
+	ThreadID  string    `json:"thread_id"`
+	MessageID string    `json:"message_id"`
+}
+
+// Allowed feedback reason codes per rating (must match migration 00003).
+var FeedbackReasons = map[string][]string{
+	"down": {"wrong_info", "too_long", "misunderstood", "over_refusal", "bad_source", "other"},
+	"up":   {"accurate", "concise", "helpful", "good_source"},
 }
 
 type SearchStore interface {

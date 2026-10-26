@@ -36,7 +36,8 @@ Auth: `Authorization: Bearer <key>` (key in `~/llm-serving/.api_key`). Every res
 | GET/PATCH/DELETE | /v1/threads/{id} | yes | get / rename+archive / archive |
 | GET | /v1/threads/{id}/messages | yes | messages, `before=<id>` pagination |
 | POST | /v1/threads/import | yes | idempotent bulk import (client_id) |
-| PUT/DELETE | /v1/messages/{id}/feedback | yes | 👍/👎 + comment |
+| PUT/DELETE | /v1/messages/{id}/feedback | yes | 👍/👎 + reasons + comment |
+| GET | /v1/feedback/export?since=&format=jsonl | yes (admin) | feedback dataset as JSON lines |
 | GET | /v1/search | yes | title + content search (FTS + pg_trgm), `<mark>` snippets |
 
 Conversation storage: `thread_id` / `replace_message_id` on `/v1/chat/completions` and the endpoints above are

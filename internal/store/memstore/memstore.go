@@ -270,7 +270,7 @@ func (s *Store) ListMessages(_ context.Context, user, threadID string, limit int
 	return all, more, nil
 }
 
-func (s *Store) SetFeedback(_ context.Context, user, id, rating string, comment *string) (store.Feedback, error) {
+func (s *Store) SetFeedback(_ context.Context, user, id, rating string, reasons []string, comment *string) (store.Feedback, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, ok := s.msgs[id]
@@ -283,7 +283,10 @@ func (s *Store) SetFeedback(_ context.Context, user, id, rating string, comment 
 		f = &store.Feedback{MessageID: id, CreatedAt: now}
 		s.feedback[id] = f
 	}
-	f.Rating, f.Comment, f.UpdatedAt = rating, comment, now
+	if reasons == nil {
+		reasons = []string{}
+	}
+	f.Rating, f.Reasons, f.Comment, f.UpdatedAt = rating, append([]string{}, reasons...), comment, now
 	return *f, nil
 }
 
@@ -329,4 +332,45 @@ func (s *Store) Search(_ context.Context, user, q string, limit, offset int) ([]
 		hits = hits[:limit]
 	}
 	return hits, nil
+}
+
+func (s *Store) ExportFeedback(_ context.Context, since time.Time, fn func(store.FeedbackExport) error) error {
+	s.mu.Lock()
+	var out []store.FeedbackExport
+	var ts []time.Time
+	for id, f := range s.feedback {
+		m := s.msgs[id]
+		if m == nil || f.UpdatedAt.Before(since) {
+			continue
+		}
+		e := store.FeedbackExport{Response: m.Content, Rating: f.Rating, Reasons: append([]string{}, f.Reasons...), Comment: f.Comment, CreatedAt: f.CreatedAt, ThreadID: m.ThreadID, MessageID: id}
+		var best *msg
+		for _, u := range s.msgs {
+			if u.ThreadID == m.ThreadID && u.Role == "user" && u.CreatedAt.Before(m.CreatedAt) && (best == nil || u.CreatedAt.After(best.CreatedAt)) {
+				best = u
+			}
+		}
+		if best != nil {
+			e.Message = best.Content
+		}
+		out = append(out, e)
+		ts = append(ts, f.UpdatedAt)
+	}
+	s.mu.Unlock()
+	idx := make([]int, len(out))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.Slice(idx, func(a, b int) bool {
+		if !ts[idx[a]].Equal(ts[idx[b]]) {
+			return ts[idx[a]].Before(ts[idx[b]])
+		}
+		return out[idx[a]].MessageID < out[idx[b]].MessageID
+	})
+	for _, i := range idx {
+		if err := fn(out[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }

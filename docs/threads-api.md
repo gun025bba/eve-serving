@@ -28,7 +28,7 @@ Timestamps are RFC 3339 in UTC. Ids are ULIDs (26 chars, time-sortable).
   "metadata": {"incomplete":true,"reason":"client_disconnected"}?,
   "status": "complete|incomplete", "client_id": "…"?, "created_at": "…Z",
   "updated_at": "…Z"? /* set when regenerated */,
-  "feedback": {"message_id","rating":"up|down","comment":null|"…","created_at","updated_at"}? }
+  "feedback": {"message_id","rating":"up|down","reasons":["…"],"comment":null|"…","created_at","updated_at"}? }
 ```
 `?` = omitted when empty.
 
@@ -90,8 +90,32 @@ message → 400; no user message in the request → 400; no database → 503 `pe
 
 | Method & path | Body | Response |
 |---|---|---|
-| `PUT /v1/messages/{id}/feedback` | `{"rating":"up"\|"down","comment"?: "…"}` | 200 Feedback (upsert) |
+| `PUT /v1/messages/{id}/feedback` | `{"rating":"up"\|"down","reasons"?: ["…"],"comment"?: "…"}` | 200 Feedback |
 | `DELETE /v1/messages/{id}/feedback` | | 204 (toggle off; idempotent) |
+| `GET /v1/feedback/export?since=&format=jsonl` | | 200 JSON lines (admin only) |
+
+`PUT` is a **full replace** and idempotent: omitted `reasons`/`comment` are cleared, so to add reasons
+later send `rating` and `reasons` together again. Old clients that send only `rating` keep working.
+
+- `reasons`: codes for the rating's polarity, deduplicated (order kept), at most 8.
+  - `down`: `wrong_info`, `too_long`, `misunderstood`, `over_refusal`, `bad_source`, `other`
+  - `up`: `accurate`, `concise`, `helpful`, `good_source`
+  - Unknown code or wrong polarity → 400 `invalid_feedback_reason`.
+- `comment`: trimmed; empty → `null`; more than 140 characters → 400 `feedback_comment_too_long`.
+- The DB enforces the same lists and length with CHECK constraints (migration `00003_feedback_reasons`).
+
+### Export (model evaluation)
+
+`GET /v1/feedback/export?since=2026-10-01&format=jsonl` returns every user's feedback updated at or
+after `since` (RFC3339 or `YYYY-MM-DD`; default: all), oldest first, as `application/x-ndjson`.
+Allowed for API-key callers and Tailscale logins in `GW_ALLOWED_USERS`; others get 403.
+Each line, in this field order:
+
+```json
+{"message":"<preceding user prompt>","response":"<assistant reply>","rating":"down","reasons":["wrong_info"],"comment":null,"created_at":"…Z","thread_id":"…","message_id":"…"}
+```
+
+The same query for `psql` is in `scripts/feedback-export.sql`.
 
 ## Search — `GET /v1/search?q=&limit=20&cursor=`
 

@@ -236,15 +236,16 @@ func (s *Store) ReplaceMessage(ctx context.Context, user string, m store.Message
 }
 
 const msgCols = `m.id, m.thread_id, m.role, m.content, m.reasoning, m.model, m.params, m.usage, m.latency_ms, m.metadata, m.status, m.client_id, m.created_at, m.updated_at,
-	f.rating, f.comment, f.created_at, f.updated_at`
+	f.rating, f.reasons, f.comment, f.created_at, f.updated_at`
 
 func scanMsg(r pgx.Row) (store.Message, error) {
 	var m store.Message
 	var params, usage, meta []byte
 	var rating, comment *string
+	var reasons []string
 	var fc, fu *time.Time
 	err := r.Scan(&m.ID, &m.ThreadID, &m.Role, &m.Content, &m.Reasoning, &m.Model, &params, &usage, &m.LatencyMs, &meta, &m.Status, &m.ClientID, &m.CreatedAt, &m.UpdatedAt,
-		&rating, &comment, &fc, &fu)
+		&rating, &reasons, &comment, &fc, &fu)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, store.ErrNotFound
 	}
@@ -262,7 +263,7 @@ func scanMsg(r pgx.Row) (store.Message, error) {
 		json.Unmarshal(usage, m.Usage)
 	}
 	if rating != nil {
-		m.Feedback = &store.Feedback{MessageID: m.ID, Rating: *rating, Comment: comment, CreatedAt: fc.UTC(), UpdatedAt: fu.UTC()}
+		m.Feedback = &store.Feedback{MessageID: m.ID, Rating: *rating, Reasons: nonNil(reasons), Comment: comment, CreatedAt: fc.UTC(), UpdatedAt: fu.UTC()}
 	}
 	return m, nil
 }
@@ -320,16 +321,23 @@ func (s *Store) ListMessages(ctx context.Context, user, threadID string, limit i
 	return out, more, nil
 }
 
-func (s *Store) SetFeedback(ctx context.Context, user, messageID, rating string, comment *string) (store.Feedback, error) {
+func nonNil(a []string) []string {
+	if a == nil {
+		return []string{}
+	}
+	return a
+}
+
+func (s *Store) SetFeedback(ctx context.Context, user, messageID, rating string, reasons []string, comment *string) (store.Feedback, error) {
 	u, err := s.uid(ctx, user)
 	if err != nil {
 		return store.Feedback{}, err
 	}
 	f := store.Feedback{MessageID: messageID}
-	err = s.pool.QueryRow(ctx, `INSERT INTO feedback (message_id, user_id, rating, comment)
-		SELECT id, user_id, $3, $4 FROM messages WHERE id=$1 AND user_id=$2
-		ON CONFLICT (message_id) DO UPDATE SET rating=EXCLUDED.rating, comment=EXCLUDED.comment, updated_at=now()
-		RETURNING rating, comment, created_at, updated_at`, messageID, u, rating, comment).Scan(&f.Rating, &f.Comment, &f.CreatedAt, &f.UpdatedAt)
+	err = s.pool.QueryRow(ctx, `INSERT INTO feedback (message_id, user_id, rating, reasons, comment)
+		SELECT id, user_id, $3, $4, $5 FROM messages WHERE id=$1 AND user_id=$2
+		ON CONFLICT (message_id) DO UPDATE SET rating=EXCLUDED.rating, reasons=EXCLUDED.reasons, comment=EXCLUDED.comment, updated_at=now()
+		RETURNING rating, reasons, comment, created_at, updated_at`, messageID, u, rating, nonNil(reasons), comment).Scan(&f.Rating, &f.Reasons, &f.Comment, &f.CreatedAt, &f.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, store.ErrNotFound
 	}
@@ -433,4 +441,32 @@ func (s *Store) ImportThread(ctx context.Context, user string, it store.ImportTh
 		}
 	}
 	return id, true, tx.Commit(ctx)
+}
+
+// ExportFeedback streams feedback rows (all users); see scripts/feedback-export.sql.
+func (s *Store) ExportFeedback(ctx context.Context, since time.Time, fn func(store.FeedbackExport) error) error {
+	rows, err := s.pool.Query(ctx, `SELECT coalesce(up.content, ''), m.content, f.rating, f.reasons, f.comment, f.created_at, m.thread_id, m.id
+		FROM feedback f
+		JOIN messages m ON m.id = f.message_id
+		LEFT JOIN LATERAL (
+			SELECT u.content FROM messages u
+			WHERE u.thread_id = m.thread_id AND u.role = 'user' AND (u.created_at, u.id) < (m.created_at, m.id)
+			ORDER BY u.created_at DESC, u.id DESC LIMIT 1) up ON true
+		WHERE f.updated_at >= $1
+		ORDER BY f.updated_at, f.message_id`, since)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var e store.FeedbackExport
+		if err := rows.Scan(&e.Message, &e.Response, &e.Rating, &e.Reasons, &e.Comment, &e.CreatedAt, &e.ThreadID, &e.MessageID); err != nil {
+			return err
+		}
+		e.Reasons, e.CreatedAt = nonNil(e.Reasons), e.CreatedAt.UTC()
+		if err := fn(e); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }

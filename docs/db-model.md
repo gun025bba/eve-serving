@@ -61,6 +61,7 @@ erDiagram
         text message_id PK,FK
         bigint user_id FK
         text rating "up|down"
+        text_arr reasons
         text comment
         timestamptz created_at
         timestamptz updated_at
@@ -151,7 +152,8 @@ JSONB GIN 인덱스는 현재 없음. 메타데이터 조건 검색이 생기면
 | message_id | TEXT | PK, FK messages ON DELETE CASCADE | 메시지당 1건 |
 | user_id | BIGINT | NOT NULL, FK users | |
 | rating | TEXT | CHECK IN ('up','down') | |
-| comment | TEXT | NULL | |
+| reasons | TEXT[] | NOT NULL DEFAULT '{}', CHECK 극성별 코드 목록 | 00003. down: wrong_info, too_long, misunderstood, over_refusal, bad_source, other / up: accurate, concise, helpful, good_source |
+| comment | TEXT | NULL, CHECK char_length ≤ 140 (00003) | |
 | created_at / updated_at | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
 
 - 토글: up/down은 upsert, 취소는 행 삭제.

@@ -5,11 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/auth"
@@ -257,23 +260,123 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putFeedback(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		Rating  string  `json:"rating"`
-		Comment *string `json:"comment"`
+		Rating  string   `json:"rating"`
+		Reasons []string `json:"reasons"`
+		Comment *string  `json:"comment"`
 	}
 	if err := decodeJSON(http.MaxBytesReader(w, r.Body, 64<<10), &b); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	if b.Rating != "up" && b.Rating != "down" {
-		s.fail(w, r, apierr.BadRequest("'rating' must be \"up\" or \"down\""))
+	reasons, comment, aerr := validateFeedback(b.Rating, b.Reasons, b.Comment)
+	if aerr != nil {
+		s.fail(w, r, aerr)
 		return
 	}
-	f, err := s.Store.SetFeedback(r.Context(), user(r), r.PathValue("id"), b.Rating, b.Comment)
+	f, err := s.Store.SetFeedback(r.Context(), user(r), r.PathValue("id"), b.Rating, reasons, comment)
 	if err != nil {
 		s.fail(w, r, storeErr(err, "Message"))
 		return
 	}
 	writeJSON(w, 200, f)
+}
+
+const (
+	maxFeedbackReasons = 8
+	maxFeedbackComment = 140 // characters (runes), after trimming
+)
+
+// validateFeedback checks rating, dedupes reasons (order kept) and trims the
+// comment. Omitted reasons/comment mean "none" (PUT is a full replace).
+func validateFeedback(rating string, reasons []string, comment *string) ([]string, *string, *apierr.Error) {
+	allowed, ok := store.FeedbackReasons[rating]
+	if !ok {
+		return nil, nil, apierr.BadRequest("'rating' must be \"up\" or \"down\"")
+	}
+	out := []string{}
+	for _, c := range reasons {
+		if !slices.Contains(allowed, c) {
+			return nil, nil, apierr.New(400, "invalid_feedback_reason",
+				fmt.Sprintf("reason %q is not allowed for rating %q (allowed: %s)", c, rating, strings.Join(allowed, ", ")), "invalid_request_error")
+		}
+		if !slices.Contains(out, c) {
+			out = append(out, c)
+		}
+	}
+	if len(out) > maxFeedbackReasons {
+		return nil, nil, apierr.New(400, "invalid_feedback_reason", "at most 8 reasons", "invalid_request_error")
+	}
+	if comment != nil {
+		t := strings.TrimSpace(*comment)
+		if utf8.RuneCountInString(t) > maxFeedbackComment {
+			return nil, nil, apierr.New(400, "feedback_comment_too_long", "'comment' must be at most 140 characters", "invalid_request_error")
+		}
+		if t == "" {
+			comment = nil
+		} else {
+			comment = &t
+		}
+	}
+	return out, comment, nil
+}
+
+// exportFeedback streams all users' feedback as JSON lines (admin only).
+func (s *Server) exportFeedback(w http.ResponseWriter, r *http.Request) {
+	if !s.isAdmin(r) {
+		s.fail(w, r, apierr.New(403, "forbidden", "Admin only", "permission_error"))
+		return
+	}
+	q := r.URL.Query()
+	if f := q.Get("format"); f != "" && f != "jsonl" {
+		s.fail(w, r, apierr.BadRequest("'format' must be \"jsonl\""))
+		return
+	}
+	var since time.Time
+	if v := q.Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			if t, err = time.Parse("2006-01-02", v); err != nil {
+				s.fail(w, r, apierr.BadRequest("'since' must be RFC3339 or YYYY-MM-DD"))
+				return
+			}
+		}
+		since = t
+	}
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	n := 0
+	err := s.Store.ExportFeedback(r.Context(), since, func(e store.FeedbackExport) error {
+		n++
+		return enc.Encode(e)
+	})
+	if err != nil {
+		if n == 0 {
+			s.fail(w, r, err)
+		}
+		return
+	}
+}
+
+// isAdmin: API-key callers or an explicitly allowlisted Tailscale login.
+func (s *Server) isAdmin(r *http.Request) bool {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		return false
+	}
+	if id.Provider == auth.ProviderAPIKey {
+		return true
+	}
+	if id.Provider != auth.ProviderTailscale {
+		return false
+	}
+	for _, u := range s.Cfg.AllowedUsers {
+		if strings.EqualFold(strings.TrimSpace(u), id.User) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) deleteFeedback(w http.ResponseWriter, r *http.Request) {
