@@ -92,7 +92,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 흐름:
 1. 모델이 write/send 툴 호출 → 실행기는 **실행하지 않고** 인자를 스키마 검증·정규화(RFC 8785 JCS) → `payload_hash = sha256(user|tool|tool_version|canonical_args)`.
 2. `pending_actions` 행 생성, SSE `chat.completion.confirmation` 카드 송출(실제 실행될 페이로드 그대로: 수신자, 본문 요약, 일시). 모델에게는 `{"status":"pending_confirmation","action_id":...}`만 반환.
-3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, 미만료 ≤120초, 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
+3. 사용자가 UI에서 승인 → `POST /v1/actions/{id}/approve` (본문: `confirm_token`, `payload_hash`). 서버는 (사용자 일치, **제안 만료 `expires_at`과 1회용 토큰 만료 `token_expires_at`(발급 후 120~300초, 기본 120초) 둘 다 미경과**, 토큰 존재(토큰 없는 승인은 400), 미사용, 해시 일치) 확인 후 **원자적으로** `status: pending→executing` 업데이트(1회성) 후 실행.
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
 - **멱등성**: `idempotency_key = payload_hash + action_id`를 외부 API에 전달 가능하면 전달, 아니면 `executing` 상태 락 + `executed` 후 재시도 차단. 같은 approve 재요청은 저장된 결과를 반환.
@@ -295,7 +295,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 ```
 - **호출 메커니즘**: OpenAI tools + `tool_choice:"auto"`, 라운드마다 non-stream 업스트림 호출. `message.tool_calls` 우선, 없으면 `<tool_call>` 정규식 파서(`parse.go`). 한 응답의 여러 호출 허용, 순차 실행. MaxRounds 3 / MaxCalls 5, 소진 시 FinalNotice 후 tools 없이 최종 답변. force 모드는 게이트웨이가 선실행.
 - **목 주입 지점(현재)**: `search.Provider`(`internal/search/search.go`), `tools.Fetcher`·`tools.Deps`(`internal/tools/session.go`), `webfetch.Resolver`(`internal/webfetch/fetch.go`), fake: `internal/tools/tools_test.go`, `internal/handlers/web_test.go`, `internal/search/search_test.go`, fixture `internal/search/testdata/searxng.json`.
-- **계획**: `GW_TOOL_MOCK_DIR`(fixtures/<tool>/<sha256(args)>.json, 운영 환경에서는 기동 거부). **'운영 환경' 판정**(하나라도 해당하면 운영으로 보고 mock 기동 거부, 판정 불가도 운영으로 봄) [S2-P]: (1) 빌드가 릴리스 태그(`git describe`가 `vX.Y.Z` 정확 일치), (2) DB 이름이 `_test`로 끝나지 않음, (3) 루프백 외 주소에서 수신하거나 tailscale serve 리스너 설정이 감지됨, (4) launchd 서비스로 기동(서비스 라벨 env 존재). 테스트 `TestMockDir_RefusedInProduction`(조건별 표 테스트), `Adapter` fake 등록, `tool_calls` 시퀀스 export, 노출 툴 수별 정확도·인젝션 fixture 지표.
+- **계획**: `GW_TOOL_MOCK_DIR`(fixtures/<tool>/<sha256(args)>.json, 운영 환경에서는 기동 거부). **1차 통제는 빌드 태그**: mock 코드(`GW_TOOL_MOCK_DIR` 처리·fixture 로더)는 `//go:build toolmock` 파일에만 두고 `-tags toolmock` 테스트 빌드에만 포함한다. 릴리스 바이너리에는 mock 경로 자체가 없다. CI는 릴리스 바이너리 심볼을 검사하는 `TestReleaseBuild_HasNoMockSymbols`로 막는다 [S2-B]. 아래 판정은 **2차 통제**다. **'운영 환경' 판정**(하나라도 해당하면 운영으로 보고 mock 기동 거부, 판정 불가도 운영으로 봄) [S2-P]: (1) 빌드가 릴리스 태그(`git describe`가 `vX.Y.Z` 정확 일치), (2) DB 이름이 `_test`로 끝나지 않음, (3) 루프백 외 주소에서 수신하거나 tailscale serve 리스너 설정이 감지됨, (4) launchd 서비스로 기동(서비스 라벨 env 존재). 테스트 `TestMockDir_RefusedInProduction`(조건별 표 테스트), `Adapter` fake 등록, `tool_calls` 시퀀스 export, 노출 툴 수별 정확도·인젝션 fixture 지표.
 
 ### 10.3 프론트엔드 계약
 SSE(기존 이벤트 유지 + 추가):
@@ -515,6 +515,8 @@ SSE(기존 이벤트 유지 + 추가):
 | S2-KT | 킬스위치 테스트 | `_PermOrParseErrorAllOff`, `_UnknownKeyAllOff`, `_FileRemovedKeepsOff`, `_RejectsSymlinkWrongOwner`, `_ReloadAudited` | §1.3 |
 | S2-M3 | M3 통합으로 리뷰 범위 확대 | 구현 PR 2개(M3a taint·스코프 / M3b 도메인 정책), 각각 보안 리뷰, 함께 2.0.0 출시 | §9 |
 | S2-P | '운영 환경' 판정 기준 | 4개 조건 중 하나라도 해당·판정 불가 → 운영, `TestMockDir_RefusedInProduction` | §10 |
+| S2-B | (재검토 5545305) 운영 판정 조건이 약함(수동 실행·DB 이름) | 1차 통제 = `-tags toolmock` 빌드 태그, 릴리스에 mock 없음, CI `TestReleaseBuild_HasNoMockSymbols`; 4조건은 2차 통제 | §10 |
+| S2-L | §3.2 approve 조건 '≤120초' 문구 | 제안 만료와 토큰 만료(120~300초) 둘 다 검사로 수정 | §3.2 |
 | 의견 | MCP 청사진화·열린 결정 12 현 규칙 유지 | 변경 없음(완화해도 보안 리뷰 필수) | §1.4, §14-12 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
