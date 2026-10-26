@@ -3,7 +3,7 @@ package handlers
 import (
 	"testing"
 
-	"github.com/gun025bba/llm-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/config"
 )
 
 func TestMaxTokensCap(t *testing.T) {

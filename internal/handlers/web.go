@@ -14,14 +14,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/apierr"
-	"github.com/gun025bba/llm-serving/internal/config"
-	"github.com/gun025bba/llm-serving/internal/search"
-	_ "github.com/gun025bba/llm-serving/internal/search/brave"   // registers "brave" (stub, disabled)
-	_ "github.com/gun025bba/llm-serving/internal/search/searxng" // registers "searxng"
-	"github.com/gun025bba/llm-serving/internal/store"
-	"github.com/gun025bba/llm-serving/internal/tools"
-	"github.com/gun025bba/llm-serving/internal/webfetch"
+	"github.com/gun025bba/eve-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/search"
+	_ "github.com/gun025bba/eve-serving/internal/search/brave"   // registers "brave" (stub, disabled)
+	_ "github.com/gun025bba/eve-serving/internal/search/searxng" // registers "searxng"
+	"github.com/gun025bba/eve-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/tools"
+	"github.com/gun025bba/eve-serving/internal/webfetch"
 )
 
 // WebTools are the long-lived web tool dependencies (nil = feature off).

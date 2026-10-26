@@ -8,7 +8,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/gun025bba/llm-serving/internal/search"
+	"github.com/gun025bba/eve-serving/internal/search"
 )
 
 func init() { search.Register("brave", New) }

@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/apierr"
-	"github.com/gun025bba/llm-serving/internal/auth"
-	"github.com/gun025bba/llm-serving/internal/store"
-	"github.com/gun025bba/llm-serving/internal/tools"
+	"github.com/gun025bba/eve-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/auth"
+	"github.com/gun025bba/eve-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 const maxImportBody = 5 << 20

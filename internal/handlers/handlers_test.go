@@ -15,12 +15,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/auth"
-	"github.com/gun025bba/llm-serving/internal/config"
-	"github.com/gun025bba/llm-serving/internal/logging"
-	"github.com/gun025bba/llm-serving/internal/metrics"
-	"github.com/gun025bba/llm-serving/internal/proxy"
-	"github.com/gun025bba/llm-serving/internal/queue"
+	"github.com/gun025bba/eve-serving/internal/auth"
+	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/logging"
+	"github.com/gun025bba/eve-serving/internal/metrics"
+	"github.com/gun025bba/eve-serving/internal/proxy"
+	"github.com/gun025bba/eve-serving/internal/queue"
 )
 
 const key = "test-key"

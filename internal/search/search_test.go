@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gun025bba/llm-serving/internal/search"
-	_ "github.com/gun025bba/llm-serving/internal/search/brave"
-	_ "github.com/gun025bba/llm-serving/internal/search/searxng"
+	"github.com/gun025bba/eve-serving/internal/search"
+	_ "github.com/gun025bba/eve-serving/internal/search/brave"
+	_ "github.com/gun025bba/eve-serving/internal/search/searxng"
 )
 
 type fake struct {

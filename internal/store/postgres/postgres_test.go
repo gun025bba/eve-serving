@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/store"
 )
 
 // Integration tests: set GW_TEST_DATABASE_URL to a throwaway database

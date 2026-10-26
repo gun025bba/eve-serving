@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/jackc/pgx/v5"
 )
 

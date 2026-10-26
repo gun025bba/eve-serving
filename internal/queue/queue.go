@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/apierr"
 )
 
 type Queue struct {

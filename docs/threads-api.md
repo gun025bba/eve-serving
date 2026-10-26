@@ -1,4 +1,4 @@
-# Conversation storage & threads API
+# Eve: Conversation storage & threads API
 
 Status: **implemented** (gateway, PostgreSQL). Schema details: [`db-model.md`](db-model.md).
 

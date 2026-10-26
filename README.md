@@ -1,4 +1,6 @@
-# Local LLM Gateway
+# Eve — Local LLM Gateway
+
+Service name: **Eve** (repo `gun025bba/eve-serving`). On the server the clone directory (`~/llm-serving`), launchd labels (`com.llmserving.*`) and binary paths keep their original names.
 
 `mlx_lm.server` (Qwen3-30B-A3B-4bit, 127.0.0.1:8080) ← **gateway** (Go, `cmd/gateway`; legacy Python `gateway.py` kept for rollback) ← clients
 Gateway binds: `127.0.0.1:8000` (com.llmserving.gateway), `<tailscale-ip>:8000` tailnet only (com.llmserving.gateway-ts).
@@ -237,7 +239,7 @@ The database is untouched by either rollback.
 
 ## Deploy (server)
 ```bash
-git clone https://github.com/gun025bba/llm-serving.git ~/llm-serving   # 최초 1회
+git clone https://github.com/gun025bba/eve-serving.git ~/llm-serving   # 최초 1회
 cd ~/llm-serving && python3 -m venv .venv && .venv/bin/pip install fastapi uvicorn httpx pyyaml prometheus-client mlx-lm openai
 echo '<your-key>' > .api_key && chmod 600 .api_key            # 커밋 안 됨
 BIND_IP=<tailscale-ip> deploy/install-launchd.sh               # macOS: launchd 템플릿 렌더
@@ -245,9 +247,9 @@ BIND_IP=<tailscale-ip> deploy/install-launchd.sh               # macOS: launchd 
 업데이트: `cd ~/llm-serving && git pull --ff-only` → gateway.py/config.yaml이 바뀐 경우에만
 `launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (및 `-ts`).
 호스트별 값(바인드 IP 등)은 커밋하지 말고 env(`GW_*`)나 launchd 템플릿 렌더 시 주입하세요.
-무시되는 로컬 파일: `.api_key`, `*.log`, `.venv/`, `web/`(llm-chat-ui 배포 사본), `config.local.yaml`.
+무시되는 로컬 파일: `.api_key`, `*.log`, `.venv/`, `web/`(eve-chat-ui 배포 사본), `config.local.yaml`.
 
 ## Workflow
-- GitHub(`gun025bba/llm-serving`)가 단일 진실의 원천입니다. 수정은 clone에서 → commit → push.
+- GitHub(`gun025bba/eve-serving`)가 단일 진실의 원천입니다. 수정은 clone에서 → commit → push.
 - 서버/개발 환경에서는 `git pull --ff-only`만. 서버에서 직접 수정하지 마세요. force-push 금지.
 - 실제 호스트명·IP·키·로그는 커밋 금지 (`<host>`, `<tailscale-ip>` 플레이스홀더 사용).

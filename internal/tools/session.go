@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/search"
-	"github.com/gun025bba/llm-serving/internal/webfetch"
+	"github.com/gun025bba/eve-serving/internal/search"
+	"github.com/gun025bba/eve-serving/internal/webfetch"
 )
 
 // Fetcher is satisfied by *webfetch.Fetcher.

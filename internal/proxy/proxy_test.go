@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/apierr"
 )
 
 func code(err error) string {

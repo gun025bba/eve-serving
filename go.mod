@@ -1,4 +1,4 @@
-module github.com/gun025bba/llm-serving
+module github.com/gun025bba/eve-serving
 
 go 1.26.0
 

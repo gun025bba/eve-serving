@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"

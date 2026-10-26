@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/config"
-	"github.com/gun025bba/llm-serving/internal/logging"
-	"github.com/gun025bba/llm-serving/internal/metrics"
-	"github.com/gun025bba/llm-serving/internal/proxy"
-	"github.com/gun025bba/llm-serving/internal/queue"
-	"github.com/gun025bba/llm-serving/internal/store"
-	"github.com/gun025bba/llm-serving/internal/store/memstore"
+	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/logging"
+	"github.com/gun025bba/eve-serving/internal/metrics"
+	"github.com/gun025bba/eve-serving/internal/proxy"
+	"github.com/gun025bba/eve-serving/internal/queue"
+	"github.com/gun025bba/eve-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/store/memstore"
 )
 
 // reasoningUpstream streams reasoning + content; a last user message "abort"

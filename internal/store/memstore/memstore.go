@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/store"
 )
 
 type thread struct {

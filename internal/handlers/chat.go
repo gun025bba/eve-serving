@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gun025bba/llm-serving/internal/apierr"
-	"github.com/gun025bba/llm-serving/internal/auth"
-	"github.com/gun025bba/llm-serving/internal/metrics"
-	"github.com/gun025bba/llm-serving/internal/proxy"
-	"github.com/gun025bba/llm-serving/internal/tools"
+	"github.com/gun025bba/eve-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/auth"
+	"github.com/gun025bba/eve-serving/internal/metrics"
+	"github.com/gun025bba/eve-serving/internal/proxy"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 const maxBody = 8 << 20
