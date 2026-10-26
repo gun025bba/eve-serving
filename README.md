@@ -43,6 +43,8 @@ Auth: `Authorization: Bearer <key>` (key in `~/llm-serving/.api_key`). Every res
 Conversation storage: `thread_id` / `replace_message_id` on `/v1/chat/completions` and the endpoints above are
 specified in **[docs/threads-api.md](docs/threads-api.md)** (schema: [docs/db-model.md](docs/db-model.md)).
 
+Planned (design only, not implemented): proactive messaging / 선톡 — [docs/architecture/proactive-messaging.md](docs/architecture/proactive-messaging.md).
+
 Reserved for frontend: `/` (unused) and `/ui` (static files from `static_dir`, default `~/llm-serving/web`, mounted only if it exists).
 CORS: off by default; set `cors_origins: ["http://localhost:5173"]` to allow a browser app (Authorization header allowed, X-Request-ID exposed).
 
