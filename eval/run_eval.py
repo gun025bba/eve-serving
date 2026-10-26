@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import http.client
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -267,25 +268,48 @@ def chat_completion(base: str, key: str, model: str, item: dict, append_no_think
         "stream": False,
     }
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        base.rstrip("/") + "/v1/chat/completions",
-        data=data,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "User-Agent": "llm-serving-eval/1.0",
-        },
-        method="POST",
-    )
     t0 = time.perf_counter()
-    try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            raw = resp.read()
-            status = resp.status
-    except urllib.error.HTTPError as e:
-        raw = e.read()
-        status = e.code
-        latency = time.perf_counter() - t0
+    raw = b""
+    status = 0
+    last_err = None
+    for attempt in range(1, 4):
+        req = urllib.request.Request(
+            base.rstrip("/") + "/v1/chat/completions",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "User-Agent": "llm-serving-eval/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                raw = resp.read()
+                status = resp.status
+            last_err = None
+            break
+        except urllib.error.HTTPError as e:
+            raw = e.read()
+            status = e.code
+            last_err = None
+            break
+        except (urllib.error.URLError, TimeoutError, ConnectionError,
+                http.client.RemoteDisconnected, http.client.IncompleteRead) as e:
+            last_err = e
+            time.sleep(min(2 ** attempt, 8))
+    latency = time.perf_counter() - t0
+    if last_err is not None:
+        return {
+            "ok": False,
+            "status": 0,
+            "latency_s": latency,
+            "error": f"connection_error: {last_err}",
+            "content": "",
+            "finish_reason": None,
+            "usage": {},
+        }
+    if status >= 400:
         return {
             "ok": False,
             "status": status,
@@ -295,36 +319,6 @@ def chat_completion(base: str, key: str, model: str, item: dict, append_no_think
             "finish_reason": None,
             "usage": {},
         }
-    latency = time.perf_counter() - t0
-    try:
-        body = json.loads(raw.decode("utf-8"))
-    except json.JSONDecodeError:
-        return {
-            "ok": False,
-            "status": status,
-            "latency_s": latency,
-            "error": "invalid json",
-            "content": "",
-            "finish_reason": None,
-            "usage": {},
-        }
-    choice = (body.get("choices") or [{}])[0]
-    msg = choice.get("message") or {}
-    content = msg.get("content") or ""
-    # drop thinking tags if present
-    content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
-    usage = body.get("usage") or {}
-    return {
-        "ok": status == 200,
-        "status": status,
-        "latency_s": latency,
-        "error": None if status == 200 else str(body)[:500],
-        "content": content,
-        "finish_reason": choice.get("finish_reason"),
-        "usage": usage,
-        "raw_id": body.get("id"),
-    }
-
 
 def aggregate(results: list[dict]) -> dict:
     by_cat: dict[str, list] = defaultdict(list)
@@ -397,6 +391,7 @@ def main():
     ap.add_argument("--base-url", default=os.getenv("EVAL_BASE_URL", ""), help="or env EVAL_BASE_URL")
     ap.add_argument("--model", default=os.getenv("EVAL_MODEL", "mlx-community/Qwen3-30B-A3B-4bit"))
     ap.add_argument("--limit", type=int, default=0, help="limit items per suite (0=all)")
+    ap.add_argument("--offset", type=int, default=0, help="skip first N items per suite")
     ap.add_argument("--out", default="", help="write full JSON report")
     ap.add_argument("--sleep", type=float, default=0.0, help="seconds between requests")
     ap.add_argument("--append-no-think", type=int, default=int(os.getenv("EVAL_APPEND_NO_THINK", "1")))
@@ -409,11 +404,15 @@ def main():
     suites = []
     if args.suite in ("eval", "both"):
         items = load_jsonl(DATA / "ko_eval_v1.jsonl")
+        if args.offset:
+            items = items[args.offset :]
         if args.limit:
             items = items[: args.limit]
         suites.append(("ko_eval_v1", items))
     if args.suite in ("regression", "both"):
         items = load_jsonl(DATA / "regression_v1.jsonl")
+        if args.offset:
+            items = items[args.offset :]
         if args.limit:
             items = items[: args.limit]
         suites.append(("regression_v1", items))
