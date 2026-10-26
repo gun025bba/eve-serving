@@ -330,7 +330,7 @@ SSE(기존 이벤트 유지 + 추가):
 | 확인 토큰 ≤2분, (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(120초, tool_version까지 바인딩), §10.3 `payload_view` |
 | 턴당 N회 호출·쓰기 1회, 모델이 만든 URL fetch 금지, 외부 콘텐츠 system prompt 금지 | §4.1(N=5), §7 유출 차단(URL은 사용자 메시지/이번 검색 결과에서 온 값만 — 현행 `Session.allow` 일반화), §7 |
 | 감사 테이블 앱 역할 UPDATE/DELETE 없음, 거부 급증·taint 턴 쓰기 시도·신규 수신자 알림 | §5 `REVOKE`, 해시 체인, 이상 탐지 |
-| 정책·시크릿·감사·확인 서비스 장애 시 fail-closed, 타임아웃·응답 크기·레이트 한도, 별도 사용자/컨테이너 실행 권장 | §4 파이프라인, §12-5, 매니페스트 `timeout`/`max_result_chars`/`rate_per_min`, §1.4(MCP는 별도 사용자 필수, builtin 분리는 §13-3) |
+| 정책·시크릿·감사·확인 서비스 장애 시 fail-closed, 타임아웃·응답 크기·레이트 한도, 별도 사용자/컨테이너 실행 권장 | §4 파이프라인, §12-5, 매니페스트 `timeout`/`max_result_chars`/`rate_per_min`, §1.4(MCP는 별도 사용자 필수, builtin 분리는 §14-3) |
 | '특히 볼 점' 5개 | §12에서 하나씩 답변 |
 
 ## 12. '설계 문서와 대조할 때 특히 볼 점' 답변
