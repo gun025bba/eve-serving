@@ -34,6 +34,7 @@ type WebSource struct {
 	Domain        string    `json:"domain"`
 	Snippet       string    `json:"snippet,omitempty"`
 	Fetched       bool      `json:"fetched"`
+	FinalURL      string    `json:"final_url,omitempty"`
 	ContentSHA256 string    `json:"-"`
 	Cited         bool      `json:"cited"`
 	CreatedAt     time.Time `json:"-"`

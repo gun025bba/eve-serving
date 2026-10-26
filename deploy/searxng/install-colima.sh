@@ -15,6 +15,7 @@ check() {
   if lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then echo "port $PORT already in use"; exit 1; fi
   [[ -f .env ]] || { echo "create .env from .env.example (SEARXNG_SECRET)"; exit 1; }
   grep -q '^SEARXNG_SECRET=[0-9a-f]\{64\}$' .env || { echo "SEARXNG_SECRET must be 64 hex chars"; exit 1; }
+  grep -q '^VALKEY_PASSWORD=[0-9a-f]\{64\}$' .env || { echo "VALKEY_PASSWORD must be 64 hex chars"; exit 1; }
   chmod 600 .env
   git check-ignore -q .env || { echo ".env is not git-ignored"; exit 1; }
   echo "preflight ok"
@@ -31,7 +32,7 @@ Next (manual):
   1. In the gateway config set web.enabled: true (or GW_WEB_ENABLED=true), keep default_mode: off.
   2. Restart the gateway the usual way; check /v1/me -> capabilities.web_search=true.
   3. Try one request with "web_search":"auto"; watch llm_tool_calls_total and logs.
-Optional autostart: brew services start colima (compose services use restart: unless-stopped).
+Autostart: brew services start colima (compose services use restart: unless-stopped).
 NEXT
 }
 
@@ -46,6 +47,9 @@ verify() {
   for c in $(docker compose ps -q); do
     docker inspect -f '{{.Name}} ro={{.HostConfig.ReadonlyRootfs}} capdrop={{.HostConfig.CapDrop}} sec={{.HostConfig.SecurityOpt}}' "$c"
   done
+  echo "- query not in container logs (item 7):"
+  q="logcheck$RANDOM$RANDOM"; curl -fsS -o /dev/null "http://127.0.0.1:$PORT/search?q=$q&format=json" || true
+  if docker compose logs 2>&1 | grep -q "$q"; then echo "FAIL: query appears in container logs"; exit 1; else echo "ok"; fi
   echo "Also confirm from another tailnet device that http://<host-tailnet-name>:$PORT is unreachable."
 }
 

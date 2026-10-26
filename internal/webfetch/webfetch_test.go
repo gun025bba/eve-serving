@@ -54,7 +54,7 @@ const pubIP = "93.184.216.34"
 func newTestFetcher(t *testing.T, srv *httptest.Server, res *fakeResolver, o Options) *Fetcher {
 	t.Helper()
 	o.Resolver = res
-	o.DialIP = func(ctx context.Context, network, ipport string) (net.Conn, error) {
+	o.dialIP = func(ctx context.Context, network, ipport string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, "tcp", srv.Listener.Addr().String())
 	}
@@ -153,7 +153,7 @@ func TestControlIsAuthoritative(t *testing.T) {
 	}
 }
 
-// A real dial through the production dialer (no DialIP hook) must be refused
+// A real dial through the production dialer (no dialIP hook) must be refused
 // by Control for loopback services, e.g. the gateway itself.
 func TestRealDialLoopbackRefused(t *testing.T) {
 	var hit atomic.Int32
@@ -230,8 +230,45 @@ func TestRedirectChainThroughPrivateBlocked(t *testing.T) {
 	res := &fakeResolver{m: map[string][]string{"a.example.com": {pubIP}, "b.example.com": {pubIP}, "c.example.com": {pubIP}, "d.example.com": {pubIP}, "inner.example.com": {"192.168.1.10"}}}
 	f := newTestFetcher(t, srv, res, Options{})
 	for _, u := range []string{"http://a.example.com/", "http://c.example.com/", "http://d.example.com/"} {
-		_, err := f.Fetch(context.Background(), u, 0)
+		// allow every cross-host hop so the SSRF checks (not the allowlist) decide
+		ctx := WithRedirectPolicy(context.Background(), func(*url.URL) bool { return true })
+		_, err := f.Fetch(ctx, u, 0)
 		mustBlocked(t, err, "")
+	}
+}
+
+func TestCrossDomainRedirectAllowlist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Host {
+		case "src.example.com":
+			http.Redirect(w, r, "http://other.example.net/page", 302)
+		case "same.example.com":
+			http.Redirect(w, r, "http://www.same.example.com/moved", 302)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<html><title>ok</title><body>hello</body></html>")
+		}
+	}))
+	defer srv.Close()
+	res := &fakeResolver{m: map[string][]string{"src.example.com": {pubIP}, "other.example.net": {pubIP}, "same.example.com": {pubIP}, "www.same.example.com": {pubIP}}}
+	f := newTestFetcher(t, srv, res, Options{})
+	// no policy: cross-domain refused
+	_, err := f.Fetch(context.Background(), "http://src.example.com/", 0)
+	mustBlocked(t, err, ReasonAllowlist)
+	// policy that does not list the target: refused
+	deny := WithRedirectPolicy(context.Background(), func(u *url.URL) bool { return false })
+	_, err = f.Fetch(deny, "http://src.example.com/", 0)
+	mustBlocked(t, err, ReasonAllowlist)
+	// policy listing the target: allowed, FinalURL recorded
+	allow := WithRedirectPolicy(context.Background(), func(u *url.URL) bool { return u.Host == "other.example.net" })
+	r, err := f.Fetch(allow, "http://src.example.com/", 0)
+	if err != nil || r.FinalURL != "http://other.example.net/page" {
+		t.Fatalf("allowlisted redirect: %v %+v", err, r)
+	}
+	// same site (www. variant) needs no policy
+	r, err = f.Fetch(context.Background(), "http://same.example.com/", 0)
+	if err != nil || r.FinalURL != "http://www.same.example.com/moved" {
+		t.Fatalf("same-site redirect: %v %+v", err, r)
 	}
 }
 

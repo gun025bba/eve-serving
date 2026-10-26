@@ -612,7 +612,7 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 	srcs := make([]store.WebSource, len(sess.Sources))
 	for i, x := range sess.Sources {
 		seq := x.CallSeq
-		srcs[i] = store.WebSource{N: x.N, URL: x.URL, Title: x.Title, Domain: x.Domain, Snippet: x.Snippet, Fetched: x.Fetched,
+		srcs[i] = store.WebSource{N: x.N, URL: x.URL, Title: x.Title, Domain: x.Domain, Snippet: x.Snippet, Fetched: x.Fetched, FinalURL: x.FinalURL,
 			ContentSHA256: x.SHA256, Cited: containsInt(cites, x.N), ToolCallSeq: &seq}
 	}
 	c, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)

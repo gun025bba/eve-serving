@@ -34,6 +34,7 @@ CREATE TABLE web_sources (
     fetched        BOOLEAN NOT NULL DEFAULT false,
     content_sha256 TEXT,                         -- hash only, never the page text
     cited          BOOLEAN NOT NULL DEFAULT false,
+    final_url      TEXT,                         -- set when web_fetch was redirected (same-site or allowlisted)
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, n)
 );

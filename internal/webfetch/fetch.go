@@ -40,11 +40,25 @@ type Options struct {
 	PerHostConc    int // 2
 	UserAgent      string
 	Resolver       Resolver
-	// DialIP, if set, replaces the raw TCP dial of an already validated
-	// ip:port (tests use it to reach httptest servers). Control still runs
-	// in production via the default dialer only, so tests that need the
-	// authoritative check call Guard.Control directly.
-	DialIP func(ctx context.Context, network, ipport string) (net.Conn, error)
+	// dialIP, if set, replaces the raw TCP dial of an already validated
+	// ip:port. Unexported on purpose: only this package's tests can set it
+	// (to reach httptest servers); production always dials through
+	// net.Dialer with Guard.Control.
+	dialIP func(ctx context.Context, network, ipport string) (net.Conn, error)
+}
+
+type redirectPolicyKey struct{}
+
+// WithRedirectPolicy attaches a per-request allow check for cross-host
+// redirects (e.g. the tool session's fetch allowlist). Without a policy every
+// cross-host redirect is refused.
+func WithRedirectPolicy(ctx context.Context, allow func(*url.URL) bool) context.Context {
+	return context.WithValue(ctx, redirectPolicyKey{}, allow)
+}
+
+func sameSite(a, b string) bool {
+	a, b = strings.TrimPrefix(strings.ToLower(a), "www."), strings.TrimPrefix(strings.ToLower(b), "www.")
+	return a == b
 }
 
 // Fetcher is the single web_fetch client. It owns one dedicated Transport.
@@ -135,6 +149,12 @@ func New(o Options) (*Fetcher, error) {
 			if _, _, err := g.CheckURL(req.URL); err != nil {
 				return err
 			}
+			if !sameSite(via[0].URL.Hostname(), req.URL.Hostname()) {
+				allow, _ := req.Context().Value(redirectPolicyKey{}).(func(*url.URL) bool)
+				if allow == nil || !allow(req.URL) {
+					return blocked(ReasonAllowlist, "cross-domain redirect to a URL outside the allowlist")
+				}
+			}
 			req.Header.Del("Referer")
 			req.Header.Del("Authorization")
 			req.Header.Del("Cookie")
@@ -188,11 +208,11 @@ func (f *Fetcher) dialContext(d *net.Dialer) func(ctx context.Context, network, 
 			}
 			ipport := netip.AddrPortFrom(ip, uint16(port)).String()
 			var c net.Conn
-			if f.o.DialIP != nil {
+			if f.o.dialIP != nil {
 				if err := f.G.CheckIP(ip); err != nil { // mirror Control in tests
 					return nil, err
 				}
-				c, err = f.o.DialIP(ctx, nw, ipport)
+				c, err = f.o.dialIP(ctx, nw, ipport)
 			} else {
 				c, err = d.DialContext(ctx, nw, ipport)
 			}

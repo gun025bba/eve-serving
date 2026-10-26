@@ -70,7 +70,7 @@ server:
   image_proxy: false
 search:
   formats: [html, json]      # JSON API 켜기 (기본값은 html만 켜져 있어요)
-  safe_search: 0
+  safe_search: 1
   default_lang: "auto"
 valkey:
   url: valkey://searxng-valkey:6379/0
@@ -441,3 +441,17 @@ Code paths: `internal/search` (registry; `searxng`, `brave` stub), `internal/web
 - Logs carry `arg_sha256`/`arg_len` only; metrics have no URL/domain/query labels.
 - Retention: a daily job deletes `tool_calls`/`web_sources` older than `retention_days` (90).
 - Deploy: `deploy/searxng/install-colima.sh check|install|verify|rollback`.
+
+## 부록: 재검토(feat/web-search) 반영 사항
+
+| 항목 | 반영 |
+|---|---|
+| 1 Valkey protected-mode | `--protected-mode yes` 유지 + `--requirepass ${VALKEY_PASSWORD}`(.env, git-ignored). Valkey는 `internal: true` 네트워크에만 연결, 포트 미공개 |
+| 2 limiter pass_ip | 설치 후 SearXNG가 실제로 보는 소스 IP를 확인해 그 /32 하나만 등록 (넓은 대역 금지) |
+| 3 교차 도메인 리다이렉트 | 같은 사이트(`www.` 차이만 허용)가 아니면 해당 요청의 fetch 허용목록에 있는 URL로만 리다이렉트 허용, 아니면 `allowlist` 사유로 차단. 리다이렉트된 경우 `final_url`을 sources 이벤트와 `web_sources.final_url`에 기록 |
+| 4 검색어 유출 | 요청당 검색 3회 상한 유지, 실행한 검색어는 `chat.completion.tool_call` 이벤트의 `args.query`로 UI에 노출 |
+| 5 DialIP | `Options.dialIP`(비공개, 패키지 테스트 전용) |
+| 6 go.mod | `go mod tidy` → `code.dny.dev/ssrf` direct |
+| 7 접근 로그 | `GRANIAN_LOG_ACCESS_ENABLED=false`, `install-colima.sh verify`가 컨테이너 로그에 테스트 쿼리가 없는지 확인 |
+| 8 safesearch | 게이트웨이의 `safesearch=0` 덮어쓰기 제거. settings.yml의 `safe_search: 1`(moderate)을 기본값으로 사용 |
+| 9 Postgres 테스트 | `GW_TEST_DATABASE_URL`로 `TestPostgresWebHistory` 실행, CI(.github/workflows/ci.yml)에서 Postgres 서비스와 `go test -race` 실행 |

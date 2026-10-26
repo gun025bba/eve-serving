@@ -22,7 +22,7 @@ func TestPostgresWebHistory(t *testing.T) {
 	seq := 0
 	calls := []store.ToolCall{{Round: 1, Seq: 0, Tool: "web_search", Provider: &p, Args: json.RawMessage(`{"query":"q"}`), Status: "ok"},
 		{Round: 1, Seq: 1, Tool: "web_fetch", Args: json.RawMessage(`{"url_sha256":"ab"}`), Status: "blocked"}}
-	srcs := []store.WebSource{{N: 1, URL: "https://a.example/", Title: "A", Domain: "a.example", Cited: true, ToolCallSeq: &seq, ContentSHA256: "ff"}}
+	srcs := []store.WebSource{{N: 1, URL: "https://a.example/", Title: "A", Domain: "a.example", Cited: true, ToolCallSeq: &seq, ContentSHA256: "ff", FinalURL: "https://www.a.example/moved"}}
 	if err := s.SaveWebRun(ctx, a, m.ID, calls, srcs); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestPostgresWebHistory(t *testing.T) {
 		t.Fatal("bob wrote alice's run")
 	}
 	got, err := s.Sources(ctx, a, []string{m.ID})
-	if err != nil || len(got[m.ID]) != 1 || !got[m.ID][0].Cited {
+	if err != nil || len(got[m.ID]) != 1 || !got[m.ID][0].Cited || got[m.ID][0].FinalURL != "https://www.a.example/moved" {
 		t.Fatal(got, err)
 	}
 	if got, _ := s.Sources(ctx, b, []string{m.ID}); len(got[m.ID]) != 0 {

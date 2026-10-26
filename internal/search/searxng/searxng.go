@@ -73,7 +73,7 @@ type Error struct{ Kind, Msg string }
 func (e *Error) Error() string { return e.Kind + ": " + e.Msg }
 
 func (p *Provider) Search(ctx context.Context, q search.Query) ([]search.Result, error) {
-	v := url.Values{"q": {q.Q}, "format": {"json"}, "safesearch": {"0"}}
+	v := url.Values{"q": {q.Q}, "format": {"json"}}
 	if q.Lang != "" && q.Lang != "auto" {
 		v.Set("language", q.Lang)
 	}

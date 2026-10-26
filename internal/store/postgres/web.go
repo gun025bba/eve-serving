@@ -59,9 +59,9 @@ func (s *Store) SaveWebRun(ctx context.Context, user, messageID string, calls []
 		if w.ContentSHA256 != "" {
 			sha = &w.ContentSHA256
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO web_sources (message_id, user_id, tool_call_id, n, url, title, domain, snippet, fetched, content_sha256, cited)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-			messageID, u, tc, w.N, w.URL, w.Title, w.Domain, w.Snippet, w.Fetched, sha, w.Cited); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO web_sources (message_id, user_id, tool_call_id, n, url, title, domain, snippet, fetched, content_sha256, cited, final_url)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''))`,
+			messageID, u, tc, w.N, w.URL, w.Title, w.Domain, w.Snippet, w.Fetched, sha, w.Cited, w.FinalURL); err != nil {
 			return err
 		}
 	}
@@ -77,7 +77,7 @@ func (s *Store) Sources(ctx context.Context, user string, ids []string) (map[str
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT message_id, n, url, coalesce(title,''), coalesce(domain,''), coalesce(snippet,''), fetched, cited
+	rows, err := s.pool.Query(ctx, `SELECT message_id, n, url, coalesce(title,''), coalesce(domain,''), coalesce(snippet,''), fetched, cited, coalesce(final_url,'')
 		FROM web_sources WHERE user_id=$1 AND message_id = ANY($2) ORDER BY message_id, n`, u, ids)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (s *Store) Sources(ctx context.Context, user string, ids []string) (map[str
 	defer rows.Close()
 	for rows.Next() {
 		var w store.WebSource
-		if err := rows.Scan(&w.MessageID, &w.N, &w.URL, &w.Title, &w.Domain, &w.Snippet, &w.Fetched, &w.Cited); err != nil {
+		if err := rows.Scan(&w.MessageID, &w.N, &w.URL, &w.Title, &w.Domain, &w.Snippet, &w.Fetched, &w.Cited, &w.FinalURL); err != nil {
 			return nil, err
 		}
 		out[w.MessageID] = append(out[w.MessageID], w)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -58,14 +59,15 @@ type Deps struct {
 
 // Source is a citation (metadata only; page text is never stored).
 type Source struct {
-	N       int    `json:"n"`
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Domain  string `json:"domain"`
-	Snippet string `json:"snippet,omitempty"`
-	Fetched bool   `json:"fetched"`
-	SHA256  string `json:"-"`
-	CallSeq int    `json:"-"` // index into Session.Calls of the call that produced it
+	N        int    `json:"n"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+	Domain   string `json:"domain"`
+	Snippet  string `json:"snippet,omitempty"`
+	Fetched  bool   `json:"fetched"`
+	FinalURL string `json:"final_url,omitempty"` // set when a fetch was redirected
+	SHA256   string `json:"-"`
+	CallSeq  int    `json:"-"` // index into Session.Calls of the call that produced it
 }
 
 // Call is one executed tool call (what gets persisted to tool_calls).
@@ -131,6 +133,7 @@ func (s *Session) addSource(src Source) int {
 		if src.Fetched {
 			s.Sources[i].Fetched = true
 			s.Sources[i].SHA256 = src.SHA256
+			s.Sources[i].FinalURL = src.FinalURL
 			if s.Sources[i].Title == "" {
 				s.Sources[i].Title = src.Title
 			}
@@ -284,7 +287,8 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 	}
 	s.nFetch++
 	mc := num(a, "max_chars", s.d.Limits.MaxChars, 500, 12000)
-	r, err := s.d.Fetch.Fetch(ctx, u, mc)
+	rctx := webfetch.WithRedirectPolicy(ctx, func(x *url.URL) bool { return s.Allowed(x.String()) })
+	r, err := s.d.Fetch.Fetch(rctx, u, mc)
 	if err != nil {
 		if reason, ok := webfetch.IsBlocked(err); ok {
 			c.Status, c.Error, c.BlockReason = "blocked", "blocked by fetch policy ("+reason+")", reason
@@ -296,7 +300,7 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 		}
 		return ""
 	}
-	n := s.addSource(Source{Title: r.Title, URL: u, Fetched: true, SHA256: r.SHA256, CallSeq: c.Seq})
+	n := s.addSource(Source{Title: r.Title, URL: u, Fetched: true, FinalURL: finalIfMoved(u, r.FinalURL), SHA256: r.SHA256, CallSeq: c.Seq})
 	c.Sources = []int{n}
 	c.Status, c.FetchBytes = "ok", r.Bytes
 	body := mustJSON(map[string]any{"n": n, "url": u, "title": r.Title, "text": r.Text, "truncated": r.Truncated})
@@ -361,3 +365,11 @@ const toolJSON = `[
 {"type":"function","function":{"name":"web_search","description":"Search the web for current information. Returns numbered results (title, url, snippet). Call web_fetch on a result URL to read the page.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"search query","maxLength":256},"lang":{"type":"string","enum":["auto","ko","en"]},"time_range":{"type":"string","enum":["","day","week","month","year"]},"max_results":{"type":"integer","minimum":1,"maximum":8}},"required":["query"]}}},
 {"type":"function","function":{"name":"web_fetch","description":"Read the main text of a web page. Only URLs returned by web_search in this answer, or URLs the user wrote, are allowed.","parameters":{"type":"object","properties":{"url":{"type":"string","maxLength":2048},"max_chars":{"type":"integer","minimum":500,"maximum":12000}},"required":["url"]}}}
 ]`
+
+// finalIfMoved returns final only when a redirect changed the URL.
+func finalIfMoved(u, final string) string {
+	if final == "" || CanonURL(final) == CanonURL(u) {
+		return ""
+	}
+	return final
+}
