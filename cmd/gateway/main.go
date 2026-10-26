@@ -133,7 +133,18 @@ func main() {
 		ledger = &audit.Memory{}
 		log.Warn("audit_memory_only", "reason", "no database configured")
 	}
-	srv := &handlers.Server{Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+	breaker := audit.NewBreaker()
+	breaker.OnTrip = func() {
+		m.AuditBreakerOpen.Set(1)
+		m.WebAuditDisabled.WithLabelValues("breaker").Set(1)
+		log.Error("audit_breaker_open", "msg", "web tools disabled: repeated audit failures; restart after fixing the audit store")
+	}
+	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+
+	if srv.WebAuditBlocked {
+		m.WebAuditDisabled.WithLabelValues("memory_ledger").Set(1)
+		log.Warn("web_tools_disabled", "reason", "in-memory audit ledger outside GW_ENV=dev")
+	}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
@@ -142,6 +153,7 @@ func main() {
 		defer c()
 		if err := ledger.Append(ctx, "", audit.Event{At: time.Now(), Actor: audit.ActorSystem, Event: ev, Status: status, Detail: detail}); err != nil {
 			m.AuditWriteFail.Inc()
+			breaker.Fail()
 			log.Error("audit_write_failed", "event", ev, "err", err.Error())
 		}
 	}
@@ -194,7 +206,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
 	if pgStore != nil {
-		go runAuditVerify(ctx, pgStore, log, m, 24*time.Hour)
+		go runAuditVerify(ctx, pgStore, log, m, breaker, 24*time.Hour)
 	}
 	defer stop()
 	go func() {
@@ -214,7 +226,7 @@ func main() {
 }
 
 // runAuditVerify recomputes the tool_audit hash chain at startup and daily.
-func runAuditVerify(ctx context.Context, pg *postgres.Store, log *logging.Logger, m *metrics.Metrics, every time.Duration) {
+func runAuditVerify(ctx context.Context, pg *postgres.Store, log *logging.Logger, m *metrics.Metrics, br *audit.Breaker, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -223,6 +235,7 @@ func runAuditVerify(ctx context.Context, pg *postgres.Store, log *logging.Logger
 		c()
 		if err != nil {
 			m.AuditVerifyFail.Inc()
+			br.Fail()
 			log.Error("audit_verify_failed", "err", err.Error(), "first_bad_seq", res.FirstBad)
 		} else {
 			log.Info("audit_verify_ok", "rows", res.Rows, "seq_gaps", res.SeqGaps)

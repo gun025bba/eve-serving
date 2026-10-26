@@ -54,7 +54,9 @@ func NewWebTools(c config.WebConfig, pol *domains.Policy) (*WebTools, error) {
 	return &WebTools{Domains: pol, Search: sp, Fetch: f, Rate: tools.NewRateLimiter(map[string]int{"search": c.RatePerMin, "fetch": c.FetchRatePerMin})}, nil
 }
 
-func (s *Server) webEnabled() bool { return s.Cfg.Web.Enabled && s.Web != nil }
+func (s *Server) webEnabled() bool {
+	return s.Cfg.Web.Enabled && s.Web != nil && !s.WebAuditBlocked && !s.AuditBreaker.Open()
+}
 
 // takeWebMode removes "web_search" from body and validates it.
 func (s *Server) takeWebMode(body map[string]any) (tools.Mode, bool, error) {

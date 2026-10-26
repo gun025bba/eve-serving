@@ -4,14 +4,18 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 // Audit failures are logged and counted but do not block the call in M2
-// (fail-closed auditing for write tools arrives with M3, §15.2).
+// (fail-closed auditing for write tools arrives with M3, §15.2). They feed
+// the audit circuit breaker, which disables the web tools after 3 failures
+// in 5 minutes.
 func (s *Server) appendAudit(ctx context.Context, login string, e audit.Event) {
 	if s.Audit == nil {
 		return
@@ -21,6 +25,7 @@ func (s *Server) appendAudit(ctx context.Context, login string, e audit.Event) {
 	defer cancel()
 	if err := s.Audit.Append(actx, login, e); err != nil {
 		s.M.AuditWriteFail.Inc()
+		s.AuditBreaker.Fail()
 		s.Log.Error("audit_write_failed", "event", e.Event, "err", err.Error())
 	}
 }
@@ -71,4 +76,10 @@ func (s *Server) auditDomainBlock(r *http.Request, pr *chatPersist, c tools.Call
 		e.Detail["rule"] = rule
 	}
 	s.appendAudit(r.Context(), user(r), e)
+}
+
+// MemoryLedgerBlocksWeb reports whether the web tools must be disabled
+// because auditing would only be in memory (no database) outside GW_ENV=dev.
+func MemoryLedgerBlocksWeb(c config.Config, memoryLedger bool) bool {
+	return memoryLedger && !strings.EqualFold(c.Env, "dev")
 }
