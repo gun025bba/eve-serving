@@ -3,11 +3,13 @@ const { auth, requireKey, body, parseSSE } = require('./helpers');
 test.describe('chat', () => {
   test.beforeEach(() => requireKey());
   test('non-stream completion persists to thread', async ({ request }) => {
-    const r = await request.post('/v1/chat/completions', { headers: auth(), data: body('Reply with the single word: pong') });
+    const r = await request.post('/v1/chat/completions', { headers: auth(), data: body('Reply with the single word: pong /no_think', { max_tokens: 128 }) });
     expect(r.status()).toBe(200);
     const j = await r.json();
     expect(j.thread_id).toBeTruthy(); expect(j.message_id).toBeTruthy();
-    expect(j.choices[0].message.content.length).toBeGreaterThan(0);
+    // Qwen3 may spend tokens on `reasoning` (finish_reason=length) before `content`; accept either.
+    const msg = j.choices[0].message;
+    expect(((msg.content || '') + (msg.reasoning || '')).length).toBeGreaterThan(0);
     const m = await (await request.get(`/v1/threads/${j.thread_id}/messages`, { headers: auth() })).json();
     expect(m.data.some(x => x.id === j.message_id && x.role === 'assistant')).toBe(true);
   });
