@@ -94,7 +94,9 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 - **1회 승인 = 1회 실행**: 승인 시 `idempotency_key`(ULID)를 `pending_actions`에 기록(UNIQUE). 실행기 재시도는 같은 키로만 하며, 외부 API가 멱등 키를 지원하지 않으면 **재시도 없음**. `executing`에 고착된 행(타임아웃+여유 초과)은 자동 재실행하지 않고 `failed(unknown_outcome)`로 전이 후 사용자에게 "실행 여부 불명, 확인 후 새 제안" 안내.
 - 모델 텍스트나 사용자의 "응/승인" 채팅 텍스트는 확인으로 **인정하지 않음**. 승인은 UI 버튼 → 별도 엔드포인트만.
 - 턴당 쓰기 제안 1회.
-- **scheduler 발 확인 카드(PR #4)**: `actor=scheduler`가 만든 `pending_actions`는 카드에 **출처(actor=scheduler, job_id, job 이름)**를 표시하고 만료를 **60초**로 단축(일반 120초, PR #4 §3 제안값과 일치, 열린 결정 6). 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
+- **scheduler 발 제안(PR #4)**: scheduler는 **토큰 없는 제안**만 만든다(`token_sha256` NULL, `payload_hash`로 페이로드 고정). 제안 TTL은 **최대 24시간**(`expires_at`), 그 뒤 `expired`. 사용자가 카드를 열면 사용자 세션의 `POST /v1/actions/{id}/reissue`(Origin 검사)로 **1회용 토큰을 발급**하며 토큰 만료는 **120~300초**(기본 120초). 카드에는 출처(actor=scheduler, job_id, job 이름)를 표시. 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
+- **actor/job_id는 서버만 설정**: `actor`·`job_id`는 게이트웨이가 실행 컨텍스트(사용자 요청 핸들러 vs 스케줄러 goroutine)에서 직접 채운다. API 본문·헤더·쿼리, 모델 출력, 툴 인자에서는 **절대 받지 않음**(해당 필드가 오면 무시가 아니라 400 거부). 기본값 없음: 코드에서 명시적으로 설정하지 않으면 INSERT가 NOT NULL로 실패.
+- **검증 테스트(추가)**: `TestActor_NotClientSettable`(본문·헤더·모델 tool_call·툴 인자로 actor/job_id 주입 시 거부, DB 값은 서버 컨텍스트 값), `TestSchedulerProposal_TokenlessUntilUserOpens`, `TestSchedulerProposal_TTL24h`, `TestActorScheduler_RequiresJobID`.
 
 ```sql
 CREATE TABLE pending_actions (
@@ -107,9 +109,9 @@ CREATE TABLE pending_actions (
   scope         TEXT NOT NULL,
   payload_hash  TEXT NOT NULL,
   payload_view  JSONB NOT NULL,                  -- 확인 카드용 표시본(시크릿 없음, 실행 후 purge)
-  token_sha256  TEXT NOT NULL,
-  actor         TEXT NOT NULL DEFAULT 'user' CHECK (actor IN ('user','scheduler')),
-  job_id        TEXT,                            -- actor=scheduler면 필수, 카드 출처 표시
+  token_sha256  TEXT,                             -- scheduler 제안은 사용자가 열기 전까지 NULL
+  actor         TEXT NOT NULL CHECK (actor IN ('user','scheduler')),  -- 기본값 없음, 서버만 설정
+  job_id        TEXT,                            -- 서버만 설정, 카드 출처 표시
   tainted_turn  BOOLEAN NOT NULL,                 -- 제안 시점의 스레드 taint 스냅샷(§7)
   idempotency_key TEXT UNIQUE,                   -- 승인 시 발급, 1회 실행 보장
   reissue_count SMALLINT NOT NULL DEFAULT 0,
@@ -117,7 +119,9 @@ CREATE TABLE pending_actions (
   expires_at    TIMESTAMPTZ NOT NULL,
   decided_at    TIMESTAMPTZ,
   result_ref    TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (actor <> 'scheduler' OR job_id IS NOT NULL),
+  CHECK (actor = 'scheduler' OR token_sha256 IS NOT NULL)
 );
 ```
 
@@ -185,8 +189,8 @@ CREATE TABLE tool_audit (
   at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_id      BIGINT NOT NULL,          -- FK 없음: 메시지/스레드 삭제와 무관하게 보존
   thread_id    TEXT, message_id TEXT, tool_call_id TEXT, pending_action_id TEXT,
-  actor        TEXT NOT NULL CHECK (actor IN ('user','scheduler','system')),  -- scheduler: 선톡 job 실행(PR #4)
-  job_id       TEXT,                     -- actor=scheduler일 때 필수
+  actor        TEXT NOT NULL CHECK (actor IN ('user','scheduler','system')),  -- 기본값 없음, 서버만 설정(PR #4)
+  job_id       TEXT CHECK (actor <> 'scheduler' OR job_id IS NOT NULL),  -- 서버만 설정
   event        TEXT NOT NULL,            -- call_started|call_done|denied|action_proposed|approved|rejected|executed|registry_loaded|killswitch
   tool TEXT, tool_version TEXT, scope TEXT,
   payload_sha256 TEXT, confirm_token_id TEXT, tainted BOOLEAN, status TEXT,
@@ -410,7 +414,7 @@ SSE(기존 이벤트 유지 + 추가):
 3. builtin 툴도 게이트웨이와 별도 프로세스/사용자로 분리할지(보안 ↑, 복잡도 ↑).
 4. 서드파티 MCP 서버를 허용할지, 직접 만든 어댑터만 쓸지.
 5. 노출 툴 상한(3 vs 5) — 모델 엔지니어 평가 결과로 확정.
-6. 확인 토큰 만료(일반 120초, scheduler 발 카드 60초 제안)와 POST 재발급 횟수 상한(3회 제안). GET 재발급은 없음(확정).
+6. 확인 토큰 만료(120초 제안, 범위 120~300초). scheduler 발 제안은 토큰 없이 TTL 최대 24시간, 카드를 열 때 POST로 토큰 발급(만료 120~300초)와 POST 재발급 횟수 상한(3회 제안). GET 재발급은 없음(확정).
 7. 이상 탐지 알림 채널(ntfy, 웹 푸시, 텔레그램 등).
 8. 플랫폼 이후 첫 신규 툴의 순서.
 9. 웹 도메인 정책: 도입·해제·허용 확대·모드 전환은 메이저로 확정. 남은 결정은 deny 항목 **추가**만 패치로 허용할지, allowlist_only 모드를 쓸지, 공개 IP 리터럴 기본 차단 유지 여부. **보안 의견: 공개 IP 리터럴 기본 차단 유지, deny 항목 추가는 패치 허용.**
@@ -459,7 +463,15 @@ SSE(기존 이벤트 유지 + 추가):
 | 외부 egress는 게이트웨이 단일 적용 계층으로만(push 포함) | 단일 계층 명시, 어댑터는 주입 클라이언트만, 린트 | §13 |
 | 감사는 `tool_audit` 하나, `actor=scheduler` 추가 | `actor`·`job_id` 컬럼, 별도 감사 테이블 금지 | §5 |
 | followup taint 상속, scheduler는 시작부터 tainted | 원 스레드 taint 상속, 연쇄 생성 차단 | §7 |
-| scheduler 발 카드 출처 표시 + 짧은 만료, 사용자 세션 POST만 소비 | `provenance{actor,job_id}`, 만료 60초, write/send 자동 실행 거부 | §3.2, §10.3, §14-6 |
+| scheduler 발 카드 출처 표시 + 짧은 만료, 사용자 세션 POST만 소비 | `provenance{actor,job_id}`, 토큰 없는 제안(§15.1e로 대체), write/send 자동 실행 거부 | §3.2, §10.3, §14-6 |
+
+### 15.1e 2ebc4d9 보안 리뷰 반영
+| # | 지적 | 반영 | 위치 |
+|---|---|---|---|
+| N1 | actor/job_id 클라이언트 설정 가능성 | 서버 실행 컨텍스트만 설정, 본문·헤더·모델·툴 인자 입력 시 400, `TestActor_NotClientSettable` | §3.2 |
+| N2 | scheduler인데 job_id 없음 | `CHECK (actor <> 'scheduler' OR job_id IS NOT NULL)` (pending_actions, tool_audit) | §3.2, §5 |
+| N3 | 60초 카드 만료 비현실적·토큰 선발급 | 토큰 없는 제안(payload_hash 고정, TTL ≤24h) → 카드 열 때 세션 POST(Origin 검사)로 1회용 토큰(120~300초). 60초안 폐기 | §3.2, §14-6 |
+| N4 | `DEFAULT 'user'`로 actor 누락이 user로 기록 | 기본값 제거, NOT NULL, 명시 설정 필수 (tool_audit은 원래 기본값 없음) | §3.2, §5 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
