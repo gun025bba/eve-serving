@@ -90,7 +90,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 4. 결과를 `executed|failed`로 기록하고 다음 턴 컨텍스트에 요약 주입.
 - **confirm_token**: 서버 랜덤 32바이트, DB엔 sha256만 저장, (user, tool, payload_hash)에 바인딩, 1회용. 재사용/만료/페이로드 1자 변경 시 거부.
 - **멱등성**: `idempotency_key = payload_hash + action_id`를 외부 API에 전달 가능하면 전달, 아니면 `executing` 상태 락 + `executed` 후 재시도 차단. 같은 approve 재요청은 저장된 결과를 반환.
-- **토큰 재발급은 POST만**: `POST /v1/actions/{id}/reissue`(같은 사용자, 미만료, `pending` 상태일 때만, 이전 토큰 즉시 무효화, 재발급 횟수 ≤3, 감사 `token_reissued`). `GET`은 토큰을 절대 반환·발급하지 않음(조회는 부작용 없음). 토큰은 `action_id`에도 바인딩(`token_sha256 = sha256(token|action_id)`), 모든 상태 변경 POST는 `Origin` 헤더가 게이트웨이 자신의 오리진과 일치해야 함(불일치 403).
+- **토큰 재발급은 POST만**: `POST /v1/actions/{id}/reissue`(같은 사용자, 미만료, `pending` 상태일 때만, 이전 토큰 즉시 무효화, 재발급 횟수 ≤3, 감사 `token_reissued`). `GET`은 토큰을 절대 반환·발급하지 않음(조회는 부작용 없음). 토큰은 `action_id`에도 바인딩(`token_sha256 = sha256(token|action_id)`), 모든 상태 변경 POST는 `Origin` 헤더가 게이트웨이 자신의 오리진과 일치해야 함(불일치·**누락·`null`이면 403**).
 - **1회 승인 = 1회 실행**: 승인 시 `idempotency_key`(ULID)를 `pending_actions`에 기록(UNIQUE). 실행기 재시도는 같은 키로만 하며, 외부 API가 멱등 키를 지원하지 않으면 **재시도 없음**. `executing`에 고착된 행(타임아웃+여유 초과)은 자동 재실행하지 않고 `failed(unknown_outcome)`로 전이 후 사용자에게 "실행 여부 불명, 확인 후 새 제안" 안내.
 - 모델 텍스트나 사용자의 "응/승인" 채팅 텍스트는 확인으로 **인정하지 않음**. 승인은 UI 버튼 → 별도 엔드포인트만.
 - 턴당 쓰기 제안 1회.
@@ -200,6 +200,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 ```
 - **append-only 보장**
   - **소유자 분리**: `tool_audit` 소유자는 `eve_audit_owner`(NOLOGIN), 마이그레이션도 이 역할로만 실행(`SET ROLE`). 앱(`eve_app`)은 소유자가 아니므로 `ALTER`/`DROP`/권한 변경 불가, INSERT/SELECT만. 기동 시 `has_table_privilege`로 `eve_app`에 UPDATE/DELETE/TRUNCATE가 **없는지** 확인, 있으면 기동 거부.
+  - **역할 멤버십 분리**: `eve_app`과 게이트웨이 로그인 계정은 `eve_audit_owner`의 **멤버가 아님**(GRANT 금지, `SET ROLE` 불가). 게이트웨이 기동 시 `pg_has_role('eve_app','eve_audit_owner','MEMBER')`(게이트웨이 로그인 계정도 동일)이 **false인지** 확인, true면 기동 거부. 마이그레이션은 앱 계정이 아닌 **별도 마이그레이션 전용 로그인 계정**으로만 실행(게이트웨이는 마이그레이션 자격증명을 갖지 않음).
   - **goose Down**: `tool_audit` DROP 금지. 마이그레이션 린트(CI)가 Down 블록에서 `tool_audit`을 언급하면 실패. 앱 역할은 DROP 권한이 없으므로 잘못된 Down이 실행돼도 실패.
   - **동시성**: INSERT는 한 트랜잭션에서 `pg_advisory_xact_lock(hashtext('tool_audit'))` → 마지막 행 `hash` 조회 → `prev_hash`로 INSERT. 여기에 `prev_hash` UNIQUE로 이중 방어(락이 빠져도 분기 대신 충돌 에러 → 1회 재시도). 감사 쓰기 실패는 §4 파이프라인대로 실행 안 함.
   - `eve-audit verify`는 seq 연속성·체인·체크포인트를 함께 확인.
@@ -224,7 +225,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
   - 외부 데이터는 구분자로 감싼 `role:tool` 데이터로만, system prompt에 넣지 않음. 구분자 유사 문자열은 defang(현행 `tagRe` 일반화).
   - **taint 추적(대화 단위)**: taint는 요청이 아니라 **스레드(대화) 상태**로 게이트웨이 DB(`threads.tainted_since_msg`, `threads.taint_sources`)에 저장. 클라이언트가 보낸 history로 판정하지 않음.
     - **전파**: `Output.Tainted` 또는 `taint_output:true` 툴 결과가 들어오면 그 턴과 **이후 모든 턴**이 tainted. 이전 턴의 툴 결과나 그것을 요약한 assistant 메시지가 컨텍스트에 남아 있는 한 taint 유지. 첨부·붙여넣은 외부 텍스트도 tainted로 취급, 스레드 포크/복사 시 taint 상속.
-    - **리셋**: 자동 해제 없음(시간 경과, 턴 수, 사용자 "괜찮아" 텍스트로는 해제 안 됨). 해제는 (a) 새 스레드 시작, (b) tainted 메시지를 컨텍스트에서 실제로 제거(삭제·잘라내기)해 남은 컨텍스트에 외부 데이터가 없음을 서버가 확인한 경우만. 해제는 감사 `taint_reset`.
+    - **리셋(권장: 새 스레드만)**: 자동 해제 없음(시간 경과, 턴 수, 사용자 "괜찮아" 텍스트로는 해제 안 됨). 해제는 (a) 새 스레드 시작, (b) tainted 메시지를 컨텍스트에서 실제로 제거(삭제·잘라내기)해 남은 컨텍스트에 외부 데이터가 없음을 서버가 확인한 경우만. 삭제 경로를 유지할 경우 tainted 메시지뿐 아니라 **그 이후 tainted 콘텐츠에서 파생된 모든 assistant 메시지와 요약**까지 삭제돼야 해제. 해제는 감사 `taint_reset`. 보안 권장은 (b)를 빼고 새 스레드만(열린 결정 11).
     - 컨텍스트 압축/요약 결과도 원본이 tainted면 tainted.
     - tainted 스레드에서는 write/send 자동 실행 불가 → 항상 확인 게이트, 카드에 "외부 콘텐츠를 읽은 뒤 제안된 작업" 경고. 수신자/대상이 사용자 메시지에 없고 툴 결과에서만 나온 경우 **차단**.
   - **유출 차단**: egress는 매니페스트 allowlist + 기존 SSRF Dialer(tailnet/사설 대역 차단). URL·쿼리 인자는 (a) 사용자 메시지나 직전 검색 결과에 있던 값만(현행 web_fetch allowlist 일반화), (b) 시크릿/ tainted 텍스트의 8자 이상 부분열을 포함하면 차단. UI는 외부 이미지 차단 + CSP.
@@ -237,7 +238,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 3. `Session.Exec`의 switch → `Registry.Exec`. `ParseTextToolCalls`의 이름 검사 → 노출 집합.
 4. 회귀 기준: 기존 `internal/tools/tools_test.go`, `internal/handlers/web_test.go` 무수정 통과 + 녹화 대화(off/auto/force 각 5건)에서 업스트림 요청 본문과 SSE가 동일.
 5. 감사 로그·확인 게이트는 web 툴(read)에도 기록만 추가(동작 영향 없음).
-- 분류(보안 리뷰 반영): `tool_calls` CHECK 제거와 감사 실패 시 fail-closed 전환을 **M1에서 빼면** M1은 **마이너**(1.2.0). 두 항목은 보안 경계·동작 변경이므로 M3(메이저)로 이동. 근거는 §15.2.
+- 분류(보안 리뷰 반영): `tool_calls` CHECK 제거와 감사 실패 시 fail-closed 전환을 **M1에서 빼면** M1은 **마이너**(1.2.0). 두 항목은 보안 경계·동작 변경이므로 M3(메이저)로 이동. 근거는 §15.2. (M2는 마이너지만 배포 전 보안 리뷰 필수, §9.)
 
 ## 9. 단계별 마일스톤
 
@@ -245,7 +246,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 |---|---|---|---|
 | M0 | 이 설계 문서 PR, 보안 리뷰 | 문서 | — |
 | M1 | 레지스트리/매니페스트 검증, 실행기 파이프라인(감사 기록은 현행처럼 실패해도 web 툴 실행), 킬스위치(끄기 전용), 리다크터, `GW_TOOL_MOCK_DIR`, 관측 지표, web 툴 이전(§8). **CHECK 제거·fail-closed 전환 제외** | 마이너 1.2.0 (툴 집합·동작 불변, §15.2) | 보고만 |
-| M2 | 감사 원장 `tool_audit`(해시 체인, 소유자 분리, advisory lock, Down 미DROP), 00004 마이그레이션(additive, CHECK 유지), 일일 verify, 이상 탐지 알림 | 마이너 1.3.0 | 보고만 |
+| M2 | 감사 원장 `tool_audit`(해시 체인, 소유자 분리, 멤버십 검사, advisory lock, Down 미DROP), DB 역할/권한 생성, 00004 마이그레이션(additive, CHECK 유지), 일일 verify, 이상 탐지 알림 | 마이너 1.3.0 | **배포 전 보안 리뷰 필수**(통과 후 보고) |
 | M3 | 스코프 정책 + 대화 단위 taint 엔진 + 유출 차단 + 인젝션 회귀 세트 CI + `tool_calls` CHECK 제거 + 감사 실패 fail-closed 전환 | **메이저 2.0.0** (보안 경계 도입·변경) | 건영님 승인 |
 | M4 | 확인 게이트(pending_actions, approve/reject API, SSE 카드) — 아직 write 툴 없음, 테스트 툴로만 | **메이저 3.0.0** (API 표면·보안 경계 변경) | 건영님 승인 |
 | M5+ | 첫 신규 툴 등록(종류는 건영님 결정) | **메이저** | 건영님 승인 |
@@ -285,7 +286,7 @@ SSE(기존 이벤트 유지 + 추가):
 - `POST /v1/actions/{id}/approve` `{confirm_token, payload_hash}` → 200 `{status:"executed",result}` / 409 `action_already_decided`(같은 결과 반환) / 410 `action_expired` / 422 `payload_mismatch` / 403 `not_owner`.
 - `POST /v1/actions/{id}/reject` → 200.
 - `GET /v1/actions?status=pending` → 새로고침 후 카드 복원(**토큰 없음**, payload_view·만료만).
-- `POST /v1/actions/{id}/reissue` → 새 1회용 토큰(이전 토큰 무효, ≤3회, §3.2). 모든 POST는 Origin 검사.
+- `POST /v1/actions/{id}/reissue` → 새 1회용 토큰(이전 토큰 무효, ≤3회, §3.2). 모든 POST는 Origin 검사(누락·`null` 거부).
 - 스레드 로드 시 메시지에 `pending_actions` 요약 포함. UI는 카드에 payload_view를 그대로 표시, 외부 이미지 금지, 텍스트 "응"은 승인으로 쓰지 않음.
 
 ## 11. 보안 체크리스트 → 설계 매핑
@@ -370,13 +371,13 @@ SSE(기존 이벤트 유지 + 추가):
   ```yaml
   version: 1
   mode: denylist          # denylist | allowlist_only
-  deny_categories: [shortener, tunnel, paste, wildcard_dns]   # 기본값, 제거는 메이저
+  deny_categories: [shortener, tunnel, paste, wildcard_dns, malware]   # 기본값, 제거는 메이저
   deny:  ["*.example-bad.com", "tracker.example"]
   allow: []               # allowlist_only일 때만 의미
   ```
 - **정규화**: 소문자화, IDNA punycode(`golang.org/x/net/idna` Lookup 프로필), 끝 점 제거, 포트 제거. `*.x`는 **서브도메인만** 매치(`x` 자체는 미포함, 필요하면 둘 다 적음). 같은 호스트가 둘 다 맞으면 **deny 우선**.
 - **IP 리터럴 정규화(정책 판정 전)**: 호스트가 IP로 해석될 수 있는 모든 표기를 `net/netip` 정규형으로 바꾼 뒤 판정. 처리 대상: 10진 정수(`2130706433`), 8진(`0177.0.0.1`), 16진(`0x7f.1`, `0x7f000001`), 축약 점 표기(`127.1`, `10.1`), 혼합 표기, IPv6 축약(`::1`), IPv4-mapped/compat(`::ffff:7f00:1`, `::ffff:127.0.0.1`), NAT64(`64:ff9b::/96`), zone ID(`%25`), 대괄호 표기. 파서는 WHATWG URL host 파서 규칙과 동일하게(골든 테스트). 정규화 결과가 루프백·사설(RFC 1918)·링크로컬(169.254/16, fe80::/10)·CGNAT/tailnet(100.64/10)·ULA(fc00::/7)·unspecified·멀티캐스트·브로드캐스트면 **도메인 정책과 무관하게 차단**(`block_reason:"ip_literal_private"`). 공개 IP 리터럴도 기본 차단(`ip_literal`, 검색 결과에 IP 직접 URL은 드묾). 숫자처럼 보이나 파싱 불가한 호스트는 거부. DNS 해석 후 SSRF Dialer 검사는 그 아래 층에서 그대로.
-- **기본 차단 카테고리**(정책 파일 `deny_categories`, 기본값 포함, 해제는 메이저): URL 단축(bit.ly, t.co, tinyurl.com, goo.gl 등), 터널/리버스 프록시(`*.ngrok.io`, `*.ngrok-free.app`, `*.trycloudflare.com`, `*.loca.lt`, `*.serveo.net` 등), paste/익명 호스팅(pastebin.com, `paste.*`, hastebin, ghostbin, transfer.sh 등), 동적 DNS 와일드카드(`*.nip.io`, `*.sslip.io`, `*.xip.io` — IP 내장 호스트). 목록은 저장소의 `deploy/policy/categories/*.txt`로 고정(외부 피드 자동 갱신 없음).
+- **기본 차단 카테고리**(정책 파일 `deny_categories`, 기본값 포함, 해제는 메이저): URL 단축(bit.ly, t.co, tinyurl.com, goo.gl 등), 터널/리버스 프록시(`*.ngrok.io`, `*.ngrok-free.app`, `*.trycloudflare.com`, `*.loca.lt`, `*.serveo.net` 등), paste/익명 호스팅(pastebin.com, `paste.*`, hastebin, ghostbin, transfer.sh 등), 동적 DNS 와일드카드(`*.nip.io`, `*.sslip.io`, `*.xip.io` — IP 내장 호스트), **악성코드/피싱 피드**(`malware`: URLhaus 등 공개 피드의 서명 검증된 오프라인 스냅샷을 저장소에 커밋해 사용, 런타임 자동 다운로드 없음, 서명 검증 실패 시 이전 스냅샷 유지·경고). 목록은 저장소의 `deploy/policy/categories/*.txt`로 고정(외부 피드 자동 갱신 없음).
 - **판정 시점**: 검색 결과 URL, fetch 요청 URL, **리다이렉트 매 hop**, 최종 `final_url`. 현행 `webfetch` 리다이렉트 처리(`fetch.go`의 cross-domain allowlist 검사) 지점에 도메인 정책 검사를 추가.
 - **결과 형식**
   - 검색: 차단된 결과는 제거하고 툴 결과에 `blocked_count`만 포함. **차단 도메인 목록·이름은 모델에 보내지 않음**(우회 유도 방지).
@@ -397,8 +398,8 @@ SSE(기존 이벤트 유지 + 추가):
 6. 확인 토큰 만료(120초 제안)와 POST 재발급 횟수 상한(3회 제안). GET 재발급은 없음(확정).
 7. 이상 탐지 알림 채널(ntfy, 웹 푸시, 텔레그램 등).
 8. 플랫폼 이후 첫 신규 툴의 순서.
-9. 웹 도메인 정책: 도입·해제·허용 확대·모드 전환은 메이저로 확정. 남은 결정은 deny 항목 **추가**만 패치로 허용할지, allowlist_only 모드를 쓸지, 공개 IP 리터럴 기본 차단 유지 여부.
-11. taint 리셋 조건(새 스레드 또는 tainted 메시지 제거만) — 더 엄격하게 "새 스레드만"으로 할지.
+9. 웹 도메인 정책: 도입·해제·허용 확대·모드 전환은 메이저로 확정. 남은 결정은 deny 항목 **추가**만 패치로 허용할지, allowlist_only 모드를 쓸지, 공개 IP 리터럴 기본 차단 유지 여부. **보안 의견: 공개 IP 리터럴 기본 차단 유지, deny 항목 추가는 패치 허용.**
+11. taint 리셋 조건 — **보안 권장: 새 스레드만**. 삭제 경로를 유지하면 파생 assistant 메시지·요약까지 삭제 필수.
 10. 차단 도메인 목록을 UI 설정 화면에서 보여줄지.
 
 ## 15. 보안 리뷰 반영표 (리뷰 5650918885, head 85fb252)
@@ -410,7 +411,7 @@ SSE(기존 이벤트 유지 + 추가):
 | 2 | High | `tool_audit` append-only 무력화, 체인 동시성 | 소유자 `eve_audit_owner` 분리, 앱 INSERT/SELECT만, 기동 시 권한 검사, Down 미DROP + CI 린트, advisory lock + `prev_hash` UNIQUE | §5 |
 | 3 | High | 메이저 분류 오류 (M3·M1·M3.5) | M3 → 메이저 2.0.0, M1은 분할 시 마이너(§15.2), M3.5 메이저 확정, M4 → 3.0.0 | §8, §9, §13, §14-1 |
 | 4 | High | §13 IP 리터럴 표기 변형 | 10진·8진·16진·축약·IPv6 매핑/NAT64·zone 정규화 후 판정, 사설/링크로컬/루프백/tailnet 차단 | §13 |
-| 5 | Med | GET 토큰 재발급, action_id 미바인딩, Origin | GET은 토큰 미반환, POST reissue(1회용·이전 무효·≤3), action_id 바인딩, Origin 검사 | §3.2, §10.3, §14-6 |
+| 5 | Med | GET 토큰 재발급, action_id 미바인딩, Origin | GET은 토큰 미반환, POST reissue(1회용·이전 무효·≤3), action_id 바인딩, Origin 검사(누락·`null` 거부, 재리뷰) | §3.2, §10.3, §14-6 |
 | 6 | Med | write 재시도 예외·`executing` 고착 | `idempotency_key` UNIQUE, 같은 키로만 재시도, 고착 시 자동 재실행 없이 `failed(unknown_outcome)` | §3.2, §4 |
 | 7 | Med | MCP env 시크릿, 갱신 토큰 리다크션 | env 금지 → fd/stdin/브로커, 갱신 즉시 `Redactor.Add`, MCP 출력 리다크션 | §1.4, §3.3 |
 | 8 | Med | §13 기본 차단 카테고리·단축 URL | `deny_categories` 기본값(단축 URL, 터널, paste, wildcard DNS) | §13 |
@@ -418,6 +419,16 @@ SSE(기존 이벤트 유지 + 추가):
 | 10 | Low | 감사 실패 시 read도 fail-closed | M3(메이저)에서 적용 제안 | §9, §14-2 |
 | 11 | Low | 루프백 egress 예외, 매니페스트 egress 사설 금지 | 매니페스트 egress의 루프백은 등록된 내부 엔드포인트(검색 엔진) 하나만, 사설/tailnet 대역은 스키마 거부 — M1 매니페스트 검증에 포함 | §1.1, §13 |
 | 12 | Low | IDN 변환 실패 거부·레이블 경계 테스트 | 테스트 항목 추가 | §13 |
+
+### 15.1b 재리뷰(2508d0b) 반영
+| 등급 | 지적 | 반영 | 위치 |
+|---|---|---|---|
+| Med | 앱/게이트웨이 계정의 `eve_audit_owner` 멤버십 경로 | 멤버 아님 명시, 기동 시 `pg_has_role(...,'MEMBER')` false 확인(아니면 기동 거부), 마이그레이션 전용 로그인 계정 | §5 |
+| Med | M2(역할·권한·`tool_audit` 생성)가 보고만 | 마이너 유지 + 배포 전 보안 리뷰 필수 게이트 | §8, §9 |
+| Low | Origin 누락·`null` | 403 거부 | §3.2, §10.3 |
+| Low | taint 리셋 | 새 스레드만 권장, 삭제 경로 시 파생 메시지·요약 삭제 필수 | §7, §14-11 |
+| Low | 악성코드/피싱 카테고리 | `malware` 카테고리, 서명 검증 오프라인 스냅샷(URLhaus 등) | §13 |
+| Low | 결정 9 보안 의견 | 공개 IP 리터럴 차단 유지, deny 추가는 패치 | §14-9 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
