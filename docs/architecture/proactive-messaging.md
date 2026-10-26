@@ -20,20 +20,25 @@
 | `event` | 툴 watch 결과 (예: 검색어 신규 결과) | 사용자가 등록한 watch | off |
 | `followup` | "내일 다시 물어볼게요" | **모델이 제안 → 사용자가 확인 카드에서 승인**해야만 생성 | off |
 
-- 모델은 직접 job을 만들 수 없습니다. `followup`은 PR #2 확인 게이트(`pending_actions`, 1회용 토큰)를 거쳐 생성합니다. `scheduler.write` 같은 write 스코프로 취급합니다.
+- 모델은 직접 job을 만들 수 없습니다. 모델·툴 경로에는 job을 쓰는 함수가 없고, job 생성/수정은 사용자 세션 API(`POST /v1/jobs`, 계획)에서만 가능합니다. **job spec에는 템플릿 id만** 들어갑니다(자유 텍스트 프롬프트·URL·인자 불가). [H3]
+- `followup`은 PR #2 확인 게이트(`pending_actions`, 1회용 토큰)를 거쳐 생성합니다. `scheduler.write` 같은 write 스코프로 취급합니다.
 - tainted 스레드(외부 데이터 유입)에서 나온 followup 제안은 자동 생성하지 않습니다 (PR #2 taint 정책).
+- **scheduler 실행은 시작부터 tainted**로 취급합니다. followup은 **원 스레드의 taint를 상속**합니다(원 스레드가 tainted면 followup 실행도 tainted, 반대 방향 초기화 없음). [H3]
 
 ### 스케줄러 위치
 - **제안: gateway 프로세스 안의 단일 goroutine** (`internal/scheduler`, TBD 이름). 이유: 인증·store·tools·queue를 그대로 재사용하고 새 프로세스/포트를 만들지 않습니다.
-- `gateway`와 레거시 `gateway-ts`가 별도 프로세스이므로 **PostgreSQL advisory lock으로 단일 리더**만 실행합니다 (테스트용 `:8001` 인스턴스는 기본 비활성, `GW_SCHEDULER_ENABLED=false`).
+- 전역 스위치 `GW_PROACTIVE_ENABLED`는 **기본 false**입니다. [Med]
+- `gateway`와 레거시 `gateway-ts`가 별도 프로세스이므로 **PostgreSQL advisory lock으로 단일 리더**만 실행합니다. **lock을 잃으면 진행 중 run을 즉시 중단**하고(발송 전이면 발송 안 함) 재획득 전까지 대기합니다 [Med] (테스트용 `:8001` 인스턴스는 기본 비활성, `GW_SCHEDULER_ENABLED=false`).
 - 폴링: 30~60초마다 `next_run_at <= now()`인 job을 `FOR UPDATE SKIP LOCKED`로 가져옴. 시간대는 `Asia/Seoul` 고정(설정 가능).
 - 실행은 기존 queue(semaphore)를 거쳐 **사용자 요청보다 낮은 우선순위**로 진행합니다. 큐가 차 있으면 다음 주기로 미룹니다.
+- `actor=scheduler`는 **write/send 스코프를 하드 거부**합니다(정책 파일 설정과 무관, 코드 상수). [H2]
 - 대안(비채택): launchd 별도 바이너리 — 배포·인증 중복이 생깁니다.
 
 ## 2. 전달 (Delivery)
 
 ### 2.1 in-app 알림 (1차)
 - `notifications` 테이블 + `GET /v1/notifications`, `POST /v1/notifications/{id}/read` (계획).
+- 구독·알림·job API 공통: **CSRF 토큰 + Origin 검사**(Origin 없음 또는 `null` → 403), 모든 조회·수정은 `user_id = 현재 Identity`로 범위 제한해 **IDOR 방지**(타 사용자 id → 404). [Med]
 - UI는 앱을 열 때와 포그라운드 주기적 조회로 배지와 스레드 목록을 갱신합니다. SSE 상시 연결은 TBD.
 
 ### 2.2 iPhone Web Push (2차)
@@ -41,6 +46,11 @@
 - 표준: Push API + Service Worker, **VAPID**(RFC 8292, ES256 JWT, `exp` ≤ 24h) [rfc8292], payload 암호화 **aes128gcm**(RFC 8291) [rfc8291], 전송 프로토콜 RFC 8030.
 - Apple은 Web Push에 APNs를 쓰고 Apple Developer Program 가입이 필요 없습니다. 서버는 `https://*.push.apple.com`으로 **outbound** 접근이 필요합니다. [WebKit][webkit-ios], [Apple][apple-webpush]
 - Safari는 **보이지 않는(silent) push를 지원하지 않습니다**. 받으면 바로 알림을 표시해야 하고, 그렇지 않으면 권한이 회수됩니다. [Apple][apple-webpush]
+
+### 2.2.1 push endpoint allowlist [H1]
+- **등록 시와 발송 시 모두** 검사: `https`만, 포트 443만, **정확한 Apple push 호스트 목록**과 일치하는 경우만(와일드카드 매칭 금지). 후보 목록은 실제 구독에서 확인해 고정합니다(예: `web.push.apple.com`, 확정 TBD).
+- IP 리터럴(IPv4/IPv6, 10진·16진 표기 포함) 거부, userinfo·비표준 포트 거부, **리다이렉트 따라가지 않음**(3xx = 실패).
+- 발송은 gateway의 **도메인 egress 정책(PR #2 §13, 단일 적용 계층)**을 통과해야 하며 별도 HTTP 클라이언트 우회 경로를 두지 않습니다.
 
 ### 2.3 tailnet 전용 환경에서 동작하는가 → **예 (조건부)**
 | 경로 | 필요 조건 | tailnet 전용과 충돌? |
@@ -54,10 +64,13 @@
 - Funnel은 켜지 않습니다. inbound는 지금처럼 tailnet 전용으로 유지합니다.
 
 ### 2.4 payload 프라이버시
-- 권장: **내용 없는 최소 payload**: `{"v":1,"type":"proactive","nid":"<notification ULID>"}` (aes128gcm 암호화). 알림 문구는 SW에서 고정 문구로 표시하고("Eve에게서 새 메시지가 있어요"), 실제 내용은 앱을 열 때 tailnet으로 가져옵니다.
+- **고정 구조 payload**: `{"v":1,"type":"proactive","nid":"<notification ULID>"}` 정확히 이 3개 키만(추가 키 있으면 발송 거부), 직렬화 후 **256바이트 상한**을 코드에서 강제 (aes128gcm 암호화). [Med] 알림 문구는 SW에서 고정 문구로 표시하고("Eve에게서 새 메시지가 있어요"), 실제 내용은 앱을 열 때 tailnet으로 가져옵니다.
 - 이유: payload는 종단 간 암호화되지만 Apple은 메타데이터(시각·크기·endpoint)를 볼 수 있고, 잠금 화면 미리보기로 내용이 노출될 수 있습니다. 미리보기 옵션은 TBD(기본 off).
 - `Topic` 헤더로 같은 종류 알림을 합치고(coalesce), `TTL`은 짧게(예: 브리핑 4h) 설정합니다 [apple-webpush].
 - VAPID 개인키: macOS Keychain 또는 chmod 600 파일 (PR #2 시크릿 정책). 저장소·env·로그 금지. Redactor로 endpoint URL을 마스킹합니다.
+- **키 로드 실패(없음·권한 600 아님·파싱 실패) 시 기능이 켜져 있으면 기동 거부.** [Med]
+- `sub` claim: 운영자 연락용 `mailto:` 값을 설정 파일에서 읽고(저장소에는 placeholder), JWT `exp` ≤ 24h, 1시간 이상 재사용. [Med]
+- **키 로테이션 절차**: 새 키 생성 → 새 공개키를 UI에 배포 → 기존 구독은 구 키로 계속 발송하며 앱 열 때 새 키로 재구독(`push_subscriptions.vapid_key_id`) → 구 키 구독이 0이 되거나 30일 후 구 키 폐기. 유출 의심 시 즉시 구 키 폐기하고 전 구독 비활성화(앱에서 재구독). [Med]
 
 ## 3. 데이터 모델 (계획 마이그레이션 `00004_proactive.sql`, 번호는 TBD)
 
@@ -76,12 +89,14 @@ scheduled_jobs (
   confirm_action_id TEXT NULL, -- PR #2 pending_actions 참조 (followup)
   dedupe_key TEXT, created_at, updated_at
 )
+-- job_runs는 실행 상태(재시도·스킵 사유) 기록용이며 감사 로그가 아님. 감사는 tool_audit 하나만 사용.
 job_runs (id, job_id, started_at, finished_at, status ok|error|skipped_quiet|skipped_cap|skipped_dedupe|blocked, message_id NULL, error)
 notifications (id ULID, user_id, message_id FK messages, channel inapp|webpush, status pending|sent|failed|read, dedupe_key UNIQUE(user_id, dedupe_key), created_at, sent_at, read_at)
-push_subscriptions (id, user_id, endpoint TEXT UNIQUE, p256dh TEXT, auth TEXT, ua TEXT, created_at, last_ok_at, disabled_at)
+push_subscriptions (id, user_id, endpoint TEXT UNIQUE, p256dh TEXT, auth TEXT, vapid_key_id TEXT, ua TEXT, created_at, last_ok_at, disabled_at)
 notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME DEFAULT '22:00', quiet_end TIME DEFAULT '08:00', daily_cap SMALLINT DEFAULT 3, per_kind JSONB)
 ```
 
+- **테이블 목록 재확인 (감사 테이블 분리 제거 후):** 신규 `scheduled_jobs`, `job_runs`(실행 상태), `notifications`, `push_subscriptions`, `notification_prefs` 5개 + `messages` 컬럼 추가. 감사는 PR #2의 `tool_audit`(M2), 확인은 `pending_actions`(M4)를 재사용하며 새로 만들지 않습니다.
 - `messages`에 **`origin TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive'))`** 와 `job_run_id` 컬럼을 추가합니다. role은 그대로 `assistant`입니다 (OpenAI 호환 유지). 기존 행은 기본값으로 채워져 하위 호환됩니다.
 - 선톡 메시지는 `schedule`/`event`이면 전용 스레드("Eve 브리핑", job당 하나)에, `followup`이면 원래 스레드에 들어갑니다.
 - `push_subscriptions.endpoint/p256dh/auth`는 비밀은 아니지만 민감 정보로 취급해 export·로그에서 제외합니다. 404/410 응답을 받으면 `disabled_at`을 설정합니다.
@@ -91,15 +106,17 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 - 스케줄 실행은 **사용자가 없는 실행**이므로 PR #2 파이프라인을 똑같이 거치고, 더 엄격하게 적용합니다:
   - **read 툴만** 자동 실행합니다 (예: `web.read`). write/send 툴은 **자동 실행 금지**이며, 필요하면 `pending_actions` 확인 카드만 만들고 사용자 승인을 기다립니다 (M4).
   - 스케줄 실행 스레드는 외부 데이터를 읽으면 바로 tainted가 됩니다. 그 결과로 새 job이나 follow-up을 만들 수 없습니다 (연쇄 방지).
-  - 모든 실행은 `tool_audit`(M2)에 `actor=scheduler`, `job_id`와 함께 기록됩니다.
+  - 모든 실행·job 생성/변경·발송은 **단일 감사 로그 `tool_audit`(M2)** 에 `actor=scheduler|user`, `job_id`와 함께 기록합니다. 별도 감사 테이블은 만들지 않습니다. [Med]
+  - 확인 토큰은 **사용자 세션 POST로만 소비**됩니다(scheduler·모델 경로에서 소비 불가). [H2]
+  - scheduler가 만든 확인 카드는 **출처(actor=scheduler, job_id)를 표시**하고 일반보다 짧은 만료(예: 60초, TBD)를 씁니다.
 - 결론: 선톡의 **event/followup 트리거는 PR #2 M2~M4 이후**에 가능합니다. `schedule`(read 툴만)은 M1 이후 가능합니다.
 
 ## 4. 스팸 방지
 - **기본 off.** 사용자가 명시적으로 켜야 동작합니다 (`notification_prefs.enabled`).
 - **Quiet hours** (Asia/Seoul, 기본 22:00–08:00): 이 시간에는 push를 보내지 않고 in-app에만 쌓은 뒤 종료 시각에 1건으로 요약합니다. iOS Focus 모드와도 연동됩니다 [webkit-ios].
-- **Rate cap**: 사용자별 하루 push 3건(설정 가능), 트리거별 하루 1건, 시간당 최대 1건. cap을 넘으면 `skipped_cap`으로 기록하고 in-app에만 남깁니다.
+- **Rate cap**: 사용자별 하루 push 3건(설정 가능), 트리거별 하루 1건, 시간당 최대 1건. **cap 계산과 notifications insert는 같은 트랜잭션**(사용자 행 잠금)에서 수행해 경쟁 조건으로 넘지 않게 합니다. [Med] cap을 넘으면 `skipped_cap`으로 기록하고 in-app에만 남깁니다.
 - **Dedupe**: `dedupe_key` = `kind + job_id + 날짜` 또는 watch 결과 해시. `UNIQUE(user_id, dedupe_key)`로 막습니다. 내용이 바뀌지 않은 event는 건너뜁니다.
-- **Off 스위치**: 트리거별(`scheduled_jobs.enabled`), 사용자 전체(`notification_prefs.enabled`), 운영 전역(`GW_PROACTIVE_ENABLED=false`, PR #2 kill switch와 같은 방식, 끄기만 가능)이 있습니다.
+- **Off 스위치**: 트리거별(`scheduled_jobs.enabled`), 사용자 전체(`notification_prefs.enabled`), 운영 전역(`GW_PROACTIVE_ENABLED`, 기본 false, PR #2 kill switch와 같은 방식, 끄기만 가능)이 있습니다.
 - 모델 출력이 비거나 "보낼 내용 없음"이면 보내지 않습니다.
 
 ## 5. 보안 검토 항목 (보안 담당 봇용)
@@ -111,8 +128,36 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 6. 모델이 만든 followup은 확인 게이트를 반드시 거치는지 (토큰 1회용·payload_hash).
 7. 스케줄러 단일 리더(advisory lock), 장애 시 폭주(밀린 job 일괄 발송) 방지: 오래된 run은 건너뛰고 1건으로 요약.
 8. rate cap·quiet hours 우회 불가 (서버 측에서 강제).
-9. 감사: job 생성·변경·실행·발송을 `tool_audit` 또는 별도 감사 로그에 기록.
+9. 감사: job 생성·변경·실행·발송을 단일 `tool_audit`에 기록 (별도 감사 로그 없음).
 10. 개인정보: `push_subscriptions` 보존·삭제, feedback export 제외.
+
+## 5.1 보안 검토 반영
+
+| 항목 | 지적 | 문서 반영 위치 |
+|---|---|---|
+| H1 | endpoint allowlist (등록·발송 양쪽, https/443/정확 호스트, IP 리터럴·리다이렉트 거부, egress 정책 경유) | §2.2.1 |
+| H2 | actor=scheduler write 스코프 하드 거부, 확인 토큰은 사용자 세션 POST로만 소비, 테스트 강제 | §1 스케줄러, §3 툴 플랫폼 관계, 아래 테스트 목록 |
+| H3 | scheduler 실행 시작부터 tainted, followup taint 상속, 모델/툴 경로 job 쓰기 불가, spec은 템플릿 id만 | §1 트리거, 아래 테스트 목록 |
+| M-CSRF | CSRF + Origin 검사(없음/null → 403), IDOR 방지 | §2.1 |
+| M-VAPID | 키 로테이션, sub claim, 키 로드 실패 시 기동 거부 | §2.4 |
+| M-payload | `{v,type,nid}` 고정, 크기 상한 | §2.4 |
+| M-audit | 단일 `tool_audit`, 별도 감사 테이블 없음 (`job_runs`는 실행 상태용) | §3, §5-9 |
+| M-ops | `GW_PROACTIVE_ENABLED` 기본 false, lock 상실 즉시 중단, cap 트랜잭션 내 계산 | §1, §4 |
+
+**머지 차단 테스트 (구현 PR에서 필수, 이름은 제안):**
+- `TestPushEndpoint_RejectsNonApple` / `_RejectsHTTP` / `_RejectsPort` / `_RejectsIPLiteral`(IPv4, IPv6, 10진·16진 표기) / `_RejectsUserinfo` / `_NoRedirectFollow` / `_CheckedAtSendTime`(등록 후 DB 값 변조 시 발송 거부)
+- `TestSchedulerActor_RejectsWriteScope` / `_RejectsSendScope` / `_IgnoresGrantsFileOverride`
+- `TestConfirmToken_ConsumeOnlyViaUserSessionPOST` (scheduler·모델 컨텍스트에서 소비 시 거부, GET 거부)
+- `TestSchedulerRun_TaintedFromStart`, `TestFollowup_InheritsOriginThreadTaint`
+- `TestNoModelOrToolPathWritesJobs` (툴 레지스트리·모델 tool_call로 job 생성 불가), `TestJobSpec_TemplateIDOnly` (자유 텍스트·추가 키 거부)
+- `TestProactiveAPI_OriginMissingOrNull403`, `_CSRFRequired`, `_IDOROtherUser404`
+- `TestPayload_FixedKeysAndSizeCap`, `TestStartup_RefusesOnVAPIDKeyLoadFailure`, `TestRateCap_ConcurrentInsertsWithinTx`, `TestScheduler_StopsOnLockLoss`
+
+**PR #2(툴 플랫폼)에도 반영되어야 할 항목 (이 PR에서는 PR #2를 수정하지 않음):**
+1. 외부 egress는 gateway 단일 적용 계층(§13 도메인 정책)으로만 나가며, push 발송도 이 계층을 사용.
+2. 감사 로그는 `tool_audit` 하나 (`actor` 값에 `scheduler` 추가).
+3. followup taint 상속 규칙 (원 스레드 taint 상속, scheduler 실행은 시작부터 tainted).
+4. scheduler 발 확인 카드: 출처(actor, job_id) 표시 + 짧은 만료, 토큰 소비는 사용자 세션 POST만.
 
 ## 6. SemVer 판단: **MAJOR**
 - `docs/versioning.md` 기준으로 major에 해당합니다: (a) **보안·노출 경계 변경**: 새 outbound 외부 전송(Apple push)과 사용자 없는 자동 실행, (b) 새 DB 스키마와 `messages`에 컬럼 추가. 컬럼 추가는 하위 호환이지만 (a) 하나만으로도 major이고, "애매하면 major" 규칙도 적용됩니다.
