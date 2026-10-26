@@ -37,11 +37,31 @@ Autostart: brew services start colima (DOCKER_CONFIG=~/.docker-colima avoids Doc
 NEXT
 }
 
+# Pre-existing non-loopback listeners on the host (macOS services, user apps) that verify tolerates.
+# Anything else listening beyond loopback (e.g. limactl/ssh/dnsmasq forwards, docker) fails verify.
+# Override: LISTEN_ALLOW="rapportd ControlCe ..." ./install-colima.sh verify
+LISTEN_ALLOW=${LISTEN_ALLOW:-"rapportd ControlCe MACSOOPPa astxAgent identitys homed replicato tailscaled IPNExtens io.tailsc"}
+# Prints "COMMAND PROTO ADDR" for TCP LISTEN and unconnected UDP sockets not on 127.0.0.1/::1.
+nonloopback_listeners() {
+  { lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $1, "tcp", $9}'
+    lsof -nP -iUDP 2>/dev/null | awk 'NR>1 && $9 !~ /->/ {print $1, "udp", $9}'
+  } | grep -vE ' (127\.[0-9.]+|\[::1\]|localhost):' | sort -u
+}
+
 verify() {
   echo "- listening sockets for :$PORT (must be 127.0.0.1 only):"
   lsof -nP -iTCP:$PORT -sTCP:LISTEN || true
   if lsof -nP -iTCP:$PORT -sTCP:LISTEN | grep -v '127.0.0.1' | grep -q LISTEN; then echo "FAIL: $PORT bound beyond loopback"; exit 1; fi
   if lsof -nP -iTCP -sTCP:LISTEN | grep -E '^(limactl|ssh) ' | grep -v '127.0.0.1:' | grep -q LISTEN; then echo "FAIL: colima forwards a port beyond loopback (see lima-override.yaml)"; exit 1; fi
+  echo "- port 53 (TCP+UDP) must not be bound beyond loopback:"
+  lsof -nP -iTCP:53 -iUDP:53 || true
+  if lsof -nP -iTCP:53 -iUDP:53 2>/dev/null | awk 'NR>1{print $9}' | grep -vE '^(127\.0\.0\.1|\[::1\]):' | grep -q .; then echo "FAIL: port 53 bound beyond loopback"; exit 1; fi
+  echo "- all non-loopback listeners (any process; own-user only without sudo):"
+  local cur; cur=$(nonloopback_listeners)
+  echo "${cur:-  (none)}" | sed 's/^/  /'
+  local extra; extra=$(comm -23 <(echo "$cur" | awk 'NF{print $1}' | sort -u) <(printf '%s\n' $LISTEN_ALLOW | sort -u))
+  if [[ -n "$extra" ]]; then echo "FAIL: non-loopback listener(s) not in LISTEN_ALLOW (diff vs allowlist):"; echo "$extra" | sed 's/^/  + /'; exit 1; fi
+  echo "  ok: all within LISTEN_ALLOW"
   if lsof -nP -iTCP:6379 -sTCP:LISTEN >/dev/null 2>&1; then echo "FAIL: 6379 published on host"; exit 1; fi
   echo "- JSON search:"
   curl -fsS "http://127.0.0.1:$PORT/search?q=test&format=json" | head -c 200; echo
