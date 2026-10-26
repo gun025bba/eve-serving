@@ -27,12 +27,15 @@ type Store struct {
 	msgs     map[string]*msg
 	feedback map[string]*store.Feedback
 	clock    func() time.Time
+	calls    map[string][]store.ToolCall
+	sources  map[string][]store.WebSource
+	settings map[string][]byte
 }
 
 var _ store.Store = (*Store)(nil)
 
 func New() *Store {
-	return &Store{threads: map[string]*thread{}, msgs: map[string]*msg{}, feedback: map[string]*store.Feedback{}, clock: func() time.Time { return time.Now().UTC() }}
+	return &Store{threads: map[string]*thread{}, msgs: map[string]*msg{}, feedback: map[string]*store.Feedback{}, calls: map[string][]store.ToolCall{}, sources: map[string][]store.WebSource{}, settings: map[string][]byte{}, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func (s *Store) Ping(context.Context) error { return nil }
@@ -205,6 +208,8 @@ func (s *Store) ReplaceMessage(_ context.Context, user string, m store.Message) 
 	o.Content, o.Reasoning, o.Model, o.Params, o.Usage, o.LatencyMs, o.Metadata, o.Status, o.UpdatedAt =
 		m.Content, m.Reasoning, m.Model, m.Params, m.Usage, m.LatencyMs, m.Metadata, m.Status, &now
 	delete(s.feedback, m.ID)
+	delete(s.calls, m.ID)
+	delete(s.sources, m.ID)
 	s.threads[o.ThreadID].UpdatedAt = now
 	return *o, nil
 }

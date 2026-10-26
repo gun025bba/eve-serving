@@ -54,6 +54,7 @@ type Feedback struct {
 }
 
 type Message struct {
+	Sources   []WebSource     `json:"sources,omitempty"` // web citations (assistant replies)
 	ID        string          `json:"id"`
 	ThreadID  string          `json:"thread_id"`
 	Role      string          `json:"role"`
