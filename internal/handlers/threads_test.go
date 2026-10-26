@@ -63,6 +63,7 @@ func newEnv(t *testing.T, withStore bool) *env {
 	up := reasoningUpstream(t, seen, mu)
 	t.Cleanup(up.Close)
 	cfg := config.Default()
+	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
 	s := &Server{Cfg: cfg, Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(10), Mem: &metrics.MemSampler{Needle: "none-xyz"},
@@ -85,6 +86,7 @@ func (e *env) call(t *testing.T, who, method, path, body string) (*http.Response
 		req.Header.Set("Authorization", "Bearer "+key)
 	} else {
 		req.Header.Set("Tailscale-User-Login", who)
+		browserHeaders(req)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -249,6 +251,7 @@ func TestChatStreamPersistsAndRegenerate(t *testing.T) {
 	e := newEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"hi"}],"thread_id":"new"}`))
 	req.Header.Set("Tailscale-User-Login", "alice@example")
+	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -312,6 +315,7 @@ func TestStreamAbortPersistsIncomplete(t *testing.T) {
 	e := newEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"abort"}],"thread_id":"new"}`))
 	req.Header.Set("Tailscale-User-Login", "alice@example")
+	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

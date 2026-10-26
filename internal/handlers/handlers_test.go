@@ -56,6 +56,7 @@ func fakeUpstream(t *testing.T, delay time.Duration, seen *[]map[string]any, mu 
 
 func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.Server, *strings.Builder) {
 	cfg := config.Default()
+	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.MinFreeMemGB = upURL, "m1", 0
 	cfg.StaticDir = t.TempDir()
 	os.WriteFile(filepath.Join(cfg.StaticDir, "index.html"), []byte("<html>ui</html>"), 0o644)
@@ -304,6 +305,7 @@ func TestIdentityAuth(t *testing.T) {
 		req, _ := http.NewRequest("GET", ts.URL+path, nil)
 		if login != "" {
 			req.Header.Set("Tailscale-User-Login", login)
+			browserHeaders(req)
 		}
 		if bearer != "" {
 			req.Header.Set("Authorization", "Bearer "+bearer)
@@ -357,6 +359,7 @@ func TestIdentityHeaderFromNonLoopback(t *testing.T) {
 		req := httptest.NewRequest("GET", "/whoami", nil)
 		req.RemoteAddr = remote
 		req.Header.Set("Tailscale-User-Login", "owner@github")
+		browserHeaders(req)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != 401 || !strings.Contains(rec.Body.String(), "unauthenticated") {
@@ -368,6 +371,7 @@ func TestIdentityHeaderFromNonLoopback(t *testing.T) {
 	req := httptest.NewRequest("GET", "/whoami", nil)
 	req.RemoteAddr = "127.0.0.1:1"
 	req.Header.Set("Tailscale-User-Login", "owner@github")
+	browserHeaders(req)
 	rec := httptest.NewRecorder()
 	s2.Handler().ServeHTTP(rec, req)
 	if rec.Code != 401 {

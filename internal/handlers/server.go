@@ -174,6 +174,10 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		}
 		s.M.Auth.WithLabelValues(id.Provider, "ok").Inc()
 		r = r.WithContext(auth.WithIdentity(r.Context(), id))
+		if reason := s.csrfCheck(r, id); reason != "" {
+			s.csrfReject(w, r, id, reason)
+			return
+		}
 		if !s.Limiter.Allow(r.Context(), id) {
 			s.fail(w, r, apierr.New(429, "rate_limited", "Per-user rate limit exceeded", "rate_limit_error"))
 			return
@@ -220,6 +224,7 @@ func (s *Server) Handler() http.Handler {
 	if s.Limiter == nil {
 		s.Limiter = auth.NoopLimiter{}
 	}
+	s.csrfStartup()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
@@ -293,10 +298,18 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 	if len(origins) == 0 {
 		return next
 	}
-	any := slices.Contains(origins, "*")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		o := r.Header.Get("Origin")
-		if o != "" && (any || slices.Contains(origins, o)) {
+		if corsDenied(r.URL.Path) {
+			// Route-level deny: never emit CORS allow headers (docs/security.md).
+			if o != "" && r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+				http.Error(w, "CORS not allowed for this route", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		if o != "" && slices.Contains(origins, o) {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", o)
 			h.Add("Vary", "Origin")
