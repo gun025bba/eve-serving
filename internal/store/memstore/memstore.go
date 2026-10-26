@@ -408,14 +408,17 @@ func (s *Store) ExportFeedback(_ context.Context, since time.Time, fn func(store
 	return nil
 }
 
-func (s *Store) SetMessageStatus(_ context.Context, user, id, status string) error {
+func (s *Store) MarkGenerating(_ context.Context, user, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, ok := s.msgs[id]
-	if !ok || m.user != user {
+	if !ok || m.user != user || m.Role != "assistant" {
 		return store.ErrNotFound
 	}
-	m.Status = status
+	if m.Status == store.StatusGenerating {
+		return store.ErrGenerating
+	}
+	m.Status = store.StatusGenerating
 	return nil
 }
 

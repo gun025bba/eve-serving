@@ -23,15 +23,33 @@ func TestPostgresGeneratingLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal("generating insert (00006 CHECK)", err)
 	}
-	if err := s.SetMessageStatus(ctx, b, m.ID, store.StatusFailed); err != store.ErrNotFound {
-		t.Fatal("foreign SetMessageStatus", err)
+	if err := s.MarkGenerating(ctx, b, m.ID); err != store.ErrNotFound {
+		t.Fatal("foreign MarkGenerating", err)
+	}
+	if err := s.MarkGenerating(ctx, a, m.ID); err != store.ErrGenerating {
+		t.Fatal("already generating must conflict", err)
 	}
 	m.Content, m.Status = "done", store.StatusComplete
 	if _, err := s.ReplaceMessage(ctx, a, m); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetMessageStatus(ctx, a, m.ID, store.StatusGenerating); err != nil {
-		t.Fatal(err)
+	// concurrent regenerate: exactly one winner
+	errs := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		go func() { errs <- s.MarkGenerating(ctx, a, m.ID) }()
+	}
+	wins := 0
+	for i := 0; i < 8; i++ {
+		switch err := <-errs; err {
+		case nil:
+			wins++
+		case store.ErrGenerating:
+		default:
+			t.Fatal(err)
+		}
+	}
+	if wins != 1 {
+		t.Fatal("winners", wins)
 	}
 	if _, err := s.AddMessage(ctx, a, store.Message{ThreadID: th.ID, Role: "assistant", Status: "bogus"}); err == nil {
 		t.Fatal("CHECK must reject unknown status")

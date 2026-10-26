@@ -24,7 +24,8 @@ type chatPersist struct {
 	t0        time.Time
 	done      bool
 	msgID     string
-	placed    bool // assistant row created up front (status generating)
+	placed    bool          // assistant row created up front (status generating)
+	failCode  func() string // detached run: cancel/timeout code overrides the reason
 }
 
 // startPlaceholder creates the assistant row (or marks the regenerated one)
@@ -33,7 +34,7 @@ func (p *chatPersist) startPlaceholder(r *http.Request) error {
 	ctx := r.Context()
 	if p.replaceID != "" {
 		if gs, ok := p.s.Store.(store.GenStore); ok {
-			if err := gs.SetMessageStatus(ctx, p.user, p.replaceID, store.StatusGenerating); err != nil {
+			if err := gs.MarkGenerating(ctx, p.user, p.replaceID); err != nil {
 				return storeErr(err, "Message")
 			}
 		}
@@ -189,6 +190,11 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 	}
 	if status == store.StatusIncomplete && p.placed {
 		status = store.StatusFailed
+	}
+	if status != store.StatusComplete && p.failCode != nil {
+		if c := p.failCode(); c != "" {
+			reason = c
+		}
 	}
 	m.Status = status
 	if status == store.StatusIncomplete || status == store.StatusFailed {

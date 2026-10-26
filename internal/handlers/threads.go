@@ -34,6 +34,8 @@ func storeErr(err error, what string) error {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		return notFound(what)
+	case errors.Is(err, store.ErrGenerating):
+		return apierr.New(409, "generation_in_progress", what+" is already being generated", "invalid_request_error")
 	case errors.Is(err, store.ErrInvalid):
 		return apierr.BadRequest("Invalid " + strings.ToLower(what))
 	}

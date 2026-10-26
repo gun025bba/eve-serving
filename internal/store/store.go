@@ -20,8 +20,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrInvalid  = errors.New("invalid")
+	ErrNotFound   = errors.New("not found")
+	ErrInvalid    = errors.New("invalid")
+	ErrGenerating = errors.New("already generating")
 )
 
 const (
@@ -33,8 +34,10 @@ const (
 
 // GenStore supports detached generation (assistant row created up front).
 type GenStore interface {
-	// SetMessageStatus sets only the status of the caller's message.
-	SetMessageStatus(ctx context.Context, user, id, status string) error
+	// MarkGenerating sets the caller's assistant message to "generating" only
+	// if it is not already generating (conditional UPDATE). Missing/foreign ->
+	// ErrNotFound; already generating -> ErrGenerating.
+	MarkGenerating(ctx context.Context, user, id string) error
 	// FailStaleGenerating marks every "generating" row failed with
 	// error_code "gateway_restart" (run at startup: no run survives a restart).
 	FailStaleGenerating(ctx context.Context) (int64, error)

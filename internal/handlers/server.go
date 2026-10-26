@@ -242,6 +242,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/threads/{id}", s.persisted(s.deleteThread))
 	mux.HandleFunc("GET /v1/threads/{id}/messages", s.persisted(s.listMessages))
 	mux.HandleFunc("GET /v1/threads/{id}/messages/{mid}/stream", s.persisted(s.streamMessage))
+	mux.HandleFunc("POST /v1/threads/{id}/messages/{mid}/cancel", s.persisted(s.cancelMessage))
 	mux.HandleFunc("PUT /v1/messages/{id}/feedback", s.persisted(s.putFeedback))
 	mux.HandleFunc("DELETE /v1/messages/{id}/feedback", s.persisted(s.deleteFeedback))
 	mux.HandleFunc("GET /v1/feedback/export", s.persisted(s.exportFeedback))

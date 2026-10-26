@@ -176,7 +176,7 @@ func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string
 	payload, _ := json.Marshal(body)
 
 	t0 := time.Now()
-	q, err := s.Q.Acquire(r.Context())
+	q, rel, err := s.acquire(r.Context())
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return
@@ -184,12 +184,11 @@ func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string
 		s.fail(w, r, err)
 		return
 	}
-	s.M.QWait.Observe(q.Seconds())
 	released := false
 	release := func() {
 		if !released {
 			released = true
-			s.Q.Release()
+			rel()
 		}
 	}
 	defer release()

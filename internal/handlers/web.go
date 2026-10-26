@@ -228,12 +228,11 @@ func (s *Server) upstreamJSON(ctx context.Context, body map[string]any) (map[str
 	body["stream"] = false
 	delete(body, "stream_options")
 	payload, _ := json.Marshal(body)
-	q, err := s.Q.Acquire(ctx)
+	_, rel, err := s.acquire(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	s.M.QWait.Observe(q.Seconds())
-	defer s.Q.Release()
+	defer rel()
 	resp, err := s.Up.Do(ctx, "POST", "/v1/chat/completions", payload, 0)
 	if err != nil {
 		return nil, 0, err
@@ -574,12 +573,11 @@ func (s *Server) streamFinal(ctx context.Context, body map[string]any, out *sseO
 	delete(body, "tool_choice")
 	payload, _ := json.Marshal(body)
 	var m upMsg
-	q, err := s.Q.Acquire(ctx)
+	_, rel, err := s.acquire(ctx)
 	if err != nil {
 		return m, nil, nil, err
 	}
-	s.M.QWait.Observe(q.Seconds())
-	defer s.Q.Release()
+	defer rel()
 	resp, err := s.Up.Do(ctx, "POST", "/v1/chat/completions", payload, 0)
 	if err != nil {
 		return m, nil, nil, err
