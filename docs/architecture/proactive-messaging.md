@@ -39,7 +39,7 @@ job = { when: rrule | at, template_id, send_if_changed: bool }
 - **gateway 프로세스 안의 단일 goroutine** (`internal/scheduler`, 이름 TBD). 인증·store·tools·**기존 queue(semaphore)**를 그대로 재사용하고 새 프로세스나 포트를 만들지 않습니다. 사용자 요청보다 낮은 우선순위로 실행하며, 큐가 차 있으면 다음 주기로 미룹니다.
 - 전역 스위치 `GW_PROACTIVE_ENABLED`는 **기본 false**입니다(켜는 방향). 끄는 방향은 PR #2 킬스위치 파일의 `proactive_off: true`로도 할 수 있습니다. 둘이 충돌하면 **끄기가 항상 우선**합니다(`proactive_off`·사용자/job off 중 하나라도 off면 실행 안 함). env를 켜는 것은 재시작이 필요한 **배포 행위**이고 MAJOR 기능의 활성화이므로 건영님 승인 사항입니다 [S4-6]. [Med]
 - **PostgreSQL advisory lock으로 단일 리더**만 실행합니다. **lock을 잃으면 진행 중인 실행을 즉시 중단**하고(발송 전이면 발송 안 함) 다시 얻을 때까지 대기합니다. [Med] 테스트용 `:8001` 인스턴스는 기본 비활성입니다.
-- 폴링: `next_run_at <= now()`인 job을 `FOR UPDATE SKIP LOCKED`로 가져옵니다. 시간대는 job의 `tz`(기본 `Asia/Seoul`)를 씁니다.
+- 폴링: `enabled AND deleted_at IS NULL AND next_run_at <= now()`인 job을 [S4-8] `FOR UPDATE SKIP LOCKED`로 가져옵니다. 시간대는 job의 `tz`(기본 `Asia/Seoul`)를 씁니다.
 - `actor=scheduler`는 **write/send 스코프를 하드 거부**합니다(정책 파일 설정과 무관, 코드 상수). [H2]
 
 ### 전달 채널 — Deliverer 인터페이스 (청사진)
@@ -112,7 +112,7 @@ scheduled_jobs (
   send_if_changed BOOLEAN DEFAULT false,
   thread_id TEXT FK threads NULL,  -- follow-up은 원 스레드, 나머지는 job 전용 스레드
   enabled BOOLEAN DEFAULT true,
-  deleted_at TIMESTAMPTZ NULL,     -- 소프트 삭제(삭제 = enabled=false + deleted_at). 하드 DELETE 없음 [S4-7]
+  deleted_at TIMESTAMPTZ NULL,     -- 소프트 삭제(삭제 = enabled=false + deleted_at). 앱의 하드 DELETE 없음(사용자 삭제 cascade만 예외). 소프트 삭제는 `tool_audit`에 `event_class=security` 이벤트(`job_deleted`, actor, job_id)로 기록 [S4-7][S4-10]
   created_by TEXT CHECK (created_by IN ('user','model_confirmed')),
   confirm_action_id TEXT NULL,     -- PR #2 pending_actions 참조 (follow-up)
   next_run_at, last_run_at TIMESTAMPTZ,
@@ -125,7 +125,7 @@ push_subscriptions (id, user_id FK ON DELETE CASCADE, endpoint TEXT UNIQUE, p256
 
 ALTER TABLE messages
   ADD COLUMN origin TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive')),
-  ADD COLUMN job_id TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE RESTRICT, -- proactive일 때 필수(아래 CHECK). job은 소프트 삭제라 메시지·CHECK와 충돌 없음 [S4-7]
+  ADD COLUMN job_id TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE NO ACTION, -- proactive일 때 필수(아래 CHECK). NO ACTION은 문장 끝에 검사하므로 사용자 삭제 시 users→threads→messages, users→scheduled_jobs cascade가 같은 문장 안에서 함께 지워져 성공. job 단독 하드 삭제는 여전히 거부(앱은 소프트 삭제만) [S4-7][S4-9]
   ADD COLUMN read_at TIMESTAMPTZ NULL,  -- in-app 알림 읽음
   ADD COLUMN push_status TEXT NULL CHECK (push_status IN ('pending','sent','failed','suppressed')),
   ADD COLUMN dedupe_key TEXT NULL,      -- job_id + 기간 키
@@ -207,7 +207,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
    - `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL`(24h), `TestConfirmToken_ConsumeOnlyViaUserSessionPOST`(scheduler·모델 컨텍스트 소비 거부, GET 거부), `TestConfirmToken_ReissueInvalidatesPrevious`
 4. **API·스팸 방지·감사** (`internal/handlers`)
    - `TestProactiveAPI_OriginMissingOrNull403` / `_CSRFRequired` / `_IDOROtherUser404`
-   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestSchedulerJob_DeleteKeepsProactiveMessages`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
+   - `TestProactiveRateCap_ConcurrentInsertsWithinTx`(messages 기준, pending 포함), `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestSchedulerJob_DeleteKeepsProactiveMessages`, `TestUserDelete_CascadesJobsAndProactiveMessages`, `TestScheduler_SkipsSoftDeletedJobs`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveDedupe_UniqueJobKey`, `TestProactiveQuietHours_EnforcedServerSide`(Asia/Seoul 경계 포함) [N5], `TestProactiveAudit_RecordsJobCreateRunSkipSendReject` [N5], `TestProactiveAudit_EventClassAndSkipAggregated`
 
 이름이 바뀐 것: `TestFollowup_*` → `TestSchedulerFollowup_*`, `TestJobSpec_TemplateIDOnly` → `TestSchedulerJob_TemplateIDOnly`, `TestNoModelOrToolPathWritesJobs` → `TestSchedulerJob_NoModelOrToolPathWrites`, `TestVAPID_*`/`TestStartup_*`/`TestPayload_*`/`TestRedaction_*` → `TestPush*` 접두, `TestRateCap_*`/`TestQuietHours_*`/`TestAudit_*` → `TestProactive*` 접두(감사 테스트는 스킵 사유까지 포함). 새로 생긴 것: `TestProactiveDedupe_UniqueJobKey`(dedupe 위치 변경). 보안 검토(7336e4f) 반영으로 `TestProactiveDedupe_CheckRequiresJobAndKey`, `TestUserSettings_SchemaRejectsUnknownAndOutOfRange`, `TestKillswitch_ProactiveOffWinsOverEnv`, `TestProactiveAudit_EventClassAndSkipAggregated` 추가. 확인 게이트 테스트 이름은 PR #2(`NoTokenUntilUserOpens`, `ExpiresAfterTTL`)로 통일. 빠진 보안 테스트는 없습니다.
 
@@ -246,6 +246,9 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 | S4-T | 템플릿 분류 | 보안 의견(MINOR 가능 + 보안 리뷰 필수)으로 기록, 최종은 건영님 (§1, §9) |
 | 권고 Low | 테스트 이름 PR #2와 통일 | `NoTokenUntilUserOpens`, `ExpiresAfterTTL` (§5.1 테스트) |
 | S4-7 | (재검토 965aec6) FK `SET NULL`과 NOT NULL CHECK 충돌 | `ON DELETE RESTRICT` + job 소프트 삭제(`enabled=false`, `deleted_at`), 스케줄러는 `deleted_at IS NULL`만 실행, `TestSchedulerJob_DeleteKeepsProactiveMessages` (§3) |
+| S4-8 | (최종) 폴링 조건에 소프트 삭제 누락 | `enabled AND deleted_at IS NULL` 조건, `TestScheduler_SkipsSoftDeletedJobs` (§1) |
+| S4-9 | (최종) `RESTRICT`는 사용자 삭제 cascade를 막음 | FK `ON DELETE NO ACTION`(문장 끝 검사), `TestUserDelete_CascadesJobsAndProactiveMessages` (§3) |
+| S4-10 | (최종) job 소프트 삭제 감사 | `tool_audit` security 이벤트 `job_deleted` (§3) |
 
 ## 5.3 설계 원칙 반영 (단순성·확장성·청사진)
 
