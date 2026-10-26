@@ -78,7 +78,11 @@ type lockedWriter struct {
 	b  *strings.Builder
 }
 
-func (l lockedWriter) Write(p []byte) (int, error) { l.mu.Lock(); defer l.mu.Unlock(); return l.b.Write(p) }
+func (l lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
 
 func do(t *testing.T, method, url, body string, authz bool) (*http.Response, map[string]any) {
 	req, _ := http.NewRequest(method, url, strings.NewReader(body))
