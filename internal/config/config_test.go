@@ -40,3 +40,31 @@ func TestBadEnv(t *testing.T) {
 		t.Fatal("want error")
 	}
 }
+
+func TestAllowedUsersEnv(t *testing.T) {
+	env := map[string]string{"GW_ALLOWED_USERS": " a@github , ,B@example.com"}
+	c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] })
+	if err != nil || len(c.AllowedUsers) != 2 || c.AllowedUsers[1] != "B@example.com" {
+		t.Fatal(c.AllowedUsers, err)
+	}
+	c, _ = Load("/nonexistent.yaml", func(string) string { return "" })
+	if c.AllowedUsers == nil || len(c.AllowedUsers) != 0 {
+		t.Fatal(c.AllowedUsers)
+	}
+}
+
+func TestAuthProviders(t *testing.T) {
+	c, _ := Load("/nonexistent.yaml", func(string) string { return "" })
+	if len(c.Auth.Providers) != 2 || c.Auth.Providers[0] != "tailscale-identity" {
+		t.Fatal(c.Auth.Providers)
+	}
+	c, _ = Load("/nonexistent.yaml", func(k string) string {
+		if k == "GW_AUTH_PROVIDERS" {
+			return "api-key"
+		}
+		return ""
+	})
+	if len(c.Auth.Providers) != 1 || c.Auth.Providers[0] != "api-key" {
+		t.Fatal(c.Auth.Providers)
+	}
+}

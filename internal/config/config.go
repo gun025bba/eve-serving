@@ -29,6 +29,15 @@ type Config struct {
 	MinFreeMemGB    float64        `yaml:"min_free_mem_gb" json:"min_free_mem_gb"`
 	CORSOrigins     []string       `yaml:"cors_origins" json:"cors_origins"`
 	StaticDir       string         `yaml:"static_dir" json:"static_dir"`
+	// AllowedUsers are Tailscale logins accepted via the Tailscale-User-Login
+	// header (loopback only). Empty = identity auth disabled.
+	AllowedUsers []string   `yaml:"allowed_users" json:"allowed_users"`
+	Auth         AuthConfig `yaml:"auth" json:"auth"`
+}
+
+// AuthConfig selects authentication providers, tried in order.
+type AuthConfig struct {
+	Providers []string `yaml:"providers" json:"providers"`
 }
 
 // Default returns built-in defaults (same values as the shipped config.yaml).
@@ -38,7 +47,8 @@ func Default() Config {
 		Defaults: map[string]any{"max_tokens": 1024, "temperature": 0.7, "top_p": 0.9},
 		MaxConc:  2, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
-		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web",
+		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
+		Auth: AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
 	}
 }
 
@@ -60,6 +70,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	if c.CORSOrigins == nil {
 		c.CORSOrigins = []string{}
+	}
+	if c.AllowedUsers == nil {
+		c.AllowedUsers = []string{}
 	}
 	return c, nil
 }
@@ -93,12 +106,13 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		}
 	}
 	if v := getenv("GW_CORS_ORIGINS"); v != "" {
-		c.CORSOrigins = nil
-		for _, o := range strings.Split(v, ",") {
-			if o = strings.TrimSpace(o); o != "" {
-				c.CORSOrigins = append(c.CORSOrigins, o)
-			}
-		}
+		c.CORSOrigins = splitList(v)
+	}
+	if v := getenv("GW_ALLOWED_USERS"); v != "" {
+		c.AllowedUsers = splitList(v)
+	}
+	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
+		c.Auth.Providers = splitList(v)
 	}
 	return nil
 }
@@ -111,4 +125,14 @@ func Expand(p string) string {
 		}
 	}
 	return p
+}
+
+func splitList(v string) []string {
+	out := []string{}
+	for _, o := range strings.Split(v, ",") {
+		if o = strings.TrimSpace(o); o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }

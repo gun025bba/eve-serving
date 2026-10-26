@@ -26,4 +26,10 @@ func BadRequest(msg string) *Error { return New(400, "bad_request", msg, "invali
 func InvalidKey() *Error {
 	return New(401, "invalid_api_key", "Missing or invalid API key. Use 'Authorization: Bearer <key>'.", "authentication_error")
 }
+func Unauthenticated() *Error {
+	return New(401, "unauthenticated", "Authentication required: open via the tailnet HTTPS URL, or send 'Authorization: Bearer <key>'.", "authentication_error")
+}
+func ForbiddenIdentity() *Error {
+	return New(401, "identity_not_allowed", "This Tailscale login is not in the gateway allowlist.", "authentication_error")
+}
 func Internal() *Error { return New(500, "internal_error", "Internal gateway error", "server_error") }
