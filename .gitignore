@@ -14,3 +14,9 @@ build/
 *.safetensors
 *.bin
 .DS_Store
+.api_key
+*.bak*
+*.out
+*.tgz
+web/
+config.local.yaml

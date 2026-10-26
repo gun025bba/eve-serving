@@ -1,0 +1,20 @@
+# Gateway config. Env vars override (e.g. GW_MAX_CONC=3, GW_LOG_LEVEL=DEBUG).
+upstream: http://127.0.0.1:8080
+model: mlx-community/Qwen3-30B-A3B-4bit
+defaults:            # applied only when the client omits the field
+  max_tokens: 1024
+  temperature: 0.7
+  top_p: 0.9
+max_conc: 2          # concurrent requests to the model (per gateway process)
+max_queue: 16        # waiting requests before 429 queue_full
+queue_timeout_s: 120 # max wait in queue before 429 queue_timeout
+connect_timeout_s: 5
+read_timeout_s: 300  # max gap between bytes from upstream -> 504 upstream_timeout
+retries: 2           # connection-error retries (never once generation has started)
+retry_backoff_s: 0.5
+log_level: INFO
+log_file: ~/llm-serving/gateway.log
+stats_window: 200    # recent requests used by /stats
+min_free_mem_gb: 4   # /ready fails below this available memory
+cors_origins: []     # e.g. ["http://localhost:5173"]; empty = CORS off
+static_dir: ~/llm-serving/web   # served at /ui only if the directory exists

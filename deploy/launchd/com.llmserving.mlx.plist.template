@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.llmserving.mlx</string>
+<key>ProgramArguments</key><array><string>__HOME__/llm-serving/.venv/bin/mlx_lm.server</string><string>--model</string><string>mlx-community/Qwen3-30B-A3B-4bit</string><string>--host</string><string>127.0.0.1</string><string>--port</string><string>8080</string></array>
+<key>WorkingDirectory</key><string>__HOME__/llm-serving</string>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer>
+<key>StandardOutPath</key><string>__HOME__/llm-serving/mlx.launchd.log</string><key>StandardErrorPath</key><string>__HOME__/llm-serving/mlx.launchd.log</string>
+</dict></plist>

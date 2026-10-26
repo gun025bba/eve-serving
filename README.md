@@ -1,4 +1,4 @@
-# Mac Studio Local LLM Gateway
+# Local LLM Gateway
 
 `mlx_lm.server` (Qwen3-30B-A3B-4bit, 127.0.0.1:8080) ← **gateway.py** (FastAPI) ← clients
 Gateway binds: `127.0.0.1:8000` (com.llmserving.gateway), `<tailscale-ip>:8000` tailnet only (com.llmserving.gateway-ts).
@@ -16,7 +16,7 @@ Note: these are two separate processes — each has its own queue/semaphore and 
 Apply config changes: `launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (and `...gateway-ts`).
 
 ## API contract
-Base URL: `http://127.0.0.1:8000` or `http://<mac-name>.<your-tailnet>.ts.net:8000`. Swagger: `/docs`, schema: `/openapi.json`.
+Base URL: `http://127.0.0.1:8000` or `http://<host>.<your-tailnet>.ts.net:8000`. Swagger: `/docs`, schema: `/openapi.json`.
 Auth: `Authorization: Bearer <key>` (key in `~/llm-serving/.api_key`). Every response has `X-Request-ID` (client may send its own).
 
 | method | path | auth | description |
@@ -70,3 +70,20 @@ Non-stream tok/s = completion tokens / upstream time (includes prefill); stream 
 
 ## Test
 `.venv/bin/python examples/client.py [--base http://<tailscale-ip>:8000]` or `examples/curl.sh [base]`.
+
+## Deploy (server)
+```bash
+git clone https://github.com/gun025bba/llm-serving.git ~/llm-serving   # 최초 1회
+cd ~/llm-serving && python3 -m venv .venv && .venv/bin/pip install fastapi uvicorn httpx pyyaml prometheus-client mlx-lm openai
+echo '<your-key>' > .api_key && chmod 600 .api_key            # 커밋 안 됨
+BIND_IP=<tailscale-ip> deploy/install-launchd.sh               # macOS: launchd 템플릿 렌더
+```
+업데이트: `cd ~/llm-serving && git pull --ff-only` → gateway.py/config.yaml이 바뀐 경우에만
+`launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (및 `-ts`).
+호스트별 값(바인드 IP 등)은 커밋하지 말고 env(`GW_*`)나 launchd 템플릿 렌더 시 주입하세요.
+무시되는 로컬 파일: `.api_key`, `*.log`, `.venv/`, `web/`(llm-chat-ui 배포 사본), `config.local.yaml`.
+
+## Workflow
+- GitHub(`gun025bba/llm-serving`)가 단일 진실의 원천입니다. 수정은 clone에서 → commit → push.
+- 서버/개발 환경에서는 `git pull --ff-only`만. 서버에서 직접 수정하지 마세요. force-push 금지.
+- 실제 호스트명·IP·키·로그는 커밋 금지 (`<host>`, `<tailscale-ip>` 플레이스홀더 사용).
