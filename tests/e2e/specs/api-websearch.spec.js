@@ -15,6 +15,9 @@ test('chat web_search=force streams tool_call + sources', async ({ request }) =>
   const ev = parseSSE(await r.text());
   const objs = ev.map(e => { try { return JSON.parse(e.data); } catch { return {}; } });
   const kinds = new Set(objs.map(o => o.object));
+  console.log('[websearch] events:', [...kinds].join(','));
+  for (const o of objs.filter(o => o.object && o.object.startsWith('chat.completion.') && o.object !== 'chat.completion.chunk'))
+    console.log('[websearch]', o.object, JSON.stringify(o.args || ''), (o.sources || []).map(s => `${s.n}:${s.domain}`).join(' '), o.status || '');
   expect(kinds.has('chat.completion.tool_call') || kinds.has('chat.completion.tool_result') || kinds.has('chat.completion.sources'),
     `no web-search events; got ${[...kinds].join(',')}`).toBe(true);
   const src = objs.find(o => o.object === 'chat.completion.sources' || o.object === 'chat.completion.tool_result');
