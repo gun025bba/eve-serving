@@ -73,7 +73,7 @@
 - 사용자 범위: `user_id`는 인증 컨텍스트에서만 결정(경로·본문으로 받지 않음) → IDOR 없음. 항목 id가 내 파일에 없으면 404.
 - 변경 요청은 CSRF 토큰 + Origin 검사(누락·null이면 403), PR #4와 동일 규칙.
 - **GET `/v1/memory`·`/export`**: CORS 헤더를 내지 않음(교차 출처 읽기 금지), `Cache-Control: no-store`, export는 `tool_audit`에 기록(본문 없음) [S5-M5].
-- **taint 스레드에서의 UI 편집** [S5-H3]: 허용하되 `/v1/memory/*` 전용 세션 POST·PATCH(CSRF+Origin)로만. 편집 폼은 빈 칸 또는 기존 저장 항목으로만 채우고, **모델·툴 출력 텍스트로 prefill하지 않는다**(채팅의 "이걸 메모리에 추가" 버튼 없음). 감사는 `via=ui`.
+- **taint 스레드에서의 UI 편집** [S5-H3]: 허용하되 `/v1/memory/*` 전용 세션 POST·PATCH(CSRF+Origin)로만. 편집 폼은 빈 칸 또는 기존 저장 항목으로만 채우고, **모델·툴 출력 텍스트로 prefill하지 않는다**(채팅의 "이걸 메모리에 추가" 버튼 없음). **URL 쿼리·해시·딥링크로 입력란을 채우는 경로도 없다**(설정 화면은 쿼리 파라미터를 입력값으로 읽지 않음) [S5-R3]. 설정 화면 직접 입력도 같은 정규화·시크릿 필터를 거친다. 감사는 `via=ui`.
 - web UI: 설정 > 메모리 화면 하나(목록·편집·삭제·핀·토글). 확인 카드는 PR #2 카드 재사용.
 
 ## 5. 툴 플랫폼과의 관계 (PR #2)
@@ -102,8 +102,9 @@
   - **엔트로피 검사**: 공백 없는 20자 이상 토큰의 Shannon 엔트로피가 임계값(초기 4.0 bits/char, eval로 조정) 이상이면 거부 → 미등록 공급자 키 대비.
   - 필터 오류·패턴 파일 로드 실패 시 **거부(fail-closed)**.
   - 민감정보 범주 정책: 인증정보·결제정보·정부 식별번호 = 거부, 건강·정치 등 민감 범주 = 사용자 직접 입력만 허용(모델 제안 거부).
-- 백업 [S5-M1]: `deploy/pg-backup.sh`에 `memory/` 백업을 추가하되 **평문 tar가 아니라 사용자별 암호화**. 사용자마다 데이터 키(Keychain/0600 키 파일)로 AES-256-GCM 암호화, 보존은 7일(DB 14일보다 짧게). 백업에도 umask 077.
-- 삭제: 항목 삭제는 즉시 파일에서 제거하고 tombstone(id·삭제 시각, 본문 없음)을 남긴다. **복원 시 tombstone을 다시 적용**해 지운 항목이 되살아나지 않게 한다. 전체 삭제·계정 삭제 시 파일 삭제 + **사용자 키 폐기(crypto-shred)**로 백업 속 사본도 복호 불가가 된다.
+- 백업 [S5-M1]: `deploy/pg-backup.sh`에 `memory/` 백업을 추가하되 **평문 tar가 아니라 사용자별 암호화**. 사용자마다 데이터 키(Keychain/0600 키 파일)로 AES-256-GCM 암호화, 보존은 7일(DB 14일보다 짧게). 백업에도 umask 077. **사용자 데이터 키는 백업 대상에서 제외**하고 백업과 다른 위치(Keychain 또는 별도 0700 키 디렉터리, 백업 스크립트 경로 밖)에 둔다. 키가 백업에 있으면 crypto-shred가 무력화되기 때문이다 [S5-R1].
+- 삭제: 항목 삭제는 즉시 파일에서 제거하고 tombstone(id·삭제 시각, 본문 없음)을 남긴다. **복원 시 tombstone을 다시 적용**해 지운 항목이 되살아나지 않게 한다. tombstone은 **라이브 파일 안** `tombstones: [{id, deleted_at}]`에 두고 백업 보존 기간(7일)보다 하루 더(8일) 지나면 정리한다. 복원 순서: ① 현재 라이브 파일의 tombstone을 읽어 둠 → ② 백업 복호 → ③ tombstone에 있는 id 항목 제거 → ④ tombstone 병합 → ⑤ 감사 기록 → ⑥ 원자적 쓰기 [S5-R5].
+- **UI 고지**: 항목 삭제 시 "삭제한 항목은 암호화된 백업에 최대 7일 남았다가 사라집니다(전체 삭제·계정 삭제는 즉시 복호 불가)"를 표시한다 [S5-R2]. 전체 삭제·계정 삭제 시 파일 삭제 + **사용자 키 폐기(crypto-shred)**로 백업 속 사본도 복호 불가가 된다.
 - 로그·메트릭에 항목 텍스트 금지.
 
 ## 8. 평가 (모델 엔지니어와 합의할 항목)
@@ -113,6 +114,7 @@
 - 인젝션 내성: 툴 결과·붙여넣은 텍스트 속 "이걸 기억해" 공격이 제안을 만들지 않는지(taint 차단 테스트 + 모델 단 거부율), `<user_memory>` 안 지시문 무시율.
 - 한국어: 한국어 발화의 "기억해/잊어줘" 인식, 존댓말·혼용 처리.
 - 상한(1,500 토큰) 대비 품질 곡선.
+- 엔트로피 임계(4.0 bits/char) 오탐: ULID·해시·URL·코드 조각 같은 정상 문자열 코퍼스에서 거부율을 재고 임계값을 조정 [S5-R4].
 
 ## 9. DB 이전 경로 (청사진)
 
@@ -135,7 +137,7 @@
 | 쓰기 경로 | `TestMemory_DeniedInTaintedThread`, `TestMemory_SchedulerCannotWrite`, `TestMemory_ExplicitRememberNeedsConfirm`, `TestMemory_ConfirmShowsNormalizedText`, `TestMemory_NormalizeStripsControlAndZeroWidth` |
 | 시크릿 필터 | `TestMemory_SecretFilterRejects`, `TestMemorySecret_BypassCorpus`(공백·제로폭·전각·분할·base64/hex·URL 인코딩·미등록 공급자), `TestMemorySecret_HighEntropyRejected`, `TestMemorySecret_FilterErrorFailsClosed`, `TestMemorySecret_SharesRedactorPatterns` |
 | 주입·파일 | `TestMemory_InjectionCap`, `TestMemoryInject_JSONEscapedWithNonce`, `TestMemoryInject_ForgedClosingTagInert`, `TestMemory_FilePerms0600`, `TestMemory_AtomicWriteConcurrent`, `TestMemoryFile_RejectsSymlinkWrongOwner`, `TestMemoryFile_UserIDMismatchRejected`, `TestMemoryBackup_EncryptedAndTombstoneReapplied`, `TestMemoryBackup_KeyRevokedUnreadable` |
-| API·감사 | `TestMemoryAPI_OriginCSRF`, `TestMemoryAPI_NoCrossUser`, `TestMemoryAPI_NoCORSNoStore`, `TestMemoryUI_TaintedEditSessionOnlyNoPrefill`, `TestMemory_AuditNoPlaintext`, `TestMemoryAudit_HMACNotPlainHash`, `TestMemoryAudit_FailureRefusesWrite` |
+| API·감사 | `TestMemoryAPI_OriginCSRF`, `TestMemoryAPI_NoCrossUser`, `TestMemoryAPI_NoCORSNoStore`, `TestMemoryUI_TaintedEditSessionOnlyNoPrefill`, `TestMemoryUI_NoPrefillFromQuery`, `TestMemory_AuditNoPlaintext`, `TestMemoryAudit_HMACNotPlainHash`, `TestMemoryAudit_FailureRefusesWrite` |
 
 ## 11.1 보안 검토 반영 (8a8351d 리뷰)
 
@@ -150,6 +152,11 @@
 | S5-M4 | 감사 먼저·실패 시 거부, O_NOFOLLOW·uid, user_id-파일명 일치, `gateway-ts` 미사용 | §5, §7 |
 | S5-M5 | GET/export CORS 금지·`no-store`·export 감사 | §4 |
 | 권고 | 선톡의 메모리 읽기 기본 off | §3, §6 |
+| S5-R1 | (재검토 2b99219) 데이터 키가 백업에 있으면 shred 무력화 | 키는 백업 제외·별도 위치 | §7 |
+| S5-R2 | 항목 삭제 후 백업 잔존 UI 고지 | 최대 7일 고지 문구 | §7 |
+| S5-R3 | URL 쿼리·딥링크 prefill | 경로 없음 명시, `TestMemoryUI_NoPrefillFromQuery` | §4, §11 |
+| S5-R4 | 엔트로피 4.0 오탐 | eval 코퍼스 항목 추가 | §8 |
+| S5-R5 | tombstone 위치·복원 순서 | 라이브 파일 안, 8일 보관, 복원 6단계 | §7 |
 
 새 프로세스·테이블·다이어그램 상자는 추가하지 않았다(단순성 원칙 유지).
 
