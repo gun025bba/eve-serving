@@ -104,6 +104,7 @@
   - 민감정보 범주 정책: 인증정보·결제정보·정부 식별번호 = 거부, 건강·정치 등 민감 범주 = 사용자 직접 입력만 허용(모델 제안 거부).
 - 백업 [S5-M1]: `deploy/pg-backup.sh`에 `memory/` 백업을 추가하되 **평문 tar가 아니라 사용자별 암호화**. 사용자마다 데이터 키(Keychain/0600 키 파일)로 AES-256-GCM 암호화, 보존은 7일(DB 14일보다 짧게). 백업에도 umask 077. **사용자 데이터 키는 백업 대상에서 제외**하고 백업과 다른 위치(Keychain 또는 별도 0700 키 디렉터리, 백업 스크립트 경로 밖)에 둔다. 키가 백업에 있으면 crypto-shred가 무력화되기 때문이다 [S5-R1].
 - 삭제: 항목 삭제는 즉시 파일에서 제거하고 tombstone(id·삭제 시각, 본문 없음)을 남긴다. **복원 시 tombstone을 다시 적용**해 지운 항목이 되살아나지 않게 한다. tombstone은 **라이브 파일 안** `tombstones: [{id, deleted_at}]`에 두고 백업 보존 기간(7일)보다 하루 더(8일) 지나면 정리한다. 복원 순서: ① 현재 라이브 파일의 tombstone을 읽어 둠 → ② 백업 복호 → ③ tombstone에 있는 id 항목 제거 → ④ tombstone 병합 → ⑤ 감사 기록 → ⑥ 원자적 쓰기 [S5-R5].
+- **라이브 파일 손상 시 tombstone 재구성** [S5-R6]: 라이브 파일을 읽을 수 없으면(파싱 실패·`user_id` 불일치·권한 오류) 쓰기를 멈추고 해당 사용자 메모리를 읽기 전용으로 둔다. 복구 절차: ① `tool_audit`에서 해당 사용자의 `memory` 삭제 이벤트(item id, 시각; 본문 없음)를 최근 8일치 조회하고 hash chain을 검증(실패하면 중단·운영자 확인) → ② 그 id들로 tombstone 목록 재구성 → ③ 최신 암호화 백업 복호 → ④ tombstone 적용 → ⑤ 복구 사실을 감사 기록 → ⑥ 원자적 쓰기, 손상 파일은 0600으로 격리 보관 후 7일 뒤 삭제. 이를 위해 항목 삭제 감사에는 item id가 반드시 들어간다. 테스트 `TestMemoryRestore_RebuildsTombstonesFromAudit`.
 - **UI 고지**: 항목 삭제 시 "삭제한 항목은 암호화된 백업에 최대 7일 남았다가 사라집니다(전체 삭제·계정 삭제는 즉시 복호 불가)"를 표시한다 [S5-R2]. 전체 삭제·계정 삭제 시 파일 삭제 + **사용자 키 폐기(crypto-shred)**로 백업 속 사본도 복호 불가가 된다.
 - 로그·메트릭에 항목 텍스트 금지.
 
@@ -136,7 +137,7 @@
 |---|---|
 | 쓰기 경로 | `TestMemory_DeniedInTaintedThread`, `TestMemory_SchedulerCannotWrite`, `TestMemory_ExplicitRememberNeedsConfirm`, `TestMemory_ConfirmShowsNormalizedText`, `TestMemory_NormalizeStripsControlAndZeroWidth` |
 | 시크릿 필터 | `TestMemory_SecretFilterRejects`, `TestMemorySecret_BypassCorpus`(공백·제로폭·전각·분할·base64/hex·URL 인코딩·미등록 공급자), `TestMemorySecret_HighEntropyRejected`, `TestMemorySecret_FilterErrorFailsClosed`, `TestMemorySecret_SharesRedactorPatterns` |
-| 주입·파일 | `TestMemory_InjectionCap`, `TestMemoryInject_JSONEscapedWithNonce`, `TestMemoryInject_ForgedClosingTagInert`, `TestMemory_FilePerms0600`, `TestMemory_AtomicWriteConcurrent`, `TestMemoryFile_RejectsSymlinkWrongOwner`, `TestMemoryFile_UserIDMismatchRejected`, `TestMemoryBackup_EncryptedAndTombstoneReapplied`, `TestMemoryBackup_KeyRevokedUnreadable` |
+| 주입·파일 | `TestMemory_InjectionCap`, `TestMemoryInject_JSONEscapedWithNonce`, `TestMemoryInject_ForgedClosingTagInert`, `TestMemory_FilePerms0600`, `TestMemory_AtomicWriteConcurrent`, `TestMemoryFile_RejectsSymlinkWrongOwner`, `TestMemoryFile_UserIDMismatchRejected`, `TestMemoryBackup_EncryptedAndTombstoneReapplied`, `TestMemoryBackup_KeyRevokedUnreadable`, `TestMemoryRestore_RebuildsTombstonesFromAudit` |
 | API·감사 | `TestMemoryAPI_OriginCSRF`, `TestMemoryAPI_NoCrossUser`, `TestMemoryAPI_NoCORSNoStore`, `TestMemoryUI_TaintedEditSessionOnlyNoPrefill`, `TestMemoryUI_NoPrefillFromQuery`, `TestMemory_AuditNoPlaintext`, `TestMemoryAudit_HMACNotPlainHash`, `TestMemoryAudit_FailureRefusesWrite` |
 
 ## 11.1 보안 검토 반영 (8a8351d 리뷰)
@@ -157,6 +158,7 @@
 | S5-R3 | URL 쿼리·딥링크 prefill | 경로 없음 명시, `TestMemoryUI_NoPrefillFromQuery` | §4, §11 |
 | S5-R4 | 엔트로피 4.0 오탐 | eval 코퍼스 항목 추가 | §8 |
 | S5-R5 | tombstone 위치·복원 순서 | 라이브 파일 안, 8일 보관, 복원 6단계 | §7 |
+| S5-R6 | 라이브 파일 손상 시 tombstone 소실 | 감사 로그(삭제 이벤트 item id, 8일, 체인 검증)로 재구성 후 복원, `TestMemoryRestore_RebuildsTombstonesFromAudit` | §7 |
 
 새 프로세스·테이블·다이어그램 상자는 추가하지 않았다(단순성 원칙 유지).
 
