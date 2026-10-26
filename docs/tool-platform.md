@@ -100,7 +100,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 - **1회 승인 = 1회 실행**: 승인 시 `idempotency_key`(ULID)를 `pending_actions`에 기록(UNIQUE). 실행기 재시도는 같은 키로만 하며, 외부 API가 멱등 키를 지원하지 않으면 **재시도 없음**. `executing`에 고착된 행(타임아웃+여유 초과)은 자동 재실행하지 않고 `failed(unknown_outcome)`로 전이 후 사용자에게 "실행 여부 불명, 확인 후 새 제안" 안내.
 - 모델 텍스트나 사용자의 "응/승인" 채팅 텍스트는 확인으로 **인정하지 않음**. 승인은 UI 버튼 → 별도 엔드포인트만.
 - 턴당 쓰기 제안 1회.
-- **scheduler 발 제안(PR #4)**: scheduler는 **토큰 없는 제안**만 만든다(`token_sha256` NULL, `payload_hash`로 페이로드 고정). 제안 TTL은 **최대 24시간**(`expires_at`, 제안 생성 시 고정), 그 뒤 `expired`. 사용자가 카드를 열면 사용자 세션의 `POST /v1/actions/{id}/reissue`(Origin 검사)로 **1회용 토큰을 발급**하며 토큰 만료는 **120~300초**(기본 120초, `token_expires_at`).
+- **scheduler 발 제안(PR #4)**: scheduler는 **토큰 없는 제안**만 만든다(`token_sha256` NULL, `payload_hash`로 페이로드 고정). 제안 TTL은 **최대 24시간**(`expires_at`, 제안 생성 시 고정), 그 뒤 `expired`. 사용자가 카드의 승인 버튼을 누르면 사용자 세션의 `POST /v1/actions/{id}/reissue`(Origin 검사)로 **1회용 토큰을 발급**하며 토큰 만료는 **120~300초**(기본 120초, `token_expires_at`).
 - **만료 2단 분리**: 제안 만료 `expires_at`과 토큰 만료 `token_expires_at`은 별도 컬럼. approve는 **둘 다** 미만료여야 통과(`now() < expires_at AND now() < token_expires_at`). 토큰 발급·재발급은 `token_expires_at`만 설정하며 **제안 TTL을 절대 연장하지 않음**(`token_expires_at = LEAST(now()+ttl, expires_at)`). 발급 횟수 상한은 **최초 발급 포함 총 3회**(user 제안은 생성 시 발급이 1회째, scheduler 제안은 카드를 열 때 발급이 1회째).
 - **토큰 없는 제안 승인 금지**: approve는 `token_sha256 IS NOT NULL`인 행만 대상. `confirm_token` 누락·빈 문자열이면 **400 `confirm_token_required`**(DB 조회 전 거부), 토큰 미발급 제안에 대한 approve는 실행 0회. 카드에는 출처(actor=scheduler, job_id, job 이름)를 표시. 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
 - **actor/job_id는 서버만 설정**: `actor`·`job_id`는 게이트웨이가 실행 컨텍스트(사용자 요청 핸들러 vs 스케줄러 goroutine)에서 직접 채운다. API 본문·헤더·쿼리, 모델 출력, 툴 인자에서는 **절대 받지 않음**(해당 필드가 오면 무시가 아니라 400 거부). 기본값 없음: 코드에서 명시적으로 설정하지 않으면 INSERT가 NOT NULL로 실패.
@@ -308,7 +308,7 @@ SSE(기존 이벤트 유지 + 추가):
  "provenance":{"actor":"user|scheduler","job_id":null}}
 {"object":"chat.completion.action_result","action_id":"01J...","status":"executed|failed|rejected|expired"}
 ```
-- **토큰 전달 경로는 하나**: SSE confirmation에는 `confirm_token`·토큰 해시가 없다. 토큰은 **세션 POST 응답으로만** 받는다: 카드를 띄운 UI가 `POST /v1/actions/{id}/reissue`(최초 발급 포함 3회)를 호출하거나 `POST /v1/proposals/{id}/revise` 응답으로 받는다(ui-api-contract.md §3.5.4). **UI PR #1은 SSE에서 토큰을 읽는 코드를 이 방식으로 바꿔야 한다.**
+- **토큰 전달 경로는 하나**: SSE confirmation에는 `confirm_token`·토큰 해시가 없다. 토큰은 **세션 POST 응답으로만** 받는다: UI가 승인 버튼을 누를 때 `POST /v1/actions/{id}/reissue`(최초 발급 포함 3회)를 호출한 뒤 바로 approve하거나 `POST /v1/proposals/{id}/revise` 응답으로 받는다(ui-api-contract.md §3.5.4). **UI PR #1은 SSE에서 토큰을 읽는 코드를 이 방식으로 바꿔야 한다.**
 엔드포인트:
 - `POST /v1/actions/{id}/approve` `{confirm_token, payload_hash}` → 200 `{status:"executed",result}` / 409 `conflict`(이미 결정됨, 같은 결과 반환) / 410 `expired` / 422 `payload_mismatch` / 422 `cap_exceeded` / 404 `not_found`(다른 사용자 포함, 본문 동일). 코드 이름은 ui-api-contract.md §3.3 enum과 같다.
 - `POST /v1/actions/{id}/reject` → 200.
