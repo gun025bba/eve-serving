@@ -36,6 +36,7 @@ digest: ""                    # mcp_stdio일 때 필수 (@sha256 / --require-has
 license: MIT
 scopes: [web.read]            # 선언된 스코프 밖 호출은 거부
 side_effect: read             # read | write | send | trade
+verb: run                     # 확인 카드 버튼 동사: add | update | send | delete | run (필수, 정적)
 taint_output: true            # 결과가 외부 데이터인가
 egress: [127.0.0.1:8888]      # 외부 접속 allowlist (SSRF guard와 결합)
 secrets: []                   # 이 툴에만 주입할 시크릿 이름
@@ -45,6 +46,7 @@ rate_per_min: 10
 exposure: {modes: [auto, force], max_per_turn: 3}
 ```
 - `egress`: 루프백은 레지스트리에 등록된 내부 엔드포인트(검색 엔진) 하나만 허용, 사설·링크로컬·tailnet 대역과 IP 리터럴은 스키마에서 거부(§13 정규화 재사용).
+- `verb`(필수): 확인 카드 `payload_view.verb`의 유일한 출처. enum `add|update|send|delete|run`, 배포 시 고정. 모델 출력으로 바꿀 수 없고 자유 텍스트 label 없음. 위험 스타일은 verb가 아니라 scopes로 정한다. 값 추가는 MINOR, UI는 모르는 값을 `run`으로 처리(ui-api-contract.md Q19). 테스트: 모든 매니페스트의 verb 유효성(CI 실패), 모델 args로 verb 변경 불가.
 - 매니페스트는 JSON Schema로 검증, **미지정 필드 거부**(`additionalProperties:false`). 잘못된/누락 매니페스트 거부 단위 테스트.
 
 ### 1.2 툴 인자 스키마
@@ -303,7 +305,7 @@ SSE(기존 이벤트 유지 + 추가):
 {"object":"chat.completion.tool_call","id":"call_1_0","tool":"web_search","args":{...공개 인자},"round":1}
 {"object":"chat.completion.tool_result","id":"call_1_0","tool":"web_search","status":"ok","sources":[...]}
 {"object":"chat.completion.confirmation","action_id":"01J...","tool":"calendar_create_event","tool_version":"1.0.0",
- "summary":"10/28 15:00 치과 일정 추가","payload_view":{...실제 실행 값},"payload_hash":"sha256:...",
+ "summary":"10/28 15:00 치과 일정 추가","payload_view":{"verb":"add",...실제 실행 값},"payload_hash":"sha256:...",
  "expires_at":"2026-10-26T11:02:00Z","tainted":true,
  "provenance":{"actor":"user|scheduler","job_id":null}}
 {"object":"chat.completion.action_result","action_id":"01J...","status":"executed|failed|rejected|expired"}
