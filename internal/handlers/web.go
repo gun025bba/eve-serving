@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
+	"github.com/gun025bba/eve-serving/internal/cite"
 	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/search"
 	_ "github.com/gun025bba/eve-serving/internal/search/brave"   // registers "brave" (stub, disabled)
@@ -377,7 +378,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		b := base()
 		b["messages"] = conv
 		if stream {
-			final, pt, ct, ferr = s.streamFinal(ctx, b, out)
+			final, pt, ct, ferr = s.streamFinal(ctx, b, out, cite.New(validCites(sess)))
 			finalStreamed = true
 		} else {
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
@@ -454,7 +455,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			b := base()
 			b["messages"] = conv
 			if stream {
-				final, pt, ct, ferr = s.streamFinal(ctx, b, out)
+				final, pt, ct, ferr = s.streamFinal(ctx, b, out, cite.New(validCites(sess)))
 				finalStreamed = true
 			} else {
 				lastResp, _, ferr = s.upstreamJSON(ctx, b)
@@ -474,6 +475,14 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			reason = "client_disconnected"
 		}
 	}
+	// Citation safety: drop [n] markers that don't match a search result
+	// returned in this request (all of them when no tool ran).
+	var removed int
+	final.Content, removed = cite.Sanitize(final.Content, validCites(sess))
+	if removed > 0 {
+		s.M.CitesRemoved.Add(float64(removed))
+	}
+	s.Log.Info("citation_filter", "request_id", rid(r), "citations_removed", removed, "tool_calls", len(sess.Calls), "sources", len(sess.Sources))
 	cites := cited(final.Content)
 	srcs := sourcesView(sess.Sources, nil)
 	if pr != nil {
@@ -541,7 +550,45 @@ func mustJSON(v any) string {
 
 // streamFinal streams the final generation to the client, forwarding chunks
 // but not upstream [DONE] (the web path adds sources/persisted first).
-func (s *Server) streamFinal(ctx context.Context, body map[string]any, out *sseOut) (upMsg, *int64, *int64, error) {
+func validCites(sess *tools.Session) []int {
+	ns := make([]int, 0, len(sess.Sources))
+	for _, x := range sess.Sources {
+		ns = append(ns, x.N)
+	}
+	return ns
+}
+
+// filterChunk rewrites delta.content of one SSE data line through cf.
+// Lines whose content passes through unchanged keep their original bytes.
+func filterChunk(l []byte, cf *cite.Filter) []byte {
+	ls := strings.TrimRight(string(l), "\r")
+	if !strings.HasPrefix(ls, "data: ") {
+		return l
+	}
+	var v map[string]any
+	if json.Unmarshal([]byte(strings.TrimSpace(ls[6:])), &v) != nil {
+		return l
+	}
+	cs, _ := v["choices"].([]any)
+	changed := false
+	for _, c := range cs {
+		cm, _ := c.(map[string]any)
+		d, _ := cm["delta"].(map[string]any)
+		if str, ok := d["content"].(string); ok {
+			if o := cf.Write(str); o != str {
+				d["content"] = o
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return l
+	}
+	b, _ := json.Marshal(v)
+	return append([]byte("data: "), b...)
+}
+
+func (s *Server) streamFinal(ctx context.Context, body map[string]any, out *sseOut, cf *cite.Filter) (upMsg, *int64, *int64, error) {
 	body["stream"] = true
 	body["stream_options"] = map[string]any{"include_usage": true}
 	delete(body, "tools")
@@ -577,7 +624,11 @@ func (s *Server) streamFinal(ctx context.Context, body map[string]any, out *sseO
 		if len(bytes.TrimSpace(l)) == 0 {
 			continue
 		}
-		out.raw(append(append([]byte{}, l...), '\n', '\n'))
+		out.raw(append(filterChunk(l, cf), '\n', '\n'))
+	}
+	if tail := cf.Flush(); tail != "" {
+		out.event(map[string]any{"id": "cite-tail", "object": "chat.completion.chunk", "model": body["model"],
+			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": tail}, "finish_reason": nil}}})
 	}
 	m.Content, m.Reasoning = acc.content.String(), acc.reasoning.String()
 	if rec.ct == nil && n > 0 {
