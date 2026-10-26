@@ -45,9 +45,12 @@ jobs:
           CGO_ENABLED=0 go build -o gw-default ./cmd/gateway
           CGO_ENABLED=0 go build -tags e2e -o gw-e2e ./cmd/gateway
           # the check must be able to see the symbol in an e2e build ...
-          go tool nm gw-e2e | grep -q 'auth.(\*e2eIdentity)' || { echo "nm check is broken: e2e symbol not found in e2e build"; exit 1; }
+          go tool nm gw-e2e > nm-e2e.txt
+          go tool nm gw-default > nm-default.txt
+          grep -q 'auth.(\*e2eIdentity)' nm-e2e.txt || { echo "nm check is broken: e2e symbol not found in e2e build"; exit 1; }
           # ... and must not find it (or the header name) in the default build
-          if go tool nm gw-default | grep -E 'e2eIdentity|HeaderE2EIdentity'; then echo "e2e symbols in default binary"; exit 1; fi
+          if grep -E 'e2eIdentity|HeaderE2EIdentity' nm-default.txt; then echo "e2e symbols in default binary"; exit 1; fi
+          echo "default binary: $(wc -l < nm-default.txt) symbols, 0 e2e symbols; e2e binary: $(grep -c e2eIdentity nm-e2e.txt) e2e symbol(s)"
           if grep -a -q 'X-Eve-Test-Identity' gw-default; then echo "e2e header string in default binary"; exit 1; fi
           # the default binary refuses to start with the injection flag
           echo ci-key > k; set +e
