@@ -44,11 +44,16 @@
 ### 2.2 iPhone Web Push (2차)
 - 조건: iOS/iPadOS **16.4 이상**, **홈 화면에 추가한 웹 앱**(manifest `display: standalone`)에서만 가능합니다. Safari 탭에서는 안 됩니다. 권한 요청은 사용자 탭(제스처) 안에서 해야 합니다. [WebKit][webkit-ios], [Apple][apple-webpush]
 - 표준: Push API + Service Worker, **VAPID**(RFC 8292, ES256 JWT, `exp` ≤ 24h) [rfc8292], payload 암호화 **aes128gcm**(RFC 8291) [rfc8291], 전송 프로토콜 RFC 8030.
-- Apple은 Web Push에 APNs를 쓰고 Apple Developer Program 가입이 필요 없습니다. 서버는 `https://*.push.apple.com`으로 **outbound** 접근이 필요합니다. [WebKit][webkit-ios], [Apple][apple-webpush]
+- Apple은 Web Push에 APNs를 쓰고 Apple Developer Program 가입이 필요 없습니다. 서버는 Apple push 서비스로 **outbound** 접근이 필요합니다. Apple 안내는 push.apple.com 하위 도메인 전체 허용이지만 [WebKit][webkit-ios], [Apple][apple-webpush], **Eve는 정확히 `web.push.apple.com` 하나만 허용**합니다 (§2.2.1). [N1]
 - Safari는 **보이지 않는(silent) push를 지원하지 않습니다**. 받으면 바로 알림을 표시해야 하고, 그렇지 않으면 권한이 회수됩니다. [Apple][apple-webpush]
 
 ### 2.2.1 push endpoint allowlist [H1]
-- **등록 시와 발송 시 모두** 검사: `https`만, 포트 443만, **정확한 Apple push 호스트 목록**과 일치하는 경우만(와일드카드 매칭 금지). 후보 목록은 실제 구독에서 확인해 고정합니다(예: `web.push.apple.com`, 확정 TBD).
+- **등록 시와 발송 시 모두** 검사: `https`만, 포트 443만, 호스트가 **정확히 `web.push.apple.com`**인 경우만 허용합니다(와일드카드·접미사 매칭 금지). [N1]
+- **기본 거부:** 실제 iPhone 구독 endpoint가 `web.push.apple.com`임을 확인하기 전에는 **Web Push를 비활성화하고 in-app 알림만** 씁니다. [N1]
+- 거부된 호스트는 메트릭(`eve_push_endpoint_rejected_total{reason}`)과 `tool_audit`에 기록합니다(전체 URL이 아닌 호스트만). [N1]
+- 허용 호스트를 추가하는 것은 **별도 MAJOR 결정**입니다. Apple WWDC22 안내처럼 push.apple.com 하위 도메인 전체를 허용하는 경우도 포함합니다. [N1]
+- VAPID JWT의 `aud`는 정확히 `https://web.push.apple.com`이어야 합니다. 다른 값이면 서명하지 않습니다. [N1]
+- **DNS 검사:** 이름이 사설(RFC 1918)·loopback·link-local·CGNAT(100.64.0.0/10, tailnet 대역 포함)·ULA 주소로 해석되면 거부합니다. **DNS rebinding을 막기 위해** 검사한 IP로 연결을 고정(pin)하고, 연결 시점에 다시 해석하지 않습니다. [N3]
 - IP 리터럴(IPv4/IPv6, 10진·16진 표기 포함) 거부, userinfo·비표준 포트 거부, **리다이렉트 따라가지 않음**(3xx = 실패).
 - 발송은 gateway의 **도메인 egress 정책(PR #2 §13, 단일 적용 계층)**을 통과해야 하며 별도 HTTP 클라이언트 우회 경로를 두지 않습니다.
 
@@ -56,18 +61,21 @@
 | 경로 | 필요 조건 | tailnet 전용과 충돌? |
 |---|---|---|
 | 구독 (PWA → gateway) | secure context(HTTPS). `tailscale serve`가 `*.ts.net` 이름으로 Let's Encrypt 인증서를 자동 발급·갱신 [ts-serve], [ts-https] | 없음. 구독할 때 iPhone이 tailnet에 연결되어 있으면 됨 |
-| 발송 (gateway → Apple) | host에서 `*.push.apple.com`으로 HTTPS outbound | 없음. **새 outbound 경로**라서 보안 경계 변경 |
+| 발송 (gateway → Apple) | host에서 `web.push.apple.com`(정확 일치)으로만 HTTPS outbound, gateway 단일 egress 계층 경유 | 없음. **새 outbound 경로**라서 보안 경계 변경 |
 | 수신 (Apple → iPhone) | APNs 경유. gateway로 들어오는 inbound 필요 없음 | 없음. tailnet 연결이 꺼져 있어도 알림은 뜸 |
-| 열람 (알림 탭 → 앱) | 앱이 gateway API를 호출하므로 tailnet 연결 필요 | 연결이 꺼져 있으면 "연결 필요" 화면 (UI TBD) |
+| 열람 (알림 탭 → 앱) | 앱이 gateway API를 호출하므로 tailnet 연결 필요 | 연결이 꺼져 있으면 "연결 필요" 화면 (아래) |
 
+- **'연결 필요' 화면 [L3]:** 알림을 탭했는데 gateway API 요청이 실패하면(네트워크 오류·타임아웃 약 5초) SW나 앱이 캐시된 셸에 "Tailscale 연결이 필요해요" 화면을 보여줍니다. 화면에는 재시도 버튼과 Tailscale 켜기 안내가 있고, `nid`는 로컬에만 보관했다가 연결되면 해당 스레드를 엽니다. 대화 내용은 캐시하지 않습니다.
 - 참고: Tailscale HTTPS 인증서는 CT 공개 로그에 머신 이름이 기록됩니다 [ts-https]. 이미 serve를 쓰고 있으므로 새 노출은 아닙니다.
 - Funnel은 켜지 않습니다. inbound는 지금처럼 tailnet 전용으로 유지합니다.
 
 ### 2.4 payload 프라이버시
-- **고정 구조 payload**: `{"v":1,"type":"proactive","nid":"<notification ULID>"}` 정확히 이 3개 키만(추가 키 있으면 발송 거부), 직렬화 후 **256바이트 상한**을 코드에서 강제 (aes128gcm 암호화). [Med] 알림 문구는 SW에서 고정 문구로 표시하고("Eve에게서 새 메시지가 있어요"), 실제 내용은 앱을 열 때 tailnet으로 가져옵니다.
+- **고정 구조 payload**: `{"v":1,"type":"proactive","nid":"<notification ULID>"}` 정확히 이 3개 키만(추가 키 있으면 발송 거부), aes128gcm 암호화. [Med]
+  - 1차 통제는 **엄격한 스키마**입니다: `v`는 정확히 1, `type`은 enum(`proactive` 등 고정 목록), `nid`는 ULID 정규식 `^[0-9A-HJKMNP-TV-Z]{26}$`.
+  - 보조 통제로 **암호화 전 평문 JSON 바이트 기준 256B 상한**을 둡니다. 더 엄격하게 128B로 하는 선택지도 있습니다. 알림 문구는 SW에서 고정 문구로 표시하고("Eve에게서 새 메시지가 있어요"), 실제 내용은 앱을 열 때 tailnet으로 가져옵니다.
 - 이유: payload는 종단 간 암호화되지만 Apple은 메타데이터(시각·크기·endpoint)를 볼 수 있고, 잠금 화면 미리보기로 내용이 노출될 수 있습니다. 미리보기 옵션은 TBD(기본 off).
-- `Topic` 헤더로 같은 종류 알림을 합치고(coalesce), `TTL`은 짧게(예: 브리핑 4h) 설정합니다 [apple-webpush].
-- VAPID 개인키: macOS Keychain 또는 chmod 600 파일 (PR #2 시크릿 정책). 저장소·env·로그 금지. Redactor로 endpoint URL을 마스킹합니다.
+- `Topic` 헤더로 같은 종류 알림을 합치고(coalesce). **Topic에는 내용을 넣지 않습니다**: 고정 값(예: `eve-proactive`)이나 무작위 id만 씁니다. 헤더는 암호화되지 않기 때문입니다. `TTL`은 짧게(예: 브리핑 4h) 설정합니다 [apple-webpush].
+- VAPID 개인키: macOS Keychain 또는 chmod 600 파일 (PR #2 시크릿 정책). 저장소·env·로그 금지. Redactor로 endpoint URL, **VAPID JWT(Authorization 헤더)**, p256dh/auth를 마스킹합니다. [N5]
 - **키 로드 실패(없음·권한 600 아님·파싱 실패) 시 기능이 켜져 있으면 기동 거부.** [Med]
 - `sub` claim: 운영자 연락용 `mailto:` 값을 설정 파일에서 읽고(저장소에는 placeholder), JWT `exp` ≤ 24h, 1시간 이상 재사용. [Med]
 - **키 로테이션 절차**: 새 키 생성 → 새 공개키를 UI에 배포 → 기존 구독은 구 키로 계속 발송하며 앱 열 때 새 키로 재구독(`push_subscriptions.vapid_key_id`) → 구 키 구독이 0이 되거나 30일 후 구 키 폐기. 유출 의심 시 즉시 구 키 폐기하고 전 구독 비활성화(앱에서 재구독). [Med]
@@ -100,15 +108,20 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 - `messages`에 **`origin TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive'))`** 와 `job_run_id` 컬럼을 추가합니다. role은 그대로 `assistant`입니다 (OpenAI 호환 유지). 기존 행은 기본값으로 채워져 하위 호환됩니다.
 - 선톡 메시지는 `schedule`/`event`이면 전용 스레드("Eve 브리핑", job당 하나)에, `followup`이면 원래 스레드에 들어갑니다.
 - `push_subscriptions.endpoint/p256dh/auth`는 비밀은 아니지만 민감 정보로 취급해 export·로그에서 제외합니다. 404/410 응답을 받으면 `disabled_at`을 설정합니다.
+- **보존·삭제 [L1]:** 비활성 구독(`disabled_at` 설정 또는 `last_ok_at`이 90일 넘게 지남)은 30일 뒤 삭제합니다. `user_id`는 `ON DELETE CASCADE`라서 사용자를 삭제하면 구독도 삭제됩니다. 사용자가 알림을 끄면 해당 기기의 구독을 즉시 삭제합니다.
 - goose Down에서 데이터를 DROP하는 롤백은 피하고(PR #2 감사 원칙과 같음), 기능은 플래그로 끕니다.
 
 ### 툴 플랫폼과의 관계 (PR #2)
 - 스케줄 실행은 **사용자가 없는 실행**이므로 PR #2 파이프라인을 똑같이 거치고, 더 엄격하게 적용합니다:
   - **read 툴만** 자동 실행합니다 (예: `web.read`). write/send 툴은 **자동 실행 금지**이며, 필요하면 `pending_actions` 확인 카드만 만들고 사용자 승인을 기다립니다 (M4).
-  - 스케줄 실행 스레드는 외부 데이터를 읽으면 바로 tainted가 됩니다. 그 결과로 새 job이나 follow-up을 만들 수 없습니다 (연쇄 방지).
+  - 스케줄 실행은 **시작부터 tainted**입니다(외부 데이터를 읽었는지와 무관). 그래서 새 job이나 follow-up을 만들 수 없습니다 (연쇄 방지). [N2]
   - 모든 실행·job 생성/변경·발송은 **단일 감사 로그 `tool_audit`(M2)** 에 `actor=scheduler|user`, `job_id`와 함께 기록합니다. 별도 감사 테이블은 만들지 않습니다. [Med]
   - 확인 토큰은 **사용자 세션 POST로만 소비**됩니다(scheduler·모델 경로에서 소비 불가). [H2]
-  - scheduler가 만든 확인 카드는 **출처(actor=scheduler, job_id)를 표시**하고 일반보다 짧은 만료(예: 60초, TBD)를 씁니다.
+  - **scheduler 발 확인 흐름 (재설계):**
+    1. scheduler는 **토큰 없이 제안(proposal)**만 만듭니다. 제안은 `payload_hash`로 고정되고, 수명은 job TTL과 같되 **최대 24시간**입니다.
+    2. 사용자가 카드를 열 때 **사용자 세션 POST(Origin 검사 포함)**로만 1회용 토큰이 발급되고, 토큰은 **120~300초** 뒤 만료됩니다.
+    3. 재발급하면 이전 토큰은 무효가 됩니다.
+    4. 카드에는 출처(actor=scheduler, job_id)와 **tainted 표시**가 나옵니다.
 - 결론: 선톡의 **event/followup 트리거는 PR #2 M2~M4 이후**에 가능합니다. `schedule`(read 툴만)은 M1 이후 가능합니다.
 
 ## 4. 스팸 방지
@@ -120,10 +133,10 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 - 모델 출력이 비거나 "보낼 내용 없음"이면 보내지 않습니다.
 
 ## 5. 보안 검토 항목 (보안 담당 봇용)
-1. 새 **outbound** 경로(`*.push.apple.com`)의 허용 범위 검증. 다른 호스트는 막고 SSRF 가드를 재사용합니다 (`internal/webfetch/guard.go` 수준).
+1. 새 **outbound** 경로는 정확히 `web.push.apple.com`만 허용합니다. 다른 호스트는 막고, 발송은 **gateway 단일 egress 적용 계층**(PR #2 §13)을 거칩니다. 사설 주소로의 DNS 해석과 rebinding도 차단합니다.
 2. VAPID 개인키 보관(Keychain/600), 로테이션 절차, 로그·DB·SSE에서 redaction 확인.
 3. payload에 대화 내용·제목·URL이 들어가지 않는지 테스트로 강제.
-4. 구독 등록 API의 인증(기존 auth 체인 사용), endpoint origin allowlist(`*.push.apple.com` 등) 검증.
+4. 구독 등록 API의 인증(기존 auth 체인 사용), endpoint allowlist(정확히 `https://web.push.apple.com`, 포트 443) 검증.
 5. 사용자 부재 실행: write/send 자동 실행 0건을 보장하는지, taint 전파와 연쇄 job 생성 차단.
 6. 모델이 만든 followup은 확인 게이트를 반드시 거치는지 (토큰 1회용·payload_hash).
 7. 스케줄러 단일 리더(advisory lock), 장애 시 폭주(밀린 job 일괄 발송) 방지: 오래된 run은 건너뛰고 1건으로 요약.
@@ -149,6 +162,9 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 - `TestSchedulerActor_RejectsWriteScope` / `_RejectsSendScope` / `_IgnoresGrantsFileOverride`
 - `TestConfirmToken_ConsumeOnlyViaUserSessionPOST` (scheduler·모델 컨텍스트에서 소비 시 거부, GET 거부)
 - `TestSchedulerRun_TaintedFromStart`, `TestFollowup_InheritsOriginThreadTaint`
+- `TestPushEndpoint_RejectsPrivateResolution` (사설·loopback·CGNAT로 해석, rebinding 시 거부) [N3], `TestPushEndpoint_RejectsWildcardOrSuffixMatch`, `TestVAPID_AudExactAppleHost`, `TestPush_DisabledUntilHostConfirmed`
+- `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL` (24시간 상한 포함), `TestConfirmToken_ReissueInvalidatesPrevious`
+- `TestAudit_RecordsJobCreateRunSendReject` [N5], `TestRedaction_EndpointVAPIDJWTKeys` [N5], `TestQuietHours_EnforcedServerSide` (Asia/Seoul 경계 포함) [N5]
 - `TestNoModelOrToolPathWritesJobs` (툴 레지스트리·모델 tool_call로 job 생성 불가), `TestJobSpec_TemplateIDOnly` (자유 텍스트·추가 키 거부)
 - `TestProactiveAPI_OriginMissingOrNull403`, `_CSRFRequired`, `_IDOROtherUser404`
 - `TestPayload_FixedKeysAndSizeCap`, `TestStartup_RefusesOnVAPIDKeyLoadFailure`, `TestRateCap_ConcurrentInsertsWithinTx`, `TestScheduler_StopsOnLockLoss`
@@ -157,7 +173,21 @@ notification_prefs (user_id PK, enabled BOOLEAN DEFAULT false, quiet_start TIME 
 1. 외부 egress는 gateway 단일 적용 계층(§13 도메인 정책)으로만 나가며, push 발송도 이 계층을 사용.
 2. 감사 로그는 `tool_audit` 하나 (`actor` 값에 `scheduler` 추가).
 3. followup taint 상속 규칙 (원 스레드 taint 상속, scheduler 실행은 시작부터 tainted).
-4. scheduler 발 확인 카드: 출처(actor, job_id) 표시 + 짧은 만료, 토큰 소비는 사용자 세션 POST만.
+4. scheduler 발 확인: 제안에는 토큰이 없고 `payload_hash`로 고정되며 TTL은 최대 24시간입니다. 사용자가 카드를 열 때 사용자 세션 POST(Origin 검사)로 1회용 토큰을 발급하고 120~300초 뒤 만료합니다. 재발급하면 이전 토큰은 무효입니다. 카드에는 actor, job_id, tainted를 표시합니다.
+5. egress allowlist: push 호스트는 정확히 `web.push.apple.com` 하나이고, 추가는 MAJOR입니다.
+
+## 5.2 2차 보안 재검토 반영
+
+| 항목 | 반영 |
+|---|---|
+| N1 | 와일드카드 전부 제거, 정확히 `web.push.apple.com`만 허용, 확인 전 push 비활성(in-app만), 거부 기록(metrics + tool_audit), 호스트 추가 = MAJOR, VAPID `aud` 정확 일치, §5-1을 gateway 단일 egress 계층으로 수정 (§2.2, §2.2.1, §2.3, §5-1, §5-4) |
+| N2 | scheduler 실행은 어디서나 시작부터 tainted (§1, §3) |
+| payload | 엄격 스키마(v=1, type enum, nid ULID 정규식)가 1차 통제, 256B는 암호화 전 평문 기준, 128B 선택지, Topic에 내용 금지 (§2.4) |
+| 확인 재설계 | 60초 만료 폐기 → 토큰 없는 제안(payload_hash, TTL ≤ 24h) + 사용자가 열 때 1회용 토큰(120~300s), 재발급 시 이전 토큰 무효, actor·job_id·tainted 표시 (§3, PR #2 정렬 4번) |
+| N3 | 사설·loopback·CGNAT로 해석되면 거부, IP pin으로 rebinding 방지 (§2.2.1, 테스트) |
+| N5 | 감사 기록·redaction·quiet hours 머지 차단 테스트, VAPID JWT redaction (§2.4, 테스트) |
+| L1 | 구독 보존 기간·cascade 삭제 (§3) |
+| L3 | '연결 필요' 화면 처리 (§2.3) |
 
 ## 6. SemVer 판단: **MAJOR**
 - `docs/versioning.md` 기준으로 major에 해당합니다: (a) **보안·노출 경계 변경**: 새 outbound 외부 전송(Apple push)과 사용자 없는 자동 실행, (b) 새 DB 스키마와 `messages`에 컬럼 추가. 컬럼 추가는 하위 호환이지만 (a) 하나만으로도 major이고, "애매하면 major" 규칙도 적용됩니다.
@@ -186,7 +216,7 @@ sequenceDiagram
   participant A as Apple Push
   participant I as iPhone PWA
   S->>D: due job 가져오기 (advisory lock, SKIP LOCKED)
-  S->>P: read 툴만 · taint 검사
+  S->>P: read 툴만 · 시작부터 tainted
   P->>M: 프롬프트 템플릿 + 툴 결과(untrusted)
   M-->>S: assistant 메시지
   S->>D: messages(origin=proactive) + notifications (dedupe·cap·quiet hours)
