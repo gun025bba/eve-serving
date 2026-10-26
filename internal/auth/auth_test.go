@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -47,19 +48,22 @@ func newReq(remote, login, bearer string) *http.Request {
 }
 
 func TestChain(t *testing.T) {
-	c := Chain{NewTailscale([]string{" Alice@GitHub ", ""}), APIKey{Key: "k1"}}
+	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{" Alice@GitHub ", ""}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name, remote, login, bearer string
 		method, outLogin            string
 		err                         error
 	}{
-		{"loopback allowlisted", "127.0.0.1:5000", "alice@github", "", MethodTailscale, "alice@github", nil},
-		{"loopback v6 case-insensitive", "[::1]:5000", "ALICE@github", "", MethodTailscale, "ALICE@github", nil},
+		{"loopback allowlisted", "127.0.0.1:5000", "alice@github", "", ProviderTailscale, "alice@github", nil},
+		{"loopback v6 case-insensitive", "[::1]:5000", "ALICE@github", "", ProviderTailscale, "ALICE@github", nil},
 		{"loopback not allowlisted", "127.0.0.1:5000", "mallory@github", "", "", "", ErrForbiddenIdentity},
 		{"non-loopback header ignored", "100.64.0.9:5000", "alice@github", "", "", "", ErrNoCredentials},
 		{"lan header ignored", "192.168.1.2:5000", "alice@github", "", "", "", ErrNoCredentials},
-		{"api key", "100.64.0.9:5000", "", "k1", MethodAPIKey, "", nil},
-		{"api key + spoofed header", "100.64.0.9:5000", "alice@github", "k1", MethodAPIKey, "", nil},
+		{"api key", "100.64.0.9:5000", "", "k1", ProviderAPIKey, "api-key", nil},
+		{"api key + spoofed header", "100.64.0.9:5000", "alice@github", "k1", ProviderAPIKey, "api-key", nil},
 		{"bad key", "127.0.0.1:5000", "", "nope", "", "", ErrInvalidKey},
 		{"nothing", "127.0.0.1:5000", "", "", "", "", ErrNoCredentials},
 	}
@@ -69,7 +73,7 @@ func TestChain(t *testing.T) {
 			t.Errorf("%s: err %v want %v", tc.name, err, tc.err)
 			continue
 		}
-		if err == nil && (id.Method != tc.method || id.Login != tc.outLogin) {
+		if err == nil && (id.Provider != tc.method || id.User != tc.outLogin) {
 			t.Errorf("%s: got %+v", tc.name, id)
 		}
 	}
@@ -96,5 +100,46 @@ func TestStripUntrusted(t *testing.T) {
 	StripUntrusted(r)
 	if r.Header.Get(HeaderTailscaleLogin) == "" {
 		t.Fatal("loopback stripped")
+	}
+}
+
+func TestRegistry(t *testing.T) {
+	if _, err := Build([]string{"nope"}, Options{}); err == nil {
+		t.Fatal("unknown provider accepted")
+	}
+	if _, err := Build(nil, Options{}); err == nil {
+		t.Fatal("empty provider list accepted")
+	}
+	// order matters: api-key first still authenticates key callers
+	c, err := Build([]string{ProviderAPIKey, ProviderTailscale}, Options{APIKey: "k", AllowedUsers: []string{"a@x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := c.Authenticate(newReq("127.0.0.1:1", "a@x", "")); err != nil || id.Provider != ProviderTailscale {
+		t.Fatal(id, err)
+	}
+	Register("test-fixed", func(Options) (Authenticator, error) { return fixed{}, nil })
+	c, _ = Build([]string{"test-fixed"}, Options{})
+	if id, _ := c.Authenticate(newReq("1.2.3.4:1", "", "")); id.User != "fixed" {
+		t.Fatal(id)
+	}
+}
+
+type fixed struct{}
+
+func (fixed) Authenticate(*http.Request) (Identity, error) {
+	return Identity{User: "fixed", Provider: "test-fixed"}, nil
+}
+
+func TestContextAndNoop(t *testing.T) {
+	ctx := WithIdentity(context.Background(), Identity{User: "u", Provider: "p"})
+	if id, ok := FromContext(ctx); !ok || id.User != "u" {
+		t.Fatal(id)
+	}
+	if _, ok := FromContext(context.Background()); ok {
+		t.Fatal("identity in empty ctx")
+	}
+	if !(NoopLimiter{}).Allow(ctx, Identity{}) {
+		t.Fatal("noop denied")
 	}
 }
