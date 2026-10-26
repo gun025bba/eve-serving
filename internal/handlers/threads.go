@@ -100,6 +100,13 @@ func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	unread := false
+	if v := r.URL.Query().Get("unread"); v != "" {
+		if unread, err = strconv.ParseBool(v); err != nil {
+			s.fail(w, r, apierr.BadRequest("'unread' must be true or false"))
+			return
+		}
+	}
 	var after *store.ThreadCursor
 	if c := r.URL.Query().Get("cursor"); c != "" {
 		raw, ok := decCursor(c)
@@ -111,7 +118,11 @@ func (s *Server) listThreads(w http.ResponseWriter, r *http.Request) {
 		}
 		after = &store.ThreadCursor{UpdatedAt: time.Unix(0, n).UTC(), ID: id}
 	}
-	ts, err := s.Store.ListThreads(r.Context(), user(r), archived, limit+1, after)
+	list := s.Store.ListThreads
+	if unread { // §3.5.2: no /v1/notifications; owner-scoped unread filter
+		list = s.Store.ListUnreadThreads
+	}
+	ts, err := list(r.Context(), user(r), archived, limit+1, after)
 	if err != nil {
 		s.fail(w, r, err)
 		return

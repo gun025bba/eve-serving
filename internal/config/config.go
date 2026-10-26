@@ -45,6 +45,16 @@ type Config struct {
 	Auth     AuthConfig `yaml:"auth" json:"auth"`
 	Database DBConfig   `yaml:"database" json:"database"`
 	Web      WebConfig  `yaml:"web" json:"web"`
+	Push     PushConfig `yaml:"push" json:"push"`
+}
+
+// PushConfig enables the Web Push subscription endpoints
+// (docs/architecture/ui-api-contract.md §3.5.3). Off by default; when off the
+// push endpoints answer 404. The VAPID public key is not a secret.
+type PushConfig struct {
+	Enabled        bool   `yaml:"enabled" json:"enabled"`
+	VAPIDPublicKey string `yaml:"vapid_public_key" json:"vapid_public_key"`
+	VAPIDKeyID     string `yaml:"vapid_key_id" json:"vapid_key_id"`
 }
 
 // WebConfig configures the web_search / web_fetch tools (docs/web-search.md
@@ -120,6 +130,10 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
+		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
+		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
+	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
 	}
@@ -190,6 +204,19 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_DB_AUTO_MIGRATE: %w", err)
 		}
 		c.Database.AutoMigrate = b
+	}
+	if v := getenv("GW_PUSH_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_PUSH_ENABLED: %w", err)
+		}
+		c.Push.Enabled = b
+	}
+	if v := getenv("GW_PUSH_VAPID_PUBLIC_KEY"); v != "" {
+		c.Push.VAPIDPublicKey = v
+	}
+	if v := getenv("GW_PUSH_VAPID_KEY_ID"); v != "" {
+		c.Push.VAPIDKeyID = v
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)

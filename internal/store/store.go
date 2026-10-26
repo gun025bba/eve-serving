@@ -38,6 +38,7 @@ type Thread struct {
 	MessageCount       int       `json:"message_count"`
 	LastMessagePreview *string   `json:"last_message_preview"`
 	ClientID           *string   `json:"client_id,omitempty"`
+	UnreadCount        int       `json:"unread_count"` // unread proactive messages (ui-api-contract.md Q2)
 }
 
 type Usage struct {
@@ -71,6 +72,29 @@ type Message struct {
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt *time.Time      `json:"updated_at,omitempty"`
 	Feedback  *Feedback       `json:"feedback,omitempty"`
+	// Proactive fields (ui-api-contract.md Q1/Q3/Q4). All server-set.
+	Origin       string      `json:"origin"` // user|assistant|proactive (DB user_turn -> role)
+	JobID        *string     `json:"job_id"`
+	ReadAt       *time.Time  `json:"read_at"`
+	TemplateKind *string     `json:"template_kind"`
+	Provenance   *Provenance `json:"provenance,omitempty"`
+}
+
+// Origin values in the DB.
+const (
+	OriginUserTurn  = "user_turn"
+	OriginProactive = "proactive"
+)
+
+// APIOrigin maps the DB origin to the API value.
+func APIOrigin(dbOrigin, role string) string {
+	if dbOrigin == OriginProactive {
+		return OriginProactive
+	}
+	if role == "user" {
+		return "user"
+	}
+	return "assistant"
 }
 
 // ThreadCursor is a keyset position for ListThreads (updated_at desc, id desc).
@@ -163,6 +187,7 @@ type Store interface {
 	MessageStore
 	FeedbackStore
 	SearchStore
+	ActionStore
 	Ping(ctx context.Context) error
 	Close()
 }

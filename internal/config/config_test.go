@@ -86,3 +86,15 @@ func TestWebDefaultsOffAndEnv(t *testing.T) {
 		t.Fatal("bad mode accepted")
 	}
 }
+
+func TestLoad_PushRequiresKillswitch(t *testing.T) {
+	env := map[string]string{"GW_PUSH_ENABLED": "true"}
+	get := func(k string) string { return env[k] }
+	if _, err := Load("/nonexistent.yaml", get); err == nil {
+		t.Fatal("push without kill switch must refuse startup")
+	}
+	env["GW_TOOLS_KILLSWITCH_FILE"] = "/tmp/ks.yaml"
+	if _, err := Load("/nonexistent.yaml", get); err != nil {
+		t.Fatal(err)
+	}
+}

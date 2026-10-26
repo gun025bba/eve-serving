@@ -58,12 +58,13 @@ func (s *Store) uid(ctx context.Context, login string) (int64, error) {
 
 const threadCols = `t.id, t.title, t.created_at, t.updated_at, t.archived, t.client_id,
 	(SELECT count(*) FROM messages m WHERE m.thread_id = t.id),
-	(SELECT left(m.content, 200) FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`
+	(SELECT left(m.content, 200) FROM messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC, m.id DESC LIMIT 1),
+	(SELECT count(*) FROM messages m WHERE m.thread_id = t.id AND m.user_id = t.user_id AND m.origin = 'proactive' AND m.read_at IS NULL)`
 
 func scanThread(r pgx.Row) (store.Thread, error) {
 	var t store.Thread
 	var prev *string
-	err := r.Scan(&t.ID, &t.Title, &t.CreatedAt, &t.UpdatedAt, &t.Archived, &t.ClientID, &t.MessageCount, &prev)
+	err := r.Scan(&t.ID, &t.Title, &t.CreatedAt, &t.UpdatedAt, &t.Archived, &t.ClientID, &t.MessageCount, &prev, &t.UnreadCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return t, store.ErrNotFound
 	}
@@ -96,11 +97,24 @@ func (s *Store) GetThread(ctx context.Context, user, id string) (store.Thread, e
 }
 
 func (s *Store) ListThreads(ctx context.Context, user string, archived bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
+	return s.listThreads(ctx, user, archived, false, limit, after)
+}
+
+// ListUnreadThreads is ListThreads restricted to threads with unread
+// proactive messages (GET /v1/threads?unread=true).
+func (s *Store) ListUnreadThreads(ctx context.Context, user string, archived bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
+	return s.listThreads(ctx, user, archived, true, limit, after)
+}
+
+func (s *Store) listThreads(ctx context.Context, user string, archived, unread bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
 	u, err := s.uid(ctx, user)
 	if err != nil {
 		return nil, err
 	}
 	q := `SELECT ` + threadCols + ` FROM threads t WHERE t.user_id=$1 AND t.archived=$2`
+	if unread {
+		q += ` AND EXISTS (SELECT 1 FROM messages m WHERE m.thread_id = t.id AND m.user_id = t.user_id AND m.origin = 'proactive' AND m.read_at IS NULL)`
+	}
 	args := []any{u, archived, limit}
 	if after != nil {
 		q += ` AND (t.updated_at, t.id) < ($4, $5)`
@@ -180,15 +194,40 @@ func (s *Store) AddMessage(ctx context.Context, user string, m store.Message) (s
 	if tag.RowsAffected() == 0 {
 		return m, store.ErrNotFound
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO messages (id, thread_id, user_id, role, content, reasoning, model, params, usage, latency_ms, metadata, status, client_id, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		m.ID, m.ThreadID, u, m.Role, m.Content, m.Reasoning, m.Model, jsonb(m.Params), usageJSON(m.Usage), m.LatencyMs, jsonb(m.Metadata), m.Status, m.ClientID, m.CreatedAt)
+	origin := store.OriginUserTurn
+	var jobName *string
+	if m.Origin == store.OriginProactive {
+		origin = store.OriginProactive
+		if m.Provenance != nil {
+			jobName = m.Provenance.JobName
+		}
+	}
+	if m.JobID != nil {
+		// FK alone would accept another user's job; require the same owner.
+		// Soft-deleted jobs remain valid references.
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM scheduled_jobs WHERE id=$1 AND user_id=$2)`, *m.JobID, u).Scan(&ok); err != nil {
+			return m, err
+		}
+		if !ok {
+			return m, store.ErrInvalid
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO messages (id, thread_id, user_id, role, content, reasoning, model, params, usage, latency_ms, metadata, status, client_id, created_at,
+		origin, job_id, job_name, template_kind)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+		m.ID, m.ThreadID, u, m.Role, m.Content, m.Reasoning, m.Model, jsonb(m.Params), usageJSON(m.Usage), m.LatencyMs, jsonb(m.Metadata), m.Status, m.ClientID, m.CreatedAt,
+		origin, m.JobID, jobName, m.TemplateKind)
 	if err != nil {
 		var pe *pgconn.PgError
-		if errors.As(err, &pe) && pe.Code == "23514" {
+		if errors.As(err, &pe) && (pe.Code == "23514" || pe.Code == "23503" && pe.ConstraintName == "messages_job_id_fkey") {
 			return m, store.ErrInvalid
 		}
 		return m, err
+	}
+	m.Origin = store.APIOrigin(origin, m.Role)
+	if origin != store.OriginProactive {
+		m.JobID, m.TemplateKind, m.Provenance = nil, nil, nil
 	}
 	return m, tx.Commit(ctx)
 }
@@ -236,6 +275,7 @@ func (s *Store) ReplaceMessage(ctx context.Context, user string, m store.Message
 }
 
 const msgCols = `m.id, m.thread_id, m.role, m.content, m.reasoning, m.model, m.params, m.usage, m.latency_ms, m.metadata, m.status, m.client_id, m.created_at, m.updated_at,
+	m.origin, m.job_id, m.job_name, m.template_kind, m.read_at,
 	f.rating, f.reasons, f.comment, f.created_at, f.updated_at`
 
 func scanMsg(r pgx.Row) (store.Message, error) {
@@ -244,7 +284,10 @@ func scanMsg(r pgx.Row) (store.Message, error) {
 	var rating, comment *string
 	var reasons []string
 	var fc, fu *time.Time
+	var origin string
+	var jobName *string
 	err := r.Scan(&m.ID, &m.ThreadID, &m.Role, &m.Content, &m.Reasoning, &m.Model, &params, &usage, &m.LatencyMs, &meta, &m.Status, &m.ClientID, &m.CreatedAt, &m.UpdatedAt,
+		&origin, &m.JobID, &jobName, &m.TemplateKind, &m.ReadAt,
 		&rating, &reasons, &comment, &fc, &fu)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return m, store.ErrNotFound
@@ -254,6 +297,16 @@ func scanMsg(r pgx.Row) (store.Message, error) {
 	}
 	m.Params, m.Metadata = params, meta
 	m.CreatedAt = m.CreatedAt.UTC()
+	m.Origin = store.APIOrigin(origin, m.Role)
+	if origin == store.OriginProactive {
+		m.Provenance = &store.Provenance{Actor: "scheduler", JobID: m.JobID, JobName: jobName}
+		if m.ReadAt != nil {
+			ra := m.ReadAt.UTC()
+			m.ReadAt = &ra
+		}
+	} else {
+		m.JobID, m.TemplateKind, m.ReadAt = nil, nil, nil
+	}
 	if m.UpdatedAt != nil {
 		u := m.UpdatedAt.UTC()
 		m.UpdatedAt = &u

@@ -30,12 +30,14 @@ type Store struct {
 	calls    map[string][]store.ToolCall
 	sources  map[string][]store.WebSource
 	settings map[string][]byte
+	actions  map[string]*action
+	pushSubs map[string]*pushSub // endpoint -> sub
 }
 
 var _ store.Store = (*Store)(nil)
 
 func New() *Store {
-	return &Store{threads: map[string]*thread{}, msgs: map[string]*msg{}, feedback: map[string]*store.Feedback{}, calls: map[string][]store.ToolCall{}, sources: map[string][]store.WebSource{}, settings: map[string][]byte{}, clock: func() time.Time { return time.Now().UTC() }}
+	return &Store{threads: map[string]*thread{}, msgs: map[string]*msg{}, feedback: map[string]*store.Feedback{}, calls: map[string][]store.ToolCall{}, sources: map[string][]store.WebSource{}, settings: map[string][]byte{}, actions: map[string]*action{}, pushSubs: map[string]*pushSub{}, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func (s *Store) Ping(context.Context) error { return nil }
@@ -45,9 +47,13 @@ func (s *Store) view(t *thread) store.Thread {
 	out := t.Thread
 	var last *msg
 	n := 0
+	out.UnreadCount = 0
 	for _, m := range s.msgs {
 		if m.ThreadID == t.ID {
 			n++
+			if m.Origin == store.OriginProactive && m.ReadAt == nil && m.user == t.user {
+				out.UnreadCount++
+			}
 			if last == nil || m.CreatedAt.After(last.CreatedAt) || (m.CreatedAt.Equal(last.CreatedAt) && m.ID > last.ID) {
 				last = m
 			}
@@ -88,12 +94,23 @@ func (s *Store) GetThread(_ context.Context, user, id string) (store.Thread, err
 	return s.view(t), nil
 }
 
-func (s *Store) ListThreads(_ context.Context, user string, archived bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
+func (s *Store) ListThreads(ctx context.Context, user string, archived bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
+	return s.listThreads(user, archived, false, limit, after)
+}
+
+func (s *Store) ListUnreadThreads(ctx context.Context, user string, archived bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
+	return s.listThreads(user, archived, true, limit, after)
+}
+
+func (s *Store) listThreads(user string, archived, unread bool, limit int, after *store.ThreadCursor) ([]store.Thread, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var ts []*thread
 	for _, t := range s.threads {
 		if t.user != user || t.Archived != archived {
+			continue
+		}
+		if unread && s.view(t).UnreadCount == 0 {
 			continue
 		}
 		if after != nil && !(t.UpdatedAt.Before(after.UpdatedAt) || (t.UpdatedAt.Equal(after.UpdatedAt) && t.ID < after.ID)) {
@@ -186,6 +203,19 @@ func (s *Store) AddMessage(_ context.Context, user string, m store.Message) (sto
 	if m.Status == "" {
 		m.Status = store.StatusComplete
 	}
+	if m.Origin == store.OriginProactive {
+		if m.JobID == nil {
+			return m, store.ErrInvalid
+		}
+		var jn *string
+		if m.Provenance != nil {
+			jn = m.Provenance.JobName
+		}
+		m.Provenance = &store.Provenance{Actor: "scheduler", JobID: m.JobID, JobName: jn}
+	} else {
+		m.Origin = store.APIOrigin(store.OriginUserTurn, m.Role)
+		m.JobID, m.TemplateKind, m.ReadAt, m.Provenance = nil, nil, nil, nil
+	}
 	s.msgs[m.ID] = &msg{m, user}
 	if m.CreatedAt.After(t.UpdatedAt) {
 		t.UpdatedAt = m.CreatedAt
@@ -215,6 +245,9 @@ func (s *Store) ReplaceMessage(_ context.Context, user string, m store.Message) 
 }
 
 func (s *Store) withFB(m store.Message) store.Message {
+	if m.Origin == "" {
+		m.Origin = store.APIOrigin(store.OriginUserTurn, m.Role)
+	}
 	if f, ok := s.feedback[m.ID]; ok {
 		c := *f
 		m.Feedback = &c
