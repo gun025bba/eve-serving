@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,23 @@ func (s *Server) prepareBody(raw []byte) (map[string]any, error) {
 	for k, v := range s.Cfg.Defaults {
 		if _, ok := body[k]; !ok {
 			body[k] = v
+		}
+	}
+	// Clamp token budgets: thinking-mode answers need several thousand tokens,
+	// but an unbounded value could hold a model slot for a very long time.
+	if lim := s.Cfg.MaxTokensCap; lim > 0 {
+		for _, k := range []string{"max_tokens", "max_completion_tokens"} {
+			v, ok := body[k]
+			if !ok {
+				continue
+			}
+			n, err := strconv.ParseFloat(fmt.Sprint(v), 64)
+			if err != nil || n < 1 {
+				return nil, apierr.BadRequest("'" + k + "' must be a positive integer")
+			}
+			if n > float64(lim) {
+				body[k] = lim
+			}
 		}
 	}
 	return body, nil

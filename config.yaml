@@ -2,10 +2,11 @@
 upstream: http://127.0.0.1:8080
 model: mlx-community/Qwen3-30B-A3B-4bit
 defaults:            # applied only when the client omits the field
-  max_tokens: 1024
+  max_tokens: 8192   # Qwen3 thinking often needs 4-8k tokens; 1024 truncated inside <think>
   temperature: 0.7
   top_p: 0.9
 max_conc: 2          # concurrent requests to the model (per gateway process)
+max_tokens_cap: 16384 # client max_tokens/max_completion_tokens above this are clamped (0 = no cap)
 max_queue: 16        # waiting requests before 429 queue_full
 queue_timeout_s: 120 # max wait in queue before 429 queue_timeout
 connect_timeout_s: 5

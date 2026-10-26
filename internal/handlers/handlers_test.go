@@ -153,7 +153,7 @@ func TestChatDefaultsAndLog(t *testing.T) {
 		t.Fatal(r.StatusCode, m)
 	}
 	b := seen[0]
-	if b["model"] != "m1" || b["max_tokens"].(float64) != 1024 || b["temperature"].(float64) != 0.1 || b["top_p"].(float64) != 0.9 {
+	if b["model"] != "m1" || b["max_tokens"].(float64) != 8192 || b["temperature"].(float64) != 0.1 || b["top_p"].(float64) != 0.9 {
 		t.Fatal(b)
 	}
 	if !strings.Contains(logs.String(), `"msg":"chat_completion"`) || !strings.Contains(logs.String(), `"completion_tokens":1`) {
