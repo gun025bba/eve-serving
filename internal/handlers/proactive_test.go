@@ -56,7 +56,7 @@ func (e *penv) do(as, method, path, body string) *httptest.ResponseRecorder {
 	} else {
 		req = httptest.NewRequest(method, path, nil)
 	}
-	req.RemoteAddr = "127.0.0.1:1234"
+	req = viaSocket(req)
 	req.Header.Set("Tailscale-User-Login", as)
 	browserHeaders(req)
 	rec := httptest.NewRecorder()
@@ -234,7 +234,7 @@ func TestActionReissue_CSRFAndExactOrigin(t *testing.T) {
 	a := e.proposal(t, alice, false)
 	for _, o := range []string{"", "null", testOrigin + ".evil", "https://evil.example.test"} {
 		req := httptest.NewRequest("POST", "/v1/actions/"+a.ID+"/reissue", nil)
-		req.RemoteAddr = "127.0.0.1:1234"
+		req = viaSocket(req)
 		req.Header.Set("Tailscale-User-Login", alice)
 		req.Header.Set(HeaderEveRequest, "1")
 		if o != "" {
@@ -451,7 +451,7 @@ func TestCORS_TokenEndpointsAndActionsNoAllowHeaders(t *testing.T) {
 	for _, p := range []string{"/v1/actions", "/v1/actions/" + a.ID + "/reissue", "/v1/proposals/" + a.ID + "/revise"} {
 		for _, m := range []string{"OPTIONS", "GET", "POST"} {
 			req := httptest.NewRequest(m, p, nil)
-			req.RemoteAddr = "127.0.0.1:1234"
+			req = viaSocket(req)
 			req.Header.Set("Tailscale-User-Login", alice)
 			browserHeaders(req)
 			if m == "OPTIONS" {

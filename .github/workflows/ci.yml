@@ -36,4 +36,23 @@ jobs:
           go test -count=1 -v -run 'TestAudit_|TestPostgres' ./internal/store/postgres | tee pg.out
           if grep -q -- '--- SKIP' pg.out; then echo "Postgres tests skipped"; exit 1; fi
           for t in TestAudit_PrivilegesAndAppendOnly TestAudit_ConcurrentChainAndTamper TestPostgresStore TestPostgresActions_ReissueRevise TestPostgresActions_ConcurrentReissueCap TestPostgresActions_ConcurrentReviseOnlyOneWins TestPostgresPush_CapOwnershipDelete TestPostgresProactiveMessagesUnread TestPostgresJobFK TestPostgresActions_ReviseOrderAndExpired TestPostgresActions_JobOwnership; do grep -q -- "--- PASS: $t" pg.out || { echo "$t did not run"; exit 1; }; done
+      - name: e2e build tag (vet + tests)
+        run: go vet -tags e2e ./... && go test -tags e2e -count=1 ./internal/auth/
+      - name: Default binary has no e2e identity injection
+        shell: bash
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -o gw-default ./cmd/gateway
+          CGO_ENABLED=0 go build -tags e2e -o gw-e2e ./cmd/gateway
+          # the check must be able to see the symbol in an e2e build ...
+          go tool nm gw-e2e | grep -q 'auth.(\*e2eIdentity)' || { echo "nm check is broken: e2e symbol not found in e2e build"; exit 1; }
+          # ... and must not find it (or the header name) in the default build
+          if go tool nm gw-default | grep -E 'e2eIdentity|HeaderE2EIdentity'; then echo "e2e symbols in default binary"; exit 1; fi
+          if grep -a -q 'X-Eve-Test-Identity' gw-default; then echo "e2e header string in default binary"; exit 1; fi
+          # the default binary refuses to start with the injection flag
+          echo ci-key > k; set +e
+          out=$(GW_LOG_FILE=$PWD/gw.log GW_TEST_IDENTITY_INJECTION=true ./gw-default -config /nonexistent.yaml -key-file k -port 18999 2>&1); rc=$?
+          set -e
+          echo "$out"
+          [ $rc -ne 0 ] && grep -q 'without -tags e2e' <<<"$out"
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

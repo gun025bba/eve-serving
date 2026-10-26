@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +39,10 @@ func TestLoadKey(t *testing.T) {
 func newReq(remote, login, bearer string) *http.Request {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = remote
+	if remote == "unix" {
+		r.RemoteAddr = "@"
+		r = r.WithContext(WithTrustedSocket(r.Context()))
+	}
 	if login != "" {
 		r.Header.Set(HeaderTailscaleLogin, login)
 	}
@@ -57,9 +62,12 @@ func TestChain(t *testing.T) {
 		method, outLogin            string
 		err                         error
 	}{
-		{"loopback allowlisted", "127.0.0.1:5000", "alice@github", "", ProviderTailscale, "alice@github", nil},
-		{"loopback v6 case-insensitive", "[::1]:5000", "ALICE@github", "", ProviderTailscale, "ALICE@github", nil},
-		{"loopback not allowlisted", "127.0.0.1:5000", "mallory@github", "", "", "", ErrForbiddenIdentity},
+		{"socket allowlisted", "unix", "alice@github", "", ProviderTailscale, "alice@github", nil},
+		{"socket case-insensitive", "unix", "ALICE@github", "", ProviderTailscale, "ALICE@github", nil},
+		{"socket not allowlisted", "unix", "mallory@github", "", "", "", ErrForbiddenIdentity},
+		{"loopback TCP header ignored", "127.0.0.1:5000", "alice@github", "", "", "", ErrNoCredentials},
+		{"loopback v6 TCP header ignored", "[::1]:5000", "alice@github", "", "", "", ErrNoCredentials},
+		{"loopback TCP header + key = key user", "127.0.0.1:5000", "alice@github", "k1", ProviderAPIKey, "api-key", nil},
 		{"non-loopback header ignored", "100.64.0.9:5000", "alice@github", "", "", "", ErrNoCredentials},
 		{"lan header ignored", "192.168.1.2:5000", "alice@github", "", "", "", ErrNoCredentials},
 		{"api key", "100.64.0.9:5000", "", "k1", ProviderAPIKey, "api-key", nil},
@@ -85,7 +93,7 @@ func TestEmptyAllowlistDisabled(t *testing.T) {
 		t.Fatal("enabled")
 	}
 	c := Chain{ts, APIKey{Key: "k1"}}
-	if _, err := c.Authenticate(newReq("127.0.0.1:1", "alice@github", "")); err == nil {
+	if _, err := c.Authenticate(newReq("unix", "alice@github", "")); err == nil {
 		t.Fatal("empty allowlist authenticated")
 	}
 }
@@ -97,9 +105,19 @@ func TestStripUntrusted(t *testing.T) {
 		t.Fatal("not stripped")
 	}
 	r = newReq("127.0.0.1:1", "alice@github", "")
+	r.Header.Set("Tailscale-User-Name", "Alice")
+	r.Header.Set("Tailscale-User-Profile-Pic", "x")
+	r.Header.Set("Tailscale-User-Anything-New", "x")
+	StripUntrusted(r)
+	for k := range r.Header {
+		if strings.HasPrefix(strings.ToLower(k), "tailscale-user-") {
+			t.Fatal("loopback TCP not stripped:", k)
+		}
+	}
+	r = newReq("unix", "alice@github", "")
 	StripUntrusted(r)
 	if r.Header.Get(HeaderTailscaleLogin) == "" {
-		t.Fatal("loopback stripped")
+		t.Fatal("socket stripped")
 	}
 }
 
@@ -115,7 +133,7 @@ func TestRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id, err := c.Authenticate(newReq("127.0.0.1:1", "a@x", "")); err != nil || id.Provider != ProviderTailscale {
+	if id, err := c.Authenticate(newReq("unix", "a@x", "")); err != nil || id.Provider != ProviderTailscale {
 		t.Fatal(id, err)
 	}
 	Register("test-fixed", func(Options) (Authenticator, error) { return fixed{}, nil })

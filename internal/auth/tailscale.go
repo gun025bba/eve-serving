@@ -1,15 +1,19 @@
 package auth
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
 )
 
 // ProviderTailscale trusts the Tailscale-User-Login header injected by
-// `tailscale serve`. The header is honoured only when the TCP peer is loopback
-// (serve proxies from the local tailscaled) and only for allowlisted logins
-// (case-insensitive). An empty allowlist disables the provider.
+// `tailscale serve`. Since 4.0.0 the header is honoured ONLY on requests that
+// arrived on the gateway's unix socket (GW_UNIX_SOCKET, 0700 dir / 0660
+// socket), which only `tailscale serve` is configured to reach. A loopback TCP
+// peer proves nothing (any local process can connect), so on TCP the identity
+// headers are stripped and only API-key auth works. Logins must also be
+// allowlisted (case-insensitive); an empty allowlist disables the provider.
 const ProviderTailscale = "tailscale-identity"
 
 // HeaderTailscaleLogin is set by `tailscale serve` on proxied requests.
@@ -36,7 +40,7 @@ func (t *Tailscale) Enabled() bool { return t != nil && len(t.allowed) > 0 }
 
 func (t *Tailscale) Authenticate(r *http.Request) (Identity, error) {
 	login := strings.TrimSpace(r.Header.Get(HeaderTailscaleLogin))
-	if login == "" || !IsLoopback(r.RemoteAddr) || !t.Enabled() {
+	if login == "" || !ViaTrustedSocket(r.Context()) || !t.Enabled() {
 		return Identity{}, ErrNoCredentials
 	}
 	if _, ok := t.allowed[strings.ToLower(login)]; !ok {
@@ -55,11 +59,29 @@ func IsLoopback(remoteAddr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// StripUntrusted removes Tailscale identity headers from non-loopback requests.
+// StripUntrusted removes every Tailscale-User-* identity header unless the
+// request arrived on the trusted unix socket.
 func StripUntrusted(r *http.Request) {
-	if !IsLoopback(r.RemoteAddr) {
-		for _, h := range []string{HeaderTailscaleLogin, "Tailscale-User-Name", "Tailscale-User-Profile-Pic"} {
-			r.Header.Del(h)
+	if ViaTrustedSocket(r.Context()) {
+		return
+	}
+	for k := range r.Header {
+		if strings.HasPrefix(strings.ToLower(k), "tailscale-user-") {
+			delete(r.Header, k)
 		}
 	}
+}
+
+type trustedSocketKey struct{}
+
+// WithTrustedSocket marks a connection context as accepted on the gateway's
+// unix socket (set by http.Server.ConnContext of the unix listener only).
+func WithTrustedSocket(ctx context.Context) context.Context {
+	return context.WithValue(ctx, trustedSocketKey{}, true)
+}
+
+// ViaTrustedSocket reports whether the request came in on the unix socket.
+func ViaTrustedSocket(ctx context.Context) bool {
+	v, _ := ctx.Value(trustedSocketKey{}).(bool)
+	return v
 }

@@ -79,6 +79,20 @@ type Config struct {
 	Database DBConfig   `yaml:"database" json:"database"`
 	Web      WebConfig  `yaml:"web" json:"web"`
 	Push     PushConfig `yaml:"push" json:"push"`
+	// UnixSocket is the optional trusted listener (GW_UNIX_SOCKET). Tailscale
+	// identity headers are honoured only on this socket. Dir must be 0700.
+	UnixSocket string `yaml:"unix_socket" json:"unix_socket"`
+	// TCPDisabled turns the TCP listener off (GW_TCP_DISABLED); requires UnixSocket.
+	TCPDisabled bool `yaml:"tcp_disabled" json:"tcp_disabled"`
+	// TestIdentity is e2e-only identity injection (binary built with -tags e2e).
+	TestIdentity TestIdentityConfig `yaml:"test_identity" json:"-"`
+}
+
+// TestIdentityConfig: GW_TEST_IDENTITY_INJECTION / GW_TEST_IDENTITY_USERS.
+// A default (non-e2e) binary refuses to start when Injection is true.
+type TestIdentityConfig struct {
+	Injection bool     `yaml:"injection"`
+	Users     []string `yaml:"users"`
 }
 
 // PushConfig enables the Web Push subscription endpoints
@@ -171,6 +185,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
 	}
+	if c.TCPDisabled && strings.TrimSpace(c.UnixSocket) == "" {
+		return c, fmt.Errorf("tcp_disabled requires unix_socket (GW_UNIX_SOCKET)")
+	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
 	}
@@ -254,6 +271,21 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_PUSH_VAPID_KEY_ID"); v != "" {
 		c.Push.VAPIDKeyID = v
+	}
+	if v := getenv("GW_UNIX_SOCKET"); v != "" {
+		c.UnixSocket = v
+	}
+	for k, p := range map[string]*bool{"TCP_DISABLED": &c.TCPDisabled, "TEST_IDENTITY_INJECTION": &c.TestIdentity.Injection} {
+		if v := getenv("GW_" + k); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("GW_%s: %w", k, err)
+			}
+			*p = b
+		}
+	}
+	if v := getenv("GW_TEST_IDENTITY_USERS"); v != "" {
+		c.TestIdentity.Users = splitList(v)
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)

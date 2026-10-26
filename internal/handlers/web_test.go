@@ -120,7 +120,7 @@ func newWebEnv(t *testing.T, enabled bool) *webEnv {
 	s.Web = &WebTools{Domains: pol, Search: e.fs, Fetch: e.ff, Rate: tools.NewRateLimiter(map[string]int{"search": 100, "fetch": 100})}
 	e.st = memstore.New()
 	s.Store = e.st
-	e.ts = httptest.NewServer(s.Handler())
+	e.ts = newTrustedServer(s.Handler())
 	t.Cleanup(e.ts.Close)
 	return e
 }

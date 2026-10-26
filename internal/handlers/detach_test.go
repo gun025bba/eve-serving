@@ -55,7 +55,7 @@ func newDetachEnv(t *testing.T, n int, step time.Duration, mod ...func(*Server))
 	for _, f := range mod {
 		f(s)
 	}
-	e.ts = httptest.NewServer(s.Handler())
+	e.ts = newTrustedServer(s.Handler())
 	t.Cleanup(e.ts.Close)
 	return e, canceled
 }

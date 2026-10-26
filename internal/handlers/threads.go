@@ -58,6 +58,12 @@ func user(r *http.Request) string {
 	return id.User
 }
 
+// logUser is the user id for log lines (test identities are pseudonymized).
+func logUser(r *http.Request) string {
+	id, _ := auth.FromContext(r.Context())
+	return auth.LogUser(id)
+}
+
 func intParam(r *http.Request, k string, def, lo, hi int) (int, error) {
 	v := r.URL.Query().Get(k)
 	if v == "" {

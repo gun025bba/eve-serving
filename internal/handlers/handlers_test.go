@@ -71,7 +71,7 @@ func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.
 	q := queue.New(cfg.MaxConc, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutS*float64(time.Second)))
 	s := &Server{Cfg: cfg, Key: key, Log: logging.New(lockedWriter{&lmu, logbuf}, logging.INFO), M: m, Mem: &metrics.MemSampler{Needle: "no-such-proc-xyz"}, Q: q,
 		Up: proxy.New(proxy.Options{BaseURL: upURL, ConnectTimeout: time.Second, ReadTimeout: 5 * time.Second, Retries: 0, Backoff: time.Millisecond}), Start: time.Now()}
-	ts := httptest.NewServer(s.Handler())
+	ts := newTrustedServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts, logbuf
 }
@@ -369,7 +369,7 @@ func TestIdentityHeaderFromNonLoopback(t *testing.T) {
 	// empty allowlist: header from loopback is not enough
 	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
 	req := httptest.NewRequest("GET", "/whoami", nil)
-	req.RemoteAddr = "127.0.0.1:1"
+	req = viaSocket(req)
 	req.Header.Set("Tailscale-User-Login", "owner@github")
 	browserHeaders(req)
 	rec := httptest.NewRecorder()

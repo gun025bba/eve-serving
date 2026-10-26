@@ -26,7 +26,7 @@
 상세 계약: [../threads-api.md](../threads-api.md), 루트 README.
 
 ## 인증
-`tailscale-identity`(loopback peer + `allowed_users`일 때만 `Tailscale-User-Login` 신뢰) → `api-key`(Bearer). `internal/auth/ratelimit.go`에 rate limit.
+`tailscale-identity`(**unix 소켓 리스너로 들어온 요청** + `allowed_users`일 때만 `Tailscale-User-Login` 신뢰, 4.0.0; TCP에서는 `Tailscale-User-*` 헤더 제거) → `api-key`(Bearer). `internal/auth/ratelimit.go`에 rate limit.
 
 ## 큐
 semaphore + bounded queue, 가득 차면 429 `queue_full`. `gateway`와 레거시 `gateway-ts`는 별도 프로세스라 큐/메트릭이 따로입니다.

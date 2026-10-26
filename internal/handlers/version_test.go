@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +18,7 @@ func TestVersionExposed(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{{"1.1.0", "1.1.0"}, {"", "dev"}} {
 		s := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), Start: time.Now(), Version: tc.in,
 			M: metrics.New(50), Mem: &metrics.MemSampler{Needle: "no-such-proc-xyz"}, Q: queue.New(1, 1, time.Second)}
-		ts := httptest.NewServer(s.Handler())
+		ts := newTrustedServer(s.Handler())
 		get := func(path string, authz bool) map[string]any {
 			req, _ := http.NewRequest("GET", ts.URL+path, nil)
 			if authz {

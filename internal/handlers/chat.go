@@ -110,7 +110,7 @@ func (s *Server) record(r *http.Request, rec record) {
 		code = rec.code
 	}
 	idt, _ := auth.FromContext(r.Context())
-	kv := []any{"request_id", rid(r), "user", idt.User, "auth_provider", idt.Provider, "stream", rec.stream, "status", rec.status, "error_code", code, "queue_ms", int(q * 1000),
+	kv := []any{"request_id", rid(r), "user", auth.LogUser(idt), "auth_provider", idt.Provider, "stream", rec.stream, "status", rec.status, "error_code", code, "queue_ms", int(q * 1000),
 		"ttft_ms", ttftMs, "total_ms", int(total * 1000), "prompt_tokens", rec.pt, "completion_tokens", rec.ct,
 		"tokens_per_s", tpsR, "mlx_rss_gb", m.MLXRSSGB, "mem_avail_gb", m.AvailGB, "queue_depth", s.Q.Waiting(), "inflight", s.Q.Inflight()}
 	if rec.clientGone {

@@ -109,7 +109,7 @@ func TestCSRF(t *testing.T) {
 				body = strings.NewReader(c.body)
 			}
 			req := httptest.NewRequest(c.method, c.path, body)
-			req.RemoteAddr = "127.0.0.1:1234"
+			req = viaSocket(req)
 			if c.tailscale {
 				req.Header.Set("Tailscale-User-Login", "owner@example")
 			}
@@ -165,7 +165,7 @@ func TestCSRFEmptyAllowlistFailsClosed(t *testing.T) {
 		t.Fatal("no startup warning:", logbuf.String())
 	}
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{}`))
-	req.RemoteAddr = "127.0.0.1:1"
+	req = viaSocket(req)
 	req.Header.Set("Tailscale-User-Login", "owner@example")
 	browserHeaders(req)
 	rec := httptest.NewRecorder()

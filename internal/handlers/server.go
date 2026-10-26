@@ -189,7 +189,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		sw := &statusWriter{ResponseWriter: w}
 		h(sw, r)
 		s.Log.Info("request", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "status", sw.status,
-			"user", id.User, "auth_provider", id.Provider, "ms", time.Since(t0).Milliseconds())
+			"user", auth.LogUser(id), "auth_provider", id.Provider, "ms", time.Since(t0).Milliseconds())
 	}
 }
 

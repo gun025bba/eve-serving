@@ -41,6 +41,7 @@ type Authenticator interface {
 type Options struct {
 	APIKey       string
 	AllowedUsers []string
+	TestUsers    []string // e2e identity injection allowlist (-tags e2e only)
 }
 
 // Constructor builds a provider from Options.

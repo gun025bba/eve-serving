@@ -223,7 +223,7 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 		}
 		return
 	}
-	p.s.Log.Info("persisted", "request_id", rid(r), "user", p.user, "thread_id", p.threadID, "message_id", p.msgID, "status", status, "replaced", p.replaceID != "")
+	p.s.Log.Info("persisted", "request_id", rid(r), "user", logUser(r), "thread_id", p.threadID, "message_id", p.msgID, "status", status, "replaced", p.replaceID != "")
 }
 
 func (p *chatPersist) ids() map[string]any {

@@ -6,11 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/listen"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -98,7 +100,16 @@ func main() {
 	up := proxy.New(proxy.Options{BaseURL: cfg.Upstream, ConnectTimeout: secs(cfg.ConnectTimeoutS), ReadTimeout: secs(cfg.ReadTimeoutS),
 		Retries: cfg.Retries, Backoff: secs(cfg.RetryBackoffS),
 		OnRetry: func(a int, e error) { log.Warn("upstream_connect_retry", "attempt", a, "error", e.Error()) }})
-	chain, err := auth.Build(cfg.Auth.Providers, auth.Options{APIKey: key, AllowedUsers: cfg.AllowedUsers})
+	providers := cfg.Auth.Providers
+	if cfg.TestIdentity.Injection {
+		if err := auth.CheckInjection(auth.InjectionCheck{Env: cfg.Env, Host: *host, TCPEnabled: !cfg.TCPDisabled, DBURL: cfg.Database.URL,
+			ProdUsers: cfg.AllowedUsers, Providers: cfg.Auth.Providers, UnixSocket: cfg.UnixSocket, Users: cfg.TestIdentity.Users}); err != nil {
+			fatal("%v", err)
+		}
+		providers = append([]string{auth.ProviderTestIdentity}, providers...)
+		log.Warn("test_identity_injection_enabled", "users", len(cfg.TestIdentity.Users))
+	}
+	chain, err := auth.Build(providers, auth.Options{APIKey: key, AllowedUsers: cfg.AllowedUsers, TestUsers: cfg.TestIdentity.Users})
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -142,7 +153,7 @@ func main() {
 		log.Warn("audit_memory_only", "reason", "no database configured")
 	}
 	switch strings.ToLower(cfg.Env) {
-	case "", "prod", "dev":
+	case "", "prod", "dev", "test", "e2e":
 	default:
 		log.Warn("unknown_gw_env", "value", cfg.Env, "treated_as", "prod")
 	}
@@ -160,7 +171,30 @@ func main() {
 	}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
-	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	handler := srv.Handler()
+	var servers []*http.Server
+	var listeners []net.Listener
+	if !cfg.TCPDisabled {
+		tl, err := net.Listen("tcp", addr)
+		if err != nil {
+			fatal("listen: %v", err)
+		}
+		servers = append(servers, &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second})
+		listeners = append(listeners, tl)
+	} else {
+		addr = ""
+	}
+	if cfg.UnixSocket != "" {
+		ul, err := listen.Unix(config.Expand(cfg.UnixSocket))
+		if err != nil {
+			fatal("refusing to start: %v", err)
+		}
+		// Only connections accepted here may carry Tailscale identity headers.
+		servers = append(servers, listen.TrustedServer(handler))
+		listeners = append(listeners, ul)
+	} else if slices.Contains(cfg.Auth.Providers, auth.ProviderTailscale) && len(cfg.AllowedUsers) > 0 {
+		log.Warn("tailscale_identity_inactive", "reason", "no GW_UNIX_SOCKET: identity headers are only trusted on the unix socket; TCP accepts API keys only")
+	}
 	sysEvent := func(ev, status string, detail map[string]string) {
 		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()
@@ -229,14 +263,27 @@ func main() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 10*time.Second)
 		defer c()
-		hs.Shutdown(sctx)
+		for _, hs := range servers {
+			hs.Shutdown(sctx)
+		}
 	}()
-	log.Info("gateway_start", "addr", addr, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue,
+	log.Info("gateway_start", "addr", addr, "unix_socket", cfg.UnixSocket != "", "tcp", !cfg.TCPDisabled, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue,
 		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers), "persistence", st != nil)
-	fmt.Fprintf(os.Stderr, "gateway %s listening on %s\n", version, addr)
-	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error("gateway_exit", "error", err.Error())
-		fatal("listen: %v", err)
+	if addr != "" {
+		fmt.Fprintf(os.Stderr, "gateway %s listening on %s\n", version, addr)
+	}
+	if cfg.UnixSocket != "" {
+		fmt.Fprintf(os.Stderr, "gateway %s listening on unix socket\n", version)
+	}
+	errc := make(chan error, len(servers))
+	for i := range servers {
+		go func(hs *http.Server, l net.Listener) { errc <- hs.Serve(l) }(servers[i], listeners[i])
+	}
+	for range servers {
+		if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("gateway_exit", "error", err.Error())
+			fatal("serve: %v", err)
+		}
 	}
 	log.Info("gateway_stop")
 }

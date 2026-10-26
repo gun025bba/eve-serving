@@ -22,3 +22,15 @@ func TestGenerationHubBytesValidated(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTCPDisabledNeedsSocket(t *testing.T) {
+	env := map[string]string{"GW_TCP_DISABLED": "true"}
+	if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+		t.Fatal("tcp_disabled without socket accepted")
+	}
+	env["GW_UNIX_SOCKET"] = "/tmp/x/gw.sock"
+	c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] })
+	if err != nil || !c.TCPDisabled || c.UnixSocket != "/tmp/x/gw.sock" {
+		t.Fatal(c.TCPDisabled, err)
+	}
+}
