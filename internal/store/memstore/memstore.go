@@ -407,3 +407,28 @@ func (s *Store) ExportFeedback(_ context.Context, since time.Time, fn func(store
 	}
 	return nil
 }
+
+func (s *Store) SetMessageStatus(_ context.Context, user, id, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.msgs[id]
+	if !ok || m.user != user {
+		return store.ErrNotFound
+	}
+	m.Status = status
+	return nil
+}
+
+func (s *Store) FailStaleGenerating(context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, m := range s.msgs {
+		if m.Status == store.StatusGenerating {
+			m.Status = store.StatusFailed
+			m.Metadata = []byte(`{"incomplete":true,"reason":"gateway_restart","error_code":"gateway_restart"}`)
+			n++
+		}
+	}
+	return n, nil
+}

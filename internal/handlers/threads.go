@@ -266,6 +266,9 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	for i := range ms {
+		s.apiMessage(r, &ms[i])
+	}
 	writeJSON(w, 200, map[string]any{"data": ms, "has_more": more})
 }
 

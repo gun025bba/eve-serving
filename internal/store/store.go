@@ -26,8 +26,19 @@ var (
 
 const (
 	StatusComplete   = "complete"
-	StatusIncomplete = "incomplete"
+	StatusIncomplete = "incomplete" // legacy (<3.1); API reports it as "failed"
+	StatusGenerating = "generating"
+	StatusFailed     = "failed"
 )
+
+// GenStore supports detached generation (assistant row created up front).
+type GenStore interface {
+	// SetMessageStatus sets only the status of the caller's message.
+	SetMessageStatus(ctx context.Context, user, id, status string) error
+	// FailStaleGenerating marks every "generating" row failed with
+	// error_code "gateway_restart" (run at startup: no run survives a restart).
+	FailStaleGenerating(ctx context.Context) (int64, error)
+}
 
 type Thread struct {
 	ID                 string    `json:"id"`
@@ -68,6 +79,7 @@ type Message struct {
 	LatencyMs *int64          `json:"latency_ms,omitempty"`
 	Metadata  json.RawMessage `json:"metadata,omitempty"`
 	Status    string          `json:"status"`
+	ErrorCode *string         `json:"error_code,omitempty"` // API only, set when status is "failed"
 	ClientID  *string         `json:"client_id,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
 	UpdatedAt *time.Time      `json:"updated_at,omitempty"`

@@ -523,3 +523,28 @@ func (s *Store) ExportFeedback(ctx context.Context, since time.Time, fn func(sto
 	}
 	return rows.Err()
 }
+
+func (s *Store) SetMessageStatus(ctx context.Context, user, id, status string) error {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE messages SET status=$3, updated_at=now() WHERE id=$1 AND user_id=$2`, id, u, status)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) FailStaleGenerating(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE messages SET status='failed',
+		metadata = COALESCE(metadata, '{}'::jsonb) || '{"incomplete":true,"reason":"gateway_restart","error_code":"gateway_restart"}'::jsonb,
+		updated_at=now() WHERE status='generating'`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

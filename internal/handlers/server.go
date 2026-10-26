@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
@@ -63,6 +64,9 @@ type Server struct {
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool
+
+	genOnce sync.Once
+	gens    *genHub // detached generations (genhub.go)
 }
 
 // uiCSP keeps the UI from loading external resources (no remote images =
@@ -237,6 +241,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /v1/threads/{id}", s.persisted(s.patchThread))
 	mux.HandleFunc("DELETE /v1/threads/{id}", s.persisted(s.deleteThread))
 	mux.HandleFunc("GET /v1/threads/{id}/messages", s.persisted(s.listMessages))
+	mux.HandleFunc("GET /v1/threads/{id}/messages/{mid}/stream", s.persisted(s.streamMessage))
 	mux.HandleFunc("PUT /v1/messages/{id}/feedback", s.persisted(s.putFeedback))
 	mux.HandleFunc("DELETE /v1/messages/{id}/feedback", s.persisted(s.deleteFeedback))
 	mux.HandleFunc("GET /v1/feedback/export", s.persisted(s.exportFeedback))

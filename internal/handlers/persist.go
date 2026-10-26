@@ -24,6 +24,37 @@ type chatPersist struct {
 	t0        time.Time
 	done      bool
 	msgID     string
+	placed    bool // assistant row created up front (status generating)
+}
+
+// startPlaceholder creates the assistant row (or marks the regenerated one)
+// with status "generating" so a reconnecting client can find it.
+func (p *chatPersist) startPlaceholder(r *http.Request) error {
+	ctx := r.Context()
+	if p.replaceID != "" {
+		if gs, ok := p.s.Store.(store.GenStore); ok {
+			if err := gs.SetMessageStatus(ctx, p.user, p.replaceID, store.StatusGenerating); err != nil {
+				return storeErr(err, "Message")
+			}
+		}
+		p.msgID, p.placed = p.replaceID, true
+		return nil
+	}
+	m, err := p.s.Store.AddMessage(ctx, p.user, store.Message{ThreadID: p.threadID, Role: "assistant", Model: nz(p.model),
+		Params: p.params, Status: store.StatusGenerating})
+	if err != nil {
+		return storeErr(err, "Thread")
+	}
+	p.msgID, p.placed = m.ID, true
+	return nil
+}
+
+// fail saves a failed status if nothing was saved yet.
+func (p *chatPersist) fail(r *http.Request, code string) {
+	if p == nil || p.done {
+		return
+	}
+	p.finish(r, "", "", "", nil, nil, store.StatusFailed, code)
 }
 
 // textOf flattens OpenAI message content (string or [{type:text,text}]).
@@ -156,13 +187,20 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 	if pt != nil || ct != nil {
 		m.Usage = &store.Usage{PromptTokens: pt, CompletionTokens: ct}
 	}
-	if status == store.StatusIncomplete {
-		m.Metadata, _ = json.Marshal(map[string]any{"incomplete": true, "reason": reason})
+	if status == store.StatusIncomplete && p.placed {
+		status = store.StatusFailed
+	}
+	m.Status = status
+	if status == store.StatusIncomplete || status == store.StatusFailed {
+		m.Metadata, _ = json.Marshal(map[string]any{"incomplete": true, "reason": reason, "error_code": reason})
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 	defer cancel()
 	var err error
-	if p.replaceID != "" {
+	if p.placed {
+		m.ID = p.msgID
+		_, err = p.s.Store.ReplaceMessage(ctx, p.user, m)
+	} else if p.replaceID != "" {
 		m.ID = p.replaceID
 		_, err = p.s.Store.ReplaceMessage(ctx, p.user, m)
 		p.msgID = p.replaceID
@@ -171,7 +209,9 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 		p.msgID = m.ID
 	}
 	if err != nil {
-		p.msgID = ""
+		if !p.placed {
+			p.msgID = ""
+		}
 		if !errors.Is(err, context.Canceled) {
 			p.s.Log.Error("persist_failed", "request_id", rid(r), "thread_id", p.threadID, "error", trunc(err.Error(), 300))
 		}
@@ -192,4 +232,12 @@ func (p *chatPersist) ids() map[string]any {
 		out["replaced_message_id"] = p.replaceID
 	}
 	return out
+}
+
+// apiStatus maps an internal finish status to the value clients see.
+func (p *chatPersist) apiStatus(status string) string {
+	if status == store.StatusIncomplete && p.placed {
+		return store.StatusFailed
+	}
+	return status
 }

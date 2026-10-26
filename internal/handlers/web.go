@@ -494,7 +494,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	status, reason := "complete", ""
 	if ferr != nil {
 		status, reason = "incomplete", "upstream_error"
-		if errors.Is(ferr, context.Canceled) || ctx.Err() != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = "timeout"
+		} else if errors.Is(ferr, context.Canceled) || ctx.Err() != nil {
 			reason = "client_disconnected"
 		}
 	}
@@ -543,7 +545,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
 	if pr != nil {
 		v := pr.ids()
-		v["object"], v["status"] = "chat.completion.persisted", status
+		v["object"], v["status"] = "chat.completion.persisted", pr.apiStatus(status)
 		out.event(v)
 	}
 	out.raw([]byte("data: [DONE]\n\n"))

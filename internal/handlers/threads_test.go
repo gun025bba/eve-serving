@@ -258,7 +258,10 @@ func TestChatStreamPersistsAndRegenerate(t *testing.T) {
 	}
 	evs, done := readSSE(t, resp.Body)
 	resp.Body.Close()
-	first, last := evs[0], evs[len(evs)-1]
+	meta, first, last := evs[0], evs[1], evs[len(evs)-1]
+	if meta["thread_id"] != first["thread_id"] || meta["message_id"] != last["message_id"] {
+		t.Fatal("eve.meta", meta, last)
+	}
 	if !done || first["thread_id"] == nil || first["user_message_id"] == nil || resp.Header.Get("X-Thread-Id") != first["thread_id"] {
 		t.Fatal(first, done)
 	}
@@ -323,11 +326,11 @@ func TestStreamAbortPersistsIncomplete(t *testing.T) {
 	evs, _ := readSSE(t, resp.Body)
 	resp.Body.Close()
 	last := evs[len(evs)-1]
-	if last["object"] != "chat.completion.persisted" || last["status"] != "incomplete" {
+	if last["object"] != "chat.completion.persisted" || last["status"] != "failed" {
 		t.Fatal(evs)
 	}
 	m, _ := e.st.GetMessage(t.Context(), "alice@example", last["message_id"].(string))
-	if m.Status != "incomplete" || m.Content != "he" || !strings.Contains(string(m.Metadata), `"incomplete":true`) {
+	if m.Status != "failed" || m.Content != "he" || !strings.Contains(string(m.Metadata), `"incomplete":true`) {
 		t.Fatal(m)
 	}
 }
