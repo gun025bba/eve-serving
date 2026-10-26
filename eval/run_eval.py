@@ -7,6 +7,7 @@ Environment:
   EVAL_API_KEY    Optional. Bearer token. Falls back to LLM_API_KEY, then ~/llm-serving/.api_key
   EVAL_MODEL      Optional. Default mlx-community/Qwen3-30B-A3B-4bit
   EVAL_APPEND_NO_THINK  Optional. Default 1. Append ' /no_think' to user prompts for Qwen3.
+  EVAL_OMIT_MAX_TOKENS Optional. Default 0. If 1, omit max_tokens so the server default applies.
 
 Usage:
   python3 eval/run_eval.py --suite regression
@@ -252,7 +253,7 @@ def grade(item: dict, text: str) -> dict:
     return {"pass": passed, "score": 1.0 if passed else 0.0, "details": details}
 
 
-def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool) -> dict:
+def chat_completion(base: str, key: str, model: str, item: dict, append_no_think: bool, omit_max_tokens: bool = False) -> dict:
     prompt = item["prompt"]
     if append_no_think and "/no_think" not in prompt:
         prompt = prompt + " /no_think"
@@ -263,10 +264,11 @@ def chat_completion(base: str, key: str, model: str, item: dict, append_no_think
     payload = {
         "model": model,
         "messages": messages,
-        "max_tokens": int(item.get("max_tokens") or 1024),
         "temperature": float(item.get("temperature", 0.2)),
         "stream": False,
     }
+    if not omit_max_tokens:
+        payload["max_tokens"] = int(item.get("max_tokens") or 1024)
     data = json.dumps(payload).encode("utf-8")
     t0 = time.perf_counter()
     raw = b""
@@ -383,7 +385,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
     results = []
     for i, item in enumerate(items, 1):
         print(f"[{name} {i}/{len(items)}] {item['id']} ...", flush=True)
-        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think)
+        resp = chat_completion(args.base_url, key, args.model, item, args.append_no_think, bool(args.omit_max_tokens))
         g = grade(item, resp.get("content") or "")
         row = {
             "id": item["id"],
@@ -407,6 +409,7 @@ def run_suite(name: str, items: list[dict], args, key: str) -> dict:
         "suite": name,
         "model": args.model,
         "base_url_set": bool(args.base_url),
+        "omit_max_tokens": bool(args.omit_max_tokens),
         "started_at": datetime.now(timezone.utc).isoformat(),
         "summary": summary,
         "results": results,
@@ -423,6 +426,7 @@ def main():
     ap.add_argument("--out", default="", help="write full JSON report")
     ap.add_argument("--sleep", type=float, default=0.0, help="seconds between requests")
     ap.add_argument("--append-no-think", type=int, default=int(os.getenv("EVAL_APPEND_NO_THINK", "1")))
+    ap.add_argument("--omit-max-tokens", type=int, default=int(os.getenv("EVAL_OMIT_MAX_TOKENS", "0")), help="1=omit max_tokens (use server default); 0=send item max_tokens (default)")
     args = ap.parse_args()
     if not args.base_url:
         raise SystemExit("EVAL_BASE_URL or --base-url is required (do not hardcode hostnames)")

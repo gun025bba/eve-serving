@@ -43,6 +43,7 @@ python3 eval/run_eval.py --suite both --out eval/results/full.json
 - `--limit N` — 스위트당 상위 N문항만
 - `--sleep S` — 요청 사이 대기(초). 기본 0, 여전히 **직렬** 호출
 - `--offset N` — 앞에서 N문항 건너뛰기(중단 후 재개). 연결 오류는 최대 3회 재시도
+- `--omit-max-tokens 1` — 요청에서 `max_tokens`를 빼 서버 기본값(현재 라이브 8192)을 쓰게 함. 기본 0은 JSONL 값 전송
 - `--append-no-think 1` — Qwen3 thinking 생략(기본 1). 프롬프트에 `/no_think` 추가
 
 표준 라이브러리만 사용합니다 (`urllib`).
