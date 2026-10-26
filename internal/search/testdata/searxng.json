@@ -1,0 +1,6 @@
+{"query":"서울 날씨","number_of_results":0,"results":[
+{"url":"https://ko.wikipedia.org/wiki/서울","title":"서울 - 위키백과","content":"서울특별시는 대한민국의 수도이며 최대 도시이다. 한반도 중서부에 위치한다.","engine":"wikipedia","publishedDate":"2026-10-20T00:00:00"},
+{"url":"javascript:alert(1)","title":"bad","content":"x","engine":"bing"},
+{"url":"https://ko.wikipedia.org/wiki/서울","title":"dup","content":"dup","engine":"google"},
+{"url":"https://weather.example.com/seoul","title":"Seoul weather","content":"Sunny","engine":"duckduckgo","publishedDate":null}
+],"answers":[],"suggestions":[],"unresponsive_engines":[]}
