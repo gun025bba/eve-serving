@@ -1,0 +1,16 @@
+node_modules/
+.venv/
+venv/
+v/
+__pycache__/
+*.pyc
+.env
+.env.*
+dist/
+build/
+.cache/
+*.log
+*.gguf
+*.safetensors
+*.bin
+.DS_Store
