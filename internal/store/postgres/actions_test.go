@@ -260,6 +260,7 @@ func TestPostgresProactiveMessagesUnread(t *testing.T) {
 	s.AddMessage(ctx, a, store.Message{ThreadID: t1.ID, Role: "user", Content: "hi"})
 	t2, _ := s.CreateThread(ctx, a, "brief")
 	job, kind, name := "J1", "briefing", "아침 브리핑"
+	mkJob(t, s, a, job)
 	pm, err := s.AddMessage(ctx, a, store.Message{ThreadID: t2.ID, Role: "assistant", Content: "x", Origin: store.OriginProactive,
 		JobID: &job, TemplateKind: &kind, Provenance: &store.Provenance{JobName: &name}})
 	if err != nil {
@@ -270,7 +271,11 @@ func TestPostgresProactiveMessagesUnread(t *testing.T) {
 		t.Fatal(err)
 	}
 	tb, _ := s.CreateThread(ctx, b, "bob")
-	s.AddMessage(ctx, b, store.Message{ThreadID: tb.ID, Role: "assistant", Content: "x", Origin: store.OriginProactive, JobID: &job})
+	bjob := "JB"
+	mkJob(t, s, b, bjob)
+	if _, err := s.AddMessage(ctx, b, store.Message{ThreadID: tb.ID, Role: "assistant", Content: "x", Origin: store.OriginProactive, JobID: &bjob}); err != nil {
+		t.Fatal(err)
+	}
 
 	ts, err := s.ListUnreadThreads(ctx, a, false, 10, nil)
 	if err != nil || len(ts) != 1 || ts[0].ID != t2.ID || ts[0].UnreadCount != 1 {
@@ -296,3 +301,73 @@ func TestPostgresProactiveMessagesUnread(t *testing.T) {
 		t.Fatal(ts)
 	}
 }
+
+func mkJob(t *testing.T, s *Store, login, id string) {
+	t.Helper()
+	ctx := context.Background()
+	u, err := s.uid(ctx, login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, `INSERT INTO scheduled_jobs (id, user_id, name, when_kind, when_value, template_id, created_by)
+		VALUES ($1,$2,'job','rrule','FREQ=DAILY','briefing','user')`, id, u); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgresJobFK(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const a, b = "alice@example", "bob@example"
+	th, _ := s.CreateThread(ctx, a, "t")
+	pro := func(user, job string) error {
+		_, err := s.AddMessage(ctx, user, store.Message{ThreadID: th.ID, Role: "assistant", Content: "x", Origin: store.OriginProactive, JobID: &job})
+		return err
+	}
+	// unknown job: rejected (app check and FK)
+	if err := pro(a, "nope"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal(err)
+	}
+	u, _ := s.uid(ctx, a)
+	if _, err := s.pool.Exec(ctx, `INSERT INTO messages (id, thread_id, user_id, role, content, origin, job_id) VALUES ('m-raw',$1,$2,'assistant','x','proactive','nope')`, th.ID, u); err == nil {
+		t.Fatal("FK not enforced")
+	}
+	mkJob(t, s, b, "JB")
+	if err := pro(a, "JB"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal("foreign job accepted", err)
+	}
+	mkJob(t, s, a, "JA")
+	if err := pro(a, "JA"); err != nil {
+		t.Fatal(err)
+	}
+	// soft delete keeps references valid and new references allowed
+	if _, err := s.pool.Exec(ctx, `UPDATE scheduled_jobs SET enabled=false, deleted_at=now() WHERE id='JA'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := pro(a, "JA"); err != nil {
+		t.Fatal(err)
+	}
+	if ts, err := s.ListUnreadThreads(ctx, a, false, 10, nil); err != nil || len(ts) != 1 || ts[0].UnreadCount != 2 {
+		t.Fatal(err, ts)
+	}
+	// hard delete of a referenced job is refused
+	if _, err := s.pool.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id='JA'`); err == nil {
+		t.Fatal("hard delete of referenced job succeeded")
+	}
+	// pending_actions.job_id is FK-checked too
+	if _, err := s.CreateAction(ctx, a, store.Action{ServerFields: store.ServerFields{Tool: "x", Provenance: store.Provenance{Actor: "scheduler", JobID: ptr("nope")}},
+		Payload: json.RawMessage(`{}`), ModelFields: store.ModelFields{PayloadView: json.RawMessage(`{}`)}}); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal(err)
+	}
+	// user deletion cascades through jobs and messages in one statement
+	if _, err := s.pool.Exec(ctx, `DELETE FROM users WHERE login=$1`, a); err != nil {
+		t.Fatal("user delete", err)
+	}
+	var n int
+	s.pool.QueryRow(ctx, `SELECT count(*) FROM scheduled_jobs`).Scan(&n)
+	if n != 1 {
+		t.Fatal(n)
+	}
+}
+
+func ptr(s string) *string { return &s }

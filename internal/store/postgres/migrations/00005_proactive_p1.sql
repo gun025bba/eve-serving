@@ -1,12 +1,40 @@
 -- Proactive P1 API surface (docs/architecture/ui-api-contract.md §3.5–§3.7).
 -- Additive only: new columns are nullable or defaulted, new tables are empty.
--- The scheduler itself (scheduled_jobs, dedupe keys, push_status) lands in a
--- later migration; job_id is plain TEXT until scheduled_jobs exists.
+-- scheduled_jobs follows docs/architecture/proactive-messaging.md §3 (conceptual
+-- schema); the scheduler that runs it, dedupe keys and push_status land later.
 
 -- +goose Up
+-- Jobs are soft-deleted only (enabled=false + deleted_at). The only hard delete
+-- is the users ON DELETE CASCADE, which removes referencing messages in the
+-- same statement, so NO ACTION FKs below still allow user deletion.
+CREATE TABLE scheduled_jobs (
+    id                TEXT PRIMARY KEY,                -- ULID
+    user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name              TEXT NOT NULL DEFAULT '',
+    when_kind         TEXT NOT NULL CHECK (when_kind IN ('rrule','at')),
+    when_value        TEXT NOT NULL,
+    tz                TEXT NOT NULL DEFAULT 'Asia/Seoul',
+    template_id       TEXT NOT NULL,
+    send_if_changed   BOOLEAN NOT NULL DEFAULT false,
+    thread_id         TEXT NULL REFERENCES threads(id) ON DELETE SET NULL,
+    enabled           BOOLEAN NOT NULL DEFAULT true,
+    deleted_at        TIMESTAMPTZ NULL,
+    created_by        TEXT NOT NULL CHECK (created_by IN ('user','model_confirmed')),
+    confirm_action_id TEXT NULL,
+    next_run_at       TIMESTAMPTZ NULL,
+    last_run_at       TIMESTAMPTZ NULL,
+    last_status       TEXT NULL,
+    last_result_hash  TEXT NULL,
+    last_dedupe_key   TEXT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (deleted_at IS NULL OR enabled = false)
+);
+CREATE INDEX scheduled_jobs_user_idx ON scheduled_jobs (user_id) WHERE deleted_at IS NULL;
+
 ALTER TABLE messages
     ADD COLUMN origin        TEXT NOT NULL DEFAULT 'user_turn' CHECK (origin IN ('user_turn','proactive')),
-    ADD COLUMN job_id        TEXT NULL,
+    ADD COLUMN job_id        TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE NO ACTION,
     ADD COLUMN job_name      TEXT NULL,
     ADD COLUMN template_kind TEXT NULL,
     ADD COLUMN read_at       TIMESTAMPTZ NULL;
@@ -29,7 +57,7 @@ CREATE TABLE pending_actions (
     payload_view     JSONB NOT NULL,
     payload_hash     TEXT NOT NULL,
     actor            TEXT NOT NULL CHECK (actor IN ('user','scheduler')),
-    job_id           TEXT NULL,
+    job_id           TEXT NULL REFERENCES scheduled_jobs(id) ON DELETE NO ACTION,
     job_name         TEXT NULL,
     tainted          BOOLEAN NOT NULL DEFAULT false,
     status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','voided','expired')),

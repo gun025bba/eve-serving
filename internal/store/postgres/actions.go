@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/store"
@@ -60,6 +62,10 @@ func (s *Store) CreateAction(ctx context.Context, user string, a store.Action) (
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		a.ID, a.RootID, u, a.ThreadID, a.MessageID, a.Tool, a.ToolVersion, a.Scopes, a.Summary, []byte(a.Payload), []byte(a.PayloadView),
 		a.PayloadHash, a.Provenance.Actor, a.Provenance.JobID, a.Provenance.JobName, a.Tainted, a.ExpiresAt, a.CreatedAt)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23503" && pe.ConstraintName == "pending_actions_job_id_fkey" {
+		return a, store.ErrInvalid
+	}
 	return a, err
 }
 

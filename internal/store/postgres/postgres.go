@@ -202,6 +202,17 @@ func (s *Store) AddMessage(ctx context.Context, user string, m store.Message) (s
 			jobName = m.Provenance.JobName
 		}
 	}
+	if m.JobID != nil {
+		// FK alone would accept another user's job; require the same owner.
+		// Soft-deleted jobs remain valid references.
+		var ok bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM scheduled_jobs WHERE id=$1 AND user_id=$2)`, *m.JobID, u).Scan(&ok); err != nil {
+			return m, err
+		}
+		if !ok {
+			return m, store.ErrInvalid
+		}
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO messages (id, thread_id, user_id, role, content, reasoning, model, params, usage, latency_ms, metadata, status, client_id, created_at,
 		origin, job_id, job_name, template_kind)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
@@ -209,7 +220,7 @@ func (s *Store) AddMessage(ctx context.Context, user string, m store.Message) (s
 		origin, m.JobID, jobName, m.TemplateKind)
 	if err != nil {
 		var pe *pgconn.PgError
-		if errors.As(err, &pe) && pe.Code == "23514" {
+		if errors.As(err, &pe) && (pe.Code == "23514" || pe.Code == "23503" && pe.ConstraintName == "messages_job_id_fkey") {
 			return m, store.ErrInvalid
 		}
 		return m, err
