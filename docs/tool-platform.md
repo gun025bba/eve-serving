@@ -320,6 +320,18 @@ SSE(기존 이벤트 유지 + 추가):
 | 7-3 타임아웃·크기·레이트 | §4, 매니페스트 | 기존+확장 테스트 |
 | 7-4 런타임 분리 권장 | §1.4 mcp_stdio는 별도 사용자. builtin은 게이트웨이 내(현재와 동일) — 별도 프로세스 분리는 열린 결정 | — |
 
+### 11.3 보안 체크리스트 요약 항목별 명시 대응
+| 요약 항목 | 이 문서의 명시 |
+|---|---|
+| 레지스트리 원천 = 저장소 선언 파일, 런타임 등록 API 없음 | §1.1. `tools/<name>/manifest.yaml`(+`deploy/policy/*.yaml`)만 원천, `go:embed`. `/v1/tools*` 쓰기 엔드포인트는 존재하지 않으며 404/405 테스트로 고정 |
+| 스코프 read/write/send/trade, 기본 거부, 신규 툴 read 전용 | §3.1. `trade`는 정책 로드 시 거부되는 금지값 |
+| 시크릿은 한 툴에만 주입, 권한 불량 시 기동 거부, canary·gitleaks | §3.3 |
+| 확인 토큰 ≤2분, (user, tool, payload hash) 바인딩, UI에 페이로드 표시 | §3.2(120초, tool_version까지 바인딩), §10.3 `payload_view` |
+| 턴당 N회 호출·쓰기 1회, 모델이 만든 URL fetch 금지, 외부 콘텐츠 system prompt 금지 | §4.1(N=5), §7 유출 차단(URL은 사용자 메시지/이번 검색 결과에서 온 값만 — 현행 `Session.allow` 일반화), §7 |
+| 감사 테이블 앱 역할 UPDATE/DELETE 없음, 거부 급증·taint 턴 쓰기 시도·신규 수신자 알림 | §5 `REVOKE`, 해시 체인, 이상 탐지 |
+| 정책·시크릿·감사·확인 서비스 장애 시 fail-closed, 타임아웃·응답 크기·레이트 한도, 별도 사용자/컨테이너 실행 권장 | §4 파이프라인, §12-5, 매니페스트 `timeout`/`max_result_chars`/`rate_per_min`, §1.4(MCP는 별도 사용자 필수, builtin 분리는 §13-3) |
+| '특히 볼 점' 5개 | §12에서 하나씩 답변 |
+
 ## 12. '설계 문서와 대조할 때 특히 볼 점' 답변
 
 1. **등록·해제·버전 변경·스코프 확대가 마이너/설정으로 분류되지 않았나?** — 모두 게이트웨이 **MAJOR**(§2, §9). 설정으로는 "끄기"만 가능하고 켜기·확대는 표현 불가(§1.3). 런타임 등록 API 없음(§1.1). 예외 후보는 M1의 web 툴 이전(툴 집합 불변) 하나뿐이며, 이것도 건영님이 메이저로 보길 원하면 메이저로 처리(열린 결정).
@@ -327,6 +339,28 @@ SSE(기존 이벤트 유지 + 추가):
 3. **taint 전파와 쓰기 차단이 명시됐나?** — §7: 외부 결과가 들어오면 턴 전체 tainted, tainted 턴의 write는 자동 실행 불가(확인 강제), 대상이 툴 결과에서만 온 경우 차단, 감사에 `tainted` 기록.
 4. **시크릿이 DB/모델 컨텍스트로 가는 경로가 없나?** — 시크릿은 어댑터 `Input.Secrets`로만 전달되고 모델 입력·결과·로그·DB·SSE·에러 5개 출구 모두 리다크터 통과, DB엔 참조 ID만, `payload_view`엔 시크릿 필드 정의 금지(§3.3). canary 테스트로 검증.
 5. **fail-open 기본값이 없나?** — 정책 로드 실패 → 전부 off로 기동, 시크릿 조회 실패 → 해당 호출 denied, 감사 `started` 기록 실패 → 실행 안 함, 확인 서비스(DB) 장애 → write 거부, 파일 권한 불량 → 기동 거부, MCP `tools/list` 불일치 → 로드 거부, 스키마 검증 실패 → 실행 안 함, 미등록 툴 이름 → 거부(§1, §3, §4). 단 **현재 web 툴은 감사 기록 실패 시에도 실행되는 구조**라 M1에서 fail-closed로 바뀌는 점이 유일한 동작 차이 후보 → 감사 실패 시 web 툴도 막을지 건영님 결정.
+
+## 14. 웹 검색 도메인 허용/차단 정책 (설계만)
+
+- **권한 주체는 게이트웨이**: 검색 결과 필터링과 `web_fetch` 둘 다 게이트웨이가 판정. SearXNG `hostnames` 플러그인은 심층 방어용 보조일 뿐 정책 원천이 아님(SearXNG 설정이 바뀌어도 게이트웨이 판정은 동일).
+- **선언 파일**: `deploy/policy/web-domains.yaml`(저장소, CODEOWNERS 보안 리뷰), JSON Schema 검증, 미지정 필드 거부. **로드 실패 시 검색·fetch 모두 fail-closed**(`web_search_unavailable`).
+  ```yaml
+  version: 1
+  mode: denylist          # denylist | allowlist_only
+  deny:  ["*.example-bad.com", "tracker.example"]
+  allow: []               # allowlist_only일 때만 의미
+  ```
+- **정규화**: 소문자화, IDNA punycode(`golang.org/x/net/idna` Lookup 프로필), 끝 점 제거, 포트 제거. `*.x`는 **서브도메인만** 매치(`x` 자체는 미포함, 필요하면 둘 다 적음). 같은 호스트가 둘 다 맞으면 **deny 우선**.
+- **판정 시점**: 검색 결과 URL, fetch 요청 URL, **리다이렉트 매 hop**, 최종 `final_url`. 현행 `webfetch` 리다이렉트 처리(`fetch.go`의 cross-domain allowlist 검사) 지점에 도메인 정책 검사를 추가.
+- **결과 형식**
+  - 검색: 차단된 결과는 제거하고 툴 결과에 `blocked_count`만 포함. **차단 도메인 목록·이름은 모델에 보내지 않음**(우회 유도 방지).
+  - fetch: `status:"blocked"`, `block_reason:"domain_denied"`(`webfetch` 상수 `ReasonDomainDenied` 추가). 현재 일부 경로에서 `block_reason`이 비어 기록되는 버그도 이 작업에서 모든 blocked 경로가 상수 reason을 갖도록 정리(빈 값이면 테스트 실패).
+  - SSE `tool_result`에 `blocked_count` 추가 → UI는 '차단된 출처 n개' 칩 표시(도메인 목록은 UI에도 기본 비표시, 설정 화면에서만).
+- **통합**: 매니페스트 `egress`와 같은 정규화·매처를 쓰는 `internal/policy/domains` 하나로 통일. `web.read` 스코프의 egress = (검색 엔진 엔드포인트 고정) + (web-domains 정책을 통과한 공개 호스트), SSRF 가드는 그 아래 층에서 그대로.
+- **감사**: 모든 차단은 `tool_audit` 이벤트 `domain_blocked`(호스트 해시, 규칙 ID, hop 번호) + `eve_tool_denied_total{tool,reason="domain_denied"}`.
+- **테스트**: 정규화 표(대문자, 한글 IDN, 끝 점), `*.x` 경계, deny 우선, 리다이렉트로 차단 도메인 진입, 로드 실패 fail-closed, 모델 입력에 도메인 목록 부재.
+- **공수**: 약 1~1.5일.
+- **분류**: 빈 denylist 기본값 도입은 동작 변화가 없어 마이너로 볼 여지가 있으나 보안 경계 정책 신설이므로 **메이저 권장**. `allowlist_only` 모드 활성화는 노출 범위 변경이라 **메이저**. 이후 deny 항목 추가는 범위를 좁히는 방향이지만 정책 파일 변경이므로 보안 리뷰 필수(분류는 열린 결정).
 
 ## 13. 건영님께 열린 결정
 1. M1(web 툴 이전, 툴 집합 불변)을 마이너로 볼지 메이저로 볼지.
@@ -337,3 +371,5 @@ SSE(기존 이벤트 유지 + 추가):
 6. 확인 토큰 만료(120초 제안)와 카드 복원 시 재발급 정책.
 7. 이상 탐지 알림 채널(ntfy, 웹 푸시, 텔레그램 등).
 8. 플랫폼 이후 첫 신규 툴의 순서.
+9. 웹 도메인 정책: 빈 denylist 도입을 메이저(권장)로 할지, 이후 deny 항목 추가를 패치로 허용할지, allowlist_only 모드를 쓸지.
+10. 차단 도메인 목록을 UI 설정 화면에서 보여줄지.
