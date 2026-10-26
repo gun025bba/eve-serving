@@ -2,6 +2,7 @@
 package logging
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -81,11 +82,14 @@ func (l *Logger) Log(lv Level, msg string, kv ...any) {
 }
 
 func writeJSON(b *strings.Builder, v any) {
-	j, err := json.Marshal(v)
-	if err != nil {
-		j, _ = json.Marshal(fmt.Sprint(v))
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keep "<key>" readable, like Python's json.dumps
+	if enc.Encode(v) != nil {
+		buf.Reset()
+		enc.Encode(fmt.Sprint(v))
 	}
-	b.Write(j)
+	b.Write(bytes.TrimRight(buf.Bytes(), "\n"))
 }
 
 func (l *Logger) Debug(msg string, kv ...any) { l.Log(DEBUG, msg, kv...) }
