@@ -134,10 +134,13 @@ SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.
 - 토큰은 세션 POST 응답에만 담기고 **SSE에는 절대 싣지 않는다**(§3.4).
 - 결정 (3) **첫 토큰도 `POST /v1/actions/{id}/reissue`로 받으며, 이 첫 발급이 3회 상한에 포함**된다(TP §10.3).
   - reissue 검사: CSRF, `Origin` 정확 일치, 소유자 확인(아니면 404, §3.7), `status='pending'` 확인.
+  - 검사 순서: CSRF·`Origin` → **소유자 확인을 먼저** → `status` 확인. 제안이 없거나 남의 것이면 상태와 무관하게 **항상 404**(§3.7 동일 응답)이고 **409는 절대 반환하지 않는다**(존재 여부 노출 방지).
+  - **409 `conflict`는 소유자 본인의 non-pending 제안에만** 반환한다.
+  - push endpoint 길이 상한은 **1024바이트로 확정**(§3.5.3).
   - 발급 카운터 증가와 이전 토큰 무효화는 **한 트랜잭션에서 원자적으로** 처리한다(조건부 1행 UPDATE).
   - UI 권장: 카드를 그릴 때가 아니라 **승인 버튼을 누를 때 reissue → approve를 이어서** 호출한다. 카드 표시 시점에 받으면 TTL(120~300초)이 지나고, 여러 탭에서 열면 3회 상한을 금방 다 쓴다.
 - `POST /v1/proposals/{id}/revise` 응답 = **새 confirmation 객체 전체(토큰 포함)**(§3.1).
-- 테스트: `TestActionReissue_FirstIssueCountsTowardCap3`, `TestActionReissue_CSRFAndExactOrigin`, `TestActionReissue_OtherUser404`, `TestActionReissue_NonPending409`, `TestActionReissue_CounterAndVoidAtomic`, `TestProposalRevise_ResponseHasTokenSSEHasNone`.
+- 테스트: `TestActionReissue_FirstIssueCountsTowardCap3`, `TestActionReissue_CSRFAndExactOrigin`, `TestActionReissue_OtherUser404`, `TestActionReissue_OtherUserNonPending404`, `TestActionReissue_NonPending409`(소유자 본인만), `TestActionReissue_CounterAndVoidAtomic`, `TestProposalRevise_ResponseHasTokenSSEHasNone`.
 
 ### 3.6 CORS·캐시·로그 [Sec-Med CORS, Sec-L]
 - **선행 조건**: main에 아직 없는 **CSRF 보호(보안 Med)가 먼저 들어가야** 토큰 발급·`/v1/actions`·push 엔드포인트를 구현·배포할 수 있다.
