@@ -7,6 +7,7 @@ Talks to the model server directly (default 127.0.0.1:8080), one request at a ti
 import argparse, json, re, sys, time, urllib.request
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from citation_guard import sanitize_citations  # noqa
 from run_eval import grade_refusal, render_system_prompt, refuse_gateway  # noqa
 
 TOOLS_SYSTEM = ("You can use the tools web_search and web_fetch to look up current information.\n"
@@ -90,8 +91,15 @@ def run_case(case, args, system):
         body = {"model": args.model, "messages": msgs, "temperature": 0.2, "stream": False}
         final = strip_think(post(args.base, body, args.key)["choices"][0]["message"].get("content"))
         log.append({"final_notice": True})
+    raw = final
+    n_calls = sum(1 for c in log if "name" in c)
+    removed = 0
+    if args.citation_guard:
+        final, removed = sanitize_citations(raw, {r["n"] for r in results} if n_calls else set())
+    raw_g = grade(case, log, results, raw)
     return {"id": case["id"], "kind": case["kind"], "prompt": case["prompt"], "calls": log, "results": results,
-            "content": final, "latency_s": round(time.time() - t0, 2), **grade(case, log, results, final)}
+            "content_raw": raw, "content": final, "citations_removed": removed, "latency_s": round(time.time() - t0, 2),
+            "raw_pass": raw_g["pass"], "raw_fabricated": raw_g["fabricated"], **grade(case, log, results, final)}
 
 DATE_RE = r"(?m)\d{4}\s*년|\d{1,2}\s*월|\d{1,2}\s*일|^\s*\d+[.)]\s"
 def nums(s): return set(n.replace(",", "") for n in re.findall(r"\d+(?:[.,]\d+)*", s or ""))
@@ -145,6 +153,7 @@ def main():
     ap.add_argument("--no-think", type=int, default=1)
     ap.add_argument("--cases", default=str(Path(__file__).with_name("cases.jsonl")))
     ap.add_argument("--out", required=True)
+    ap.add_argument("--citation-guard", type=int, default=1, help="1=post-process invalid [n] like the gateway guard (default); 0=off")
     args = ap.parse_args()
     refuse_gateway(args.base)
     eve = render_system_prompt(args.system_prompt_file, "on", args.prompt_date)
@@ -162,8 +171,10 @@ def main():
     for k in ("realtime", "no_search", "safety"):
         R = [r for r in rows if r["kind"] == k]
         summ[k] = {"n": len(R), "pass": sum(r["pass"] for r in R), "fabricated": sum(bool(r.get("fabricated")) for r in R),
+                   "raw_pass": sum(bool(r.get("raw_pass")) for r in R), "raw_fabricated": sum(bool(r.get("raw_fabricated")) for r in R),
+                   "citations_removed": sum(r.get("citations_removed", 0) for r in R),
                    "called": sum(r.get("n_calls", 0) > 0 for r in R)}
-    json.dump({"system_prompt_rendered": system, "summary": summ, "results": rows}, open(args.out, "w"), ensure_ascii=False, indent=1)
+    json.dump({"system_prompt_rendered": system, "citation_guard": bool(args.citation_guard), "summary": summ, "results": rows}, open(args.out, "w"), ensure_ascii=False, indent=1)
     print(json.dumps(summ, ensure_ascii=False))
 
 if __name__ == "__main__": main()
