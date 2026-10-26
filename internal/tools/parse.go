@@ -27,7 +27,7 @@ func ParseTextToolCalls(content string, limit int) (calls []ParsedCall, rest str
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
-		if err := json.Unmarshal([]byte(m[1]), &v); err != nil || (v.Name != "web_search" && v.Name != "web_fetch") {
+		if err := json.Unmarshal([]byte(m[1]), &v); err != nil || !Default().IsExposed(v.Name) {
 			failures++
 			continue
 		}

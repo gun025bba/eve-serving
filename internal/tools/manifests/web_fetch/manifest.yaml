@@ -1,0 +1,11 @@
+name: web_fetch
+version: 1.0.0
+description: "Read the main text of a web page. Only URLs returned by web_search in this answer, or URLs the user wrote, are allowed."
+scopes: [web.read]
+side_effect: read
+taint_output: true
+egress: [public_web]
+secrets: []
+timeout: 15s
+max_result_chars: 12000
+exposure: {modes: [auto, force], max_per_turn: 3}

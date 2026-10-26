@@ -1,0 +1,13 @@
+status: 200 OK
+--- upstream
+{"max_tokens":8192,"messages":[{"content":"see https://go.example/rel","role":"user"}],"model":"m1","stream":true,"stream_options":{"include_usage":true},"temperature":0.7,"top_p":0.9}
+--- response
+data: {"model":"m1","choices":[{"delta":{"content":"force "}}]}
+
+data: {"choices":[{"delta":{"content":"answer [1]"}}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}
+
+data: [DONE]
+
+

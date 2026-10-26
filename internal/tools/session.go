@@ -160,21 +160,13 @@ func (s *Session) Exec(ctx context.Context, round int, id, name, rawArgs string)
 	}
 	var out string
 	if c.Status == "" {
-		switch {
-		case !s.CallsLeft():
-			c.Status, c.Error = "blocked", "tool call limit reached"
-		case name == "web_search":
-			out = s.search(ctx, &c, args)
-		case name == "web_fetch":
-			out = s.fetch(ctx, &c, args)
-		default:
-			c.Status, c.Error = "error", "unknown tool"
-		}
+		out = Default().exec(ctx, s, &c, name, args)
 	}
 	c.LatencyMs = s.d.Now().Sub(t0).Milliseconds()
 	if out == "" {
 		out = WrapUntrusted(name, "", mustJSON(map[string]any{"error": c.Error, "status": c.Status}))
 	}
+	out = Default().Redact.Redact(out)
 	c.ResultChars = len([]rune(out))
 	s.Calls = append(s.Calls, c)
 	if s.d.OnCall != nil {
@@ -354,17 +346,14 @@ When you use information from tool results, cite it inline with its number like 
 // FinalNotice is appended (gateway text) when the round cap is reached.
 const FinalNotice = `The tool budget for this answer is used up. Answer now using only the information gathered so far, citing sources as [n].`
 
-// ToolDefs returns the OpenAI tools array.
+// ToolDefs returns the OpenAI tools array for the exposed tools, built from
+// the embedded manifests (byte-identical to the pre-registry definitions).
 func ToolDefs() []any {
 	var v []any
-	json.Unmarshal([]byte(toolJSON), &v)
+	p := Default()
+	json.Unmarshal([]byte(p.Reg.defsJSON(p.Exposed())), &v)
 	return v
 }
-
-const toolJSON = `[
-{"type":"function","function":{"name":"web_search","description":"Search the web for current information. Returns numbered results (title, url, snippet). Call web_fetch on a result URL to read the page.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"search query","maxLength":256},"lang":{"type":"string","enum":["auto","ko","en"]},"time_range":{"type":"string","enum":["","day","week","month","year"]},"max_results":{"type":"integer","minimum":1,"maximum":8}},"required":["query"]}}},
-{"type":"function","function":{"name":"web_fetch","description":"Read the main text of a web page. Only URLs returned by web_search in this answer, or URLs the user wrote, are allowed.","parameters":{"type":"object","properties":{"url":{"type":"string","maxLength":2048},"max_chars":{"type":"integer","minimum":500,"maximum":12000}},"required":["url"]}}}
-]`
 
 // finalIfMoved returns final only when a redirect changed the URL.
 func finalIfMoved(u, final string) string {

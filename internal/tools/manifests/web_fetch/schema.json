@@ -1,0 +1,1 @@
+{"type":"object","properties":{"url":{"type":"string","maxLength":2048},"max_chars":{"type":"integer","minimum":500,"maximum":12000}},"required":["url"]}

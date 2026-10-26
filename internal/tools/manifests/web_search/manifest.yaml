@@ -1,0 +1,11 @@
+name: web_search
+version: 1.0.0
+description: "Search the web for current information. Returns numbered results (title, url, snippet). Call web_fetch on a result URL to read the page."
+scopes: [web.read]
+side_effect: read
+taint_output: true
+egress: [search_engine]
+secrets: []
+timeout: 8s
+max_result_chars: 6000
+exposure: {modes: [auto, force], max_per_turn: 3}

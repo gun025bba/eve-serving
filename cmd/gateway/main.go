@@ -25,6 +25,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/queue"
 	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/gun025bba/eve-serving/internal/store/postgres"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 var version = "dev"
@@ -127,6 +128,23 @@ func main() {
 		}
 		srv.Web = wt
 		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "default_mode", cfg.Web.DefaultMode)
+	}
+	reg := tools.Default() // embedded manifests; invalid manifests abort startup
+	log.Info("tool_registry_loaded", "tools", strings.Join(reg.Reg.Names(), ","))
+	if cfg.ToolsKillswitchFile != "" {
+		ks := tools.NewKillswitch(config.Expand(cfg.ToolsKillswitchFile), os.Getuid())
+		ks.OnLoad = func(res string, disabled []string, allOff bool) {
+			log.Info("tools_killswitch", "result", res, "all_off", allOff, "disabled", strings.Join(disabled, ","))
+		}
+		ks.Reload()
+		tools.SetKillswitch(ks)
+		hup := make(chan os.Signal, 1)
+		signal.Notify(hup, syscall.SIGHUP)
+		go func() {
+			for range hup {
+				ks.Reload()
+			}
+		}()
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
