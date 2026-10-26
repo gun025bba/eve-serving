@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" font-family="Helvetica, Arial, sans-serif"><rect width="920" height="420" fill="#fff"/><defs><marker id="m" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1e1e1e"/></marker></defs>
+<rect x="40" y="60" width="240" height="110" rx="12" fill="#e7f5ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="160" y="110" text-anchor="middle" font-size="15">사용자 (web UI)</text>
+<text x="160" y="130" text-anchor="middle" font-size="15">보기·수정·삭제</text>
+<rect x="340" y="60" width="240" height="110" rx="12" fill="#e7f5ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="460" y="100" text-anchor="middle" font-size="15">gateway</text>
+<text x="460" y="120" text-anchor="middle" font-size="15">memory 모듈</text>
+<text x="460" y="140" text-anchor="middle" font-size="15">(필터·락·주입)</text>
+<rect x="640" y="60" width="240" height="110" rx="12" fill="#e7f5ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="760" y="100" text-anchor="middle" font-size="15">memory 파일</text>
+<text x="760" y="120" text-anchor="middle" font-size="15">{data}/memory/&lt;user_id&gt;.json</text>
+<text x="760" y="140" text-anchor="middle" font-size="15">0600</text>
+<rect x="340" y="260" width="240" height="110" rx="12" fill="#e7f5ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="460" y="320" text-anchor="middle" font-size="15">model serving</text>
+<rect x="640" y="260" width="240" height="110" rx="12" fill="#e7f5ff" stroke="#1e1e1e" stroke-width="2"/>
+<text x="760" y="310" text-anchor="middle" font-size="15">PostgreSQL</text>
+<text x="760" y="330" text-anchor="middle" font-size="15">tool_audit · messages</text>
+<line x1="280" y1="115.0" x2="340" y2="115.0" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
+<text x="310.0" y="105.0" text-anchor="middle" font-size="13" fill="#495057">API (CSRF/Origin)</text>
+<line x1="580" y1="115.0" x2="640" y2="115.0" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
+<text x="610.0" y="105.0" text-anchor="middle" font-size="13" fill="#495057">원자적 쓰기</text>
+<line x1="460.0" y1="170" x2="460.0" y2="260" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
+<text x="460.0" y="205.0" text-anchor="middle" font-size="13" fill="#495057">프롬프트 주입 ≤1.5k tok</text>
+<line x1="580" y1="170" x2="640" y2="260" stroke="#1e1e1e" stroke-width="2" marker-end="url(#m)"/>
+<text x="610.0" y="205.0" text-anchor="middle" font-size="13" fill="#495057">감사 기록</text>
+<text x="40" y="400" font-size="12" fill="#868e96">박스 5개: 새 컴포넌트는 memory 파일 하나뿐 (memory 모듈은 gateway 내부 패키지)</text></svg>
