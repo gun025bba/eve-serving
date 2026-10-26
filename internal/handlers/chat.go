@@ -16,6 +16,7 @@ import (
 	"github.com/gun025bba/llm-serving/internal/auth"
 	"github.com/gun025bba/llm-serving/internal/metrics"
 	"github.com/gun025bba/llm-serving/internal/proxy"
+	"github.com/gun025bba/llm-serving/internal/tools"
 )
 
 const maxBody = 8 << 20
@@ -136,9 +137,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	webMode, webExplicit, err := s.takeWebMode(body)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	pr, err := s.beginPersist(r, body)
 	if err != nil {
 		s.fail(w, r, err)
+		return
+	}
+	if mode := s.resolveWebMode(r.Context(), webMode, webExplicit, pr); mode == tools.ModeAuto || mode == tools.ModeForce {
+		s.webChat(w, r, body, mode, pr)
 		return
 	}
 	if pr != nil {
