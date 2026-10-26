@@ -400,3 +400,33 @@ func TestPostgresActions_ReviseOrderAndExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPostgresActions_JobOwnership(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const a, b = "alice@example", "bob@example"
+	mkJob(t, s, b, "JB")
+	mkJob(t, s, a, "JA")
+	mk := func(job string) (store.Action, error) {
+		return s.CreateAction(ctx, a, store.Action{ServerFields: store.ServerFields{Tool: "x", Provenance: store.Provenance{Actor: "scheduler", JobID: ptr(job)}},
+			Payload: json.RawMessage(`{}`), ModelFields: store.ModelFields{PayloadView: json.RawMessage(`{}`)}})
+	}
+	if _, err := mk("JB"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal("foreign job accepted", err)
+	}
+	var n int
+	s.pool.QueryRow(ctx, `SELECT count(*) FROM pending_actions`).Scan(&n)
+	if n != 0 {
+		t.Fatal(n)
+	}
+	if _, err := mk("nope"); !errors.Is(err, store.ErrInvalid) {
+		t.Fatal(err)
+	}
+	if _, err := mk("JA"); err != nil {
+		t.Fatal(err)
+	}
+	s.pool.Exec(ctx, `UPDATE scheduled_jobs SET enabled=false, deleted_at=now() WHERE id='JA'`)
+	if _, err := mk("JA"); err != nil {
+		t.Fatal("soft-deleted own job", err)
+	}
+}

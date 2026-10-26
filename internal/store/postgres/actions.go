@@ -57,13 +57,20 @@ func (s *Store) CreateAction(ctx context.Context, user string, a store.Action) (
 	if a.Scopes == nil {
 		a.Scopes = []string{}
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO pending_actions (id, root_id, user_id, thread_id, message_id, tool, tool_version, scopes, summary, payload, payload_view,
+	// The FK alone would accept another user's job: insert only when job_id is
+	// NULL or owned by the same user (job owners never change; soft-deleted
+	// jobs stay valid references).
+	tag, err := s.pool.Exec(ctx, `INSERT INTO pending_actions (id, root_id, user_id, thread_id, message_id, tool, tool_version, scopes, summary, payload, payload_view,
 		payload_hash, actor, job_id, job_name, tainted, expires_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+		SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+		WHERE $14::text IS NULL OR EXISTS (SELECT 1 FROM scheduled_jobs WHERE id=$14::text AND user_id=$3)`,
 		a.ID, a.RootID, u, a.ThreadID, a.MessageID, a.Tool, a.ToolVersion, a.Scopes, a.Summary, []byte(a.Payload), []byte(a.PayloadView),
 		a.PayloadHash, a.Provenance.Actor, a.Provenance.JobID, a.Provenance.JobName, a.Tainted, a.ExpiresAt, a.CreatedAt)
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23503" && pe.ConstraintName == "pending_actions_job_id_fkey" {
+		return a, store.ErrInvalid
+	}
+	if err == nil && tag.RowsAffected() != 1 {
 		return a, store.ErrInvalid
 	}
 	return a, err
