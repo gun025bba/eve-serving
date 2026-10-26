@@ -52,11 +52,13 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 - 작은 모델용 규칙: 인자 ≤4개, 중첩 객체 금지, 자유 문자열 대신 enum 우선, 날짜는 `YYYY-MM-DD` 문자열.
 
 ### 1.3 enable/disable와 킬스위치
-- **disable(끄는 방향)은 재배포 없이 즉시**: `GW_TOOLS_DISABLED=web_fetch,mail_send`, `GW_TOOLS_ALL_OFF=true` 또는 `/etc`의 600 파일을 SIGHUP으로 재로드. 끄는 것은 위험을 줄이는 방향이라 승인 없이 가능(사후 보고).
+- **disable(끄는 방향)은 재배포 없이 즉시**: **킬스위치는 0600 파일 하나**(`tools-killswitch.yaml`: `all_off: bool`, `disabled: [<tool>…]`)뿐이며 SIGHUP으로 재로드합니다(이전 안의 `GW_TOOLS_DISABLED`·`GW_TOOLS_ALL_OFF` env는 폐기). 같은 파일에 선톡 전역 끄기 `proactive_off: true`도 둘 수 있습니다(PR #4, 끄기 전용). 파일이 없으면 아무것도 끄지 않고, 파일이 있는데 권한이 0600이 아니거나 파싱에 실패하면 **전부 끈 상태**로 둡니다(fail-closed). 알 수 없는 키가 있으면 거부합니다. 끄는 것은 위험을 줄이는 방향이라 승인 없이 가능(사후 보고).
 - **enable(켜는 방향)은 메이저 배포**: 처음 켜기, 다시 켜기 모두 코드/선언 변경으로만. 설정 파일로는 "끄기 목록"만 표현 가능하게 해서 설정으로 권한이 넓어지는 경로를 없앤다.
 - 정책 로드 실패 시 **전부 꺼진 상태로** 기동(fail-closed).
 
-### 1.4 MCP 호환
+### 1.4 MCP 호환 — **청사진만 (M1~M4 범위 밖)**
+> M1~M4에서는 MCP를 구현하지 않습니다. 아래는 나중에 도입할 때 지켜야 할 조건이며, 도입 자체는 MAJOR(§9 '이후')입니다.
+
 | 질문 | 답 |
 |---|---|
 | 툴을 MCP 서버로 만들 수 있나 | 가능. 하지만 1차는 **in-process builtin**. MCP 서버는 같은 매니페스트를 갖춘 `kind: mcp_stdio`로만 허용 |
@@ -140,6 +142,10 @@ CREATE TABLE pending_actions (
 
 ## 4. 실행 엔진
 
+![실행 파이프라인 4단계](diagrams/tool-platform-pipeline.svg)
+
+원본: [`diagrams/tool-platform-pipeline.excalidraw`](diagrams/tool-platform-pipeline.excalidraw). 모든 단계는 유지하고, 그림에서만 4단계(사전검사 → 게이트 → 실행 → 사후)로 묶었습니다.
+
 ```go
 type Adapter interface {
     Name() string
@@ -155,7 +161,7 @@ type Output struct {
 - **타임아웃**: 매니페스트 `timeout`(기본 8s, 상한 30s), 요청 전체 데드라인 별도.
 - **재시도**: read 툴만, 네트워크/5xx/timeout에 한해 1회(지수 백오프 250ms). write는 재시도 없음. 예외는 외부 API가 멱등 키를 지원할 때 **같은 `idempotency_key`로만**(§3.2), 키 미지원이면 예외 없음.
 - **동시성**: 현재처럼 한 턴 내 순차가 기본. read 툴끼리는 최대 3 병렬 허용 옵션(결과 순서는 호출 순서 유지). write는 항상 단독.
-- **에러 분류** status: `ok | error | blocked | timeout | denied | pending_confirmation | mock_miss`. 모델에게는 짧은 코드만(`{"status":"denied","error":"scope_not_granted"}`), 상세는 감사 로그에.
+- **에러 분류** status: `ok | error | blocked | timeout | denied | pending_confirmation` (운영 enum). `mock_miss`는 운영 status에서 제외하고, `GW_TOOL_MOCK_DIR` 모드 안의 내부 에러(`error`, `error_code=mock_miss`, 테스트 전용 지표)로 처리합니다. 모델에게는 짧은 코드만(`{"status":"denied","error":"scope_not_granted"}`), 상세는 감사 로그에.
 - **결과 형식(모델 입력)**: 현재 `WrapUntrusted` 유지 + 일반화.
   ```
   <untrusted_tool_output tool="calendar_list_events" call="call_1_0" tainted="true">
@@ -186,7 +192,7 @@ ALTER TABLE tool_calls
   ADD COLUMN retries       SMALLINT NOT NULL DEFAULT 0;
 ALTER TABLE tool_calls DROP CONSTRAINT tool_calls_status_check,
   ADD CONSTRAINT tool_calls_status_check CHECK (status IN
-  ('ok','error','blocked','timeout','denied','pending_confirmation','mock_miss'));
+  ('ok','error','blocked','timeout','denied','pending_confirmation'));  -- mock_miss는 운영 enum에서 제외
 
 CREATE TABLE tool_audit (
   seq          BIGSERIAL PRIMARY KEY,
@@ -262,11 +268,10 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 | M0 | 이 설계 문서 PR, 보안 리뷰 | 문서 | — |
 | M1 | 레지스트리/매니페스트 검증, 실행기 파이프라인(감사 기록은 현행처럼 실패해도 web 툴 실행), 킬스위치(끄기 전용), 리다크터, `GW_TOOL_MOCK_DIR`, 관측 지표, web 툴 이전(§8). **CHECK 제거·fail-closed 전환 제외** | 마이너 1.2.0 (툴 집합·동작 불변, §15.2) | 보고만 |
 | M2 | 감사 원장 `tool_audit`(해시 체인, 소유자 분리, 멤버십 검사, advisory lock, Down 미DROP), DB 역할/권한 생성, 00004 마이그레이션(additive, CHECK 유지), 일일 verify, 이상 탐지 알림 | 마이너 1.3.0 | **배포 전 보안 리뷰 필수**(통과 후 보고) |
-| M3 | 스코프 정책 + 대화 단위 taint 엔진 + 유출 차단 + 인젝션 회귀 세트 CI + `tool_calls` CHECK 제거 + 감사 실패 fail-closed 전환 | **메이저 2.0.0** (보안 경계 도입·변경) | 건영님 승인 |
+| M3 | 스코프 정책 + 대화 단위 taint 엔진 + 유출 차단 + 인젝션 회귀 세트 CI + `tool_calls` CHECK 제거 + 감사 실패 fail-closed 전환 + **웹 도메인 허용/차단 정책(§13), IP 리터럴 정규화, 기본 차단 카테고리, block_reason 버그 정리**(구 M3.5 통합) | **메이저 2.0.0** (보안 경계 도입·변경) | 건영님 승인 |
 | M4 | 확인 게이트(pending_actions, approve/reject API, SSE 카드) — 아직 write 툴 없음, 테스트 툴로만 | **메이저 3.0.0** (API 표면·보안 경계 변경) | 건영님 승인 |
 | M5+ | 첫 신규 툴 등록(종류는 건영님 결정) | **메이저** | 건영님 승인 |
 | 이후 | 툴 추가·제거·버전 변경·스코프 확대·enable·MCP 서버 도입 | **항상 메이저** | 매번 승인 |
-| M3.5 | 웹 도메인 허용/차단 정책(§13), IP 리터럴 정규화, 기본 차단 카테고리, block_reason 버그 정리 | **메이저** (확정) | 건영님 승인 |
 | 수시 | malware 스냅샷 갱신(§13, 서명 검증+보안 리뷰 통과, 항목 삭제 포함) | 패치 | 보안 리뷰 후 보고 |
 | 수시 | 킬스위치로 끄기 | 운영 조치 | 사후 보고 |
 
@@ -410,7 +415,7 @@ SSE(기존 이벤트 유지 + 추가):
 - **감사**: 모든 차단은 `tool_audit` 이벤트 `domain_blocked`(호스트 해시, 규칙 ID, hop 번호) + `eve_tool_denied_total{tool,reason="domain_denied"}`.
 - **테스트**: 정규화 표(대문자, 한글 IDN, 끝 점, IDN 변환 실패 거부, 레이블 경계 `evil-x` vs `*.x`), IP 표기 변형 표(위 전 형식 × 루프백/사설/링크로컬/매핑), 카테고리별 대표 호스트, `*.x` 경계, deny 우선, 리다이렉트로 차단 도메인 진입, 로드 실패 fail-closed, 모델 입력에 도메인 목록 부재.
 - **공수**: 약 1~1.5일.
-- **분류(확정)**: 정책 도입(M3.5) 자체 **메이저**. **차단 해제(deny 항목·카테고리 삭제), 허용 확대(allow 추가), 모드 전환(denylist ↔ allowlist_only 양방향)은 모두 메이저**. deny 항목 추가(좁히는 방향)만 보안 리뷰 후 패치 후보(열린 결정 9). 예외: malware 스냅샷 갱신은 서명 검증+보안 리뷰 통과 시 패치(항목 삭제 포함).
+- **분류(확정)**: 정책 도입(M3, 구 M3.5 통합) 자체 **메이저**. **차단 해제(deny 항목·카테고리 삭제), 허용 확대(allow 추가), 모드 전환(denylist ↔ allowlist_only 양방향)은 모두 메이저**. deny 항목 추가(좁히는 방향)만 보안 리뷰 후 패치 후보(열린 결정 9). 예외: malware 스냅샷 갱신은 서명 검증+보안 리뷰 통과 시 패치(항목 삭제 포함).
 
 ## 14. 건영님께 열린 결정
 1. M1 분할안(CHECK 제거·fail-closed 전환을 M3로 이동, M1은 마이너 1.2.0) 승인 여부(§15.2).
@@ -424,6 +429,7 @@ SSE(기존 이벤트 유지 + 추가):
 9. 웹 도메인 정책: 도입·해제·허용 확대·모드 전환은 메이저로 확정. 남은 결정은 deny 항목 **추가**만 패치로 허용할지, allowlist_only 모드를 쓸지, 공개 IP 리터럴 기본 차단 유지 여부. **보안 의견: 공개 IP 리터럴 기본 차단 유지, deny 항목 추가는 패치 허용.**
 11. taint 리셋 조건 — **보안 권장: 새 스레드만**. 삭제 경로를 유지하면 파생 assistant 메시지·요약까지 삭제 필수.
 10. 차단 도메인 목록을 UI 설정 화면에서 보여줄지.
+12. **read 전용·내부 엔드포인트 툴 추가의 향후 완화 기준** — 현재 규칙(툴 추가 = 항상 MAJOR, 건영님 승인)은 **바꾸지 않습니다**. 다만 툴이 늘어날 때를 대비해, 예를 들어 '스코프가 `*.read`뿐이고 egress가 등록된 내부 엔드포인트뿐이며 시크릿이 없는 툴'은 간소화된 승인(보안 리뷰 + 사후 보고)으로 할지를 건영님이 정합니다. 정하기 전에는 현행 규칙을 유지합니다.
 
 ## 15. 보안 리뷰 반영표 (리뷰 5650918885, head 85fb252)
 
@@ -484,6 +490,17 @@ SSE(기존 이벤트 유지 + 추가):
 | P2 | 토큰 없는 제안 승인 경로 | `token_sha256 IS NOT NULL` 필수, 토큰 누락·빈 값 400, `TestApprove_RejectsTokenlessProposal` | §3.2 |
 | 권장 | 테스트 이름 PR #4와 통일 | `TestSchedulerProposal_NoTokenUntilUserOpens`, `TestProposal_ExpiresAfterTTL` 등 | §3.2 |
 | 권장 | DNS 해석 주소 거부 목록 보강 | IPv4-mapped IPv6, unspecified, 멀티캐스트 추가 | §13 |
+
+### 15.1g 설계 원칙(단순성) 반영
+| 변경 | 내용 | 위치 |
+|---|---|---|
+| 킬스위치 통합 | env 2개 + 파일 → 0600 파일 하나(`all_off`, `disabled: []`) + SIGHUP | §1.3 |
+| 마일스톤 통합 | M3 + M3.5 → M3 (메이저 2.0.0) | §9, §13 |
+| status 축소 | `mock_miss`를 운영 enum에서 제외(테스트 mock 모드 내부 에러) | §4, §5 |
+| MCP | 청사진만, M1~M4 범위 밖 | §1.4 |
+| 다이어그램 | 파이프라인을 4단계로 묶음(단계는 전부 유지) | §4 |
+| 열린 결정 | read 전용 내부 툴 완화 기준(규칙은 그대로) | §14-12 |
+| PR #4 정합 | 선톡 전역 끄기도 같은 킬스위치 파일의 `proactive_off: true`로 표현 가능(끄기 전용) | §1.3, PR #4 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
