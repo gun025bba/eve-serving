@@ -133,8 +133,9 @@ ALTER TABLE messages
 CREATE UNIQUE INDEX messages_proactive_dedupe ON messages (job_id, dedupe_key) WHERE origin = 'proactive';
 
 ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
--- settings.proactive = {enabled:false, quiet_start:"22:00", quiet_end:"08:00", daily_cap:3, memory_read:false}
--- 서버 스키마 검증: 알 수 없는 키 거부, 타입·범위 검증(daily_cap 0..10, 시각 HH:MM), 서버 상한(하루 10건)은 코드 상수 [S4-4]
+-- settings.proactive = {enabled:false, quiet_hours:{start:"22:00", end:"08:00"}, memory_read:false}
+-- 키·타입·기본값의 단일 기준은 ui-api-contract.md §2. 서버 스키마 검증: 알 수 없는 키 거부, 타입·범위 검증(HH:MM, Asia/Seoul) [S4-4]
+-- daily_cap은 P1에 없음: 서버 고정 하루 3건(코드 상수). 키는 예약(나중에 1–3, 낮추기만)
 ```
 
 - **테이블 목록 (단순화 후):** 신규 테이블은 **2개**(`scheduled_jobs`, `push_subscriptions`)입니다. 나머지는 `messages` 컬럼 추가와 `users.settings` JSONB로 처리합니다.
@@ -164,7 +165,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 ## 4. 스팸 방지
 - **기본 off.** 사용자가 명시적으로 켜야 동작합니다 (`users.settings.proactive.enabled`).
 - **Quiet hours** (Asia/Seoul, 기본 22:00–08:00): 이 시간에는 push를 보내지 않고(`push_status='suppressed'`) in-app에만 남긴 뒤, 종료 시각에 1건으로 요약합니다. iOS Focus 모드와도 연동됩니다 [webkit-ios].
-- **Rate cap**: 사용자별 하루 push 3건(설정 가능), job별 하루 1건, 시간당 최대 1건. **cap 계산은 `messages`(origin='proactive', push_status IN ('pending','sent'))를 기준으로(발송 중도 셈 [S4-2]), 메시지 insert와 같은 트랜잭션**(사용자 행 잠금) 안에서 수행해 경쟁 조건으로 넘지 않게 합니다. [Med] cap을 넘으면 `last_status=skipped_cap`으로 두고 `tool_audit`에 기록하며, in-app에만 남깁니다.
+- **Rate cap**: 사용자별 하루 push 3건(P1은 서버 고정, 설정 키는 예약 — [ui-api-contract.md](ui-api-contract.md) §2), job별 하루 1건, 시간당 최대 1건. **cap 계산은 `messages`(origin='proactive', push_status IN ('pending','sent'))를 기준으로(발송 중도 셈 [S4-2]), 메시지 insert와 같은 트랜잭션**(사용자 행 잠금) 안에서 수행해 경쟁 조건으로 넘지 않게 합니다. [Med] cap을 넘으면 `last_status=skipped_cap`으로 두고 `tool_audit`에 기록하며, in-app에만 남깁니다.
 - **Dedupe**: job 쪽 키 `UNIQUE(job_id, dedupe_key)`로 막습니다. `send_if_changed` job은 `last_result_hash`가 같으면 메시지를 만들지 않습니다.
 - **Off 스위치**: job별(`scheduled_jobs.enabled`), 사용자 전체(`users.settings.proactive.enabled`), 운영 전역(`GW_PROACTIVE_ENABLED` 기본 false, 또는 PR #2 킬스위치 파일의 `proactive_off`, 끄기만 가능)이 있습니다. 어느 하나라도 off면 off입니다(끄기 우선).
 - 모델 출력이 비거나 "보낼 내용 없음"이면 보내지 않습니다.
@@ -278,7 +279,7 @@ ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 | 확인 토큰 120~300s | PR #2와 같음. 카드를 연 뒤 판단할 시간 | 사용 데이터를 보고 범위 안에서 조정, 범위 확대는 보안 리뷰 |
 | 제안 수명 ≤ 24h | 하루 지난 제안은 맥락 상실 | 연장 불가(보안 경계). 단축은 패치 |
 | 폴링 30~60s | 분 단위 정확도면 충분, DB 부하 최소 | 정확도 요구가 생기면 `LISTEN/NOTIFY`로 전환 (MINOR) |
-| cap 3/일·job 1/일·1/시간, quiet 22–08 | 보수적 기본값 | `users.settings`로 사용자가 조정, 서버 상한(예: 하루 10)은 코드 상수 |
+| cap 3/일·job 1/일·1/시간, quiet 22–08 | 보수적 기본값 | quiet hours만 `users.settings`로 조정(ui-api-contract.md §2). cap은 P1 서버 고정 3, 나중에 1–3 낮추기만(예약 키) |
 | 구독 보존 90일 무응답 → 30일 뒤 삭제 | 기존 `retention_days: 90`과 정렬 | 설정값으로 이동 가능 (MINOR) |
 | `gateway-ts` 레거시 리스너 | 이전 노출 방식의 잔재 | **제거 계획**: (1) `tailscale serve` 단일 경로 운영 확인 → (2) `gateway-ts` plist bootout + 삭제, README 롤백 절차 정리 → (3) advisory lock은 안전장치로 유지. 노출 경계 축소라 보안 리뷰 후 진행. 선톡 구현 전 완료 권장 |
 | Asia/Seoul | 사용자 위치 | job `tz` 컬럼으로 이미 일반화 |
