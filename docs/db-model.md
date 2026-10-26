@@ -1,6 +1,6 @@
 # 대화 저장소 DB 모델 (PostgreSQL)
 
-> 상태: **검토용 초안**. 스키마는 `internal/store/postgres/migrations/00001_init.sql`(구현 진행 중)과 일치하도록 작성했습니다. 아직 구현되지 않은 부분은 "(계획)"으로 표시합니다.
+> 상태: **검토용 초안**. 스키마는 `internal/store/postgres/migrations/00001_init.sql`(구현 완료, API: [threads-api.md](threads-api.md))과 일치하도록 작성했습니다. 아직 구현되지 않은 부분은 "(계획)"으로 표시합니다.
 
 ## 1. 개요
 

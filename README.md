@@ -30,6 +30,15 @@ Auth: `Authorization: Bearer <key>` (key in `~/llm-serving/.api_key`). Every res
 | GET | /stats | no | JSON summary of last `stats_window` requests (p50/p95 latency, queue wait, TTFT, avg tok/s, error rate, memory) |
 | GET | /admin/config | yes | effective config (no secrets) |
 | POST | /admin/log-level | yes | `{"level":"DEBUG|INFO|WARNING|ERROR"}` runtime change |
+| GET/POST | /v1/threads | yes | list (keyset cursor) / create threads |
+| GET/PATCH/DELETE | /v1/threads/{id} | yes | get / rename+archive / archive |
+| GET | /v1/threads/{id}/messages | yes | messages, `before=<id>` pagination |
+| POST | /v1/threads/import | yes | idempotent bulk import (client_id) |
+| PUT/DELETE | /v1/messages/{id}/feedback | yes | 👍/👎 + comment |
+| GET | /v1/search | yes | title + content search (FTS + pg_trgm), `<mark>` snippets |
+
+Conversation storage: `thread_id` / `replace_message_id` on `/v1/chat/completions` and the endpoints above are
+specified in **[docs/threads-api.md](docs/threads-api.md)** (schema: [docs/db-model.md](docs/db-model.md)).
 
 Reserved for frontend: `/` (unused) and `/ui` (static files from `static_dir`, default `~/llm-serving/web`, mounted only if it exists).
 CORS: off by default; set `cors_origins: ["http://localhost:5173"]` to allow a browser app (Authorization header allowed, X-Request-ID exposed).
@@ -157,7 +166,11 @@ internal/queue           semaphore (max_conc) + bounded queue (max_queue, queue_
 internal/proxy           upstream client: connect timeout, dial-only retries w/ backoff, idle read timeout
 internal/metrics         Prometheus metrics (same llm_* names), /stats window, memory sampling
 internal/logging         JSON-lines logger with runtime level
-internal/handlers        routes, SSE passthrough, /ui static, CORS, /docs + embedded openapi.json
+internal/handlers        routes, SSE passthrough, /ui static, CORS, /docs + embedded openapi.json,
+                         threads.go (threads API), persist.go (chat -> thread persistence)
+internal/store           persistence interfaces (Thread/Message/Feedback/SearchStore), snippets
+internal/store/postgres  pgx/pgxpool implementation + embedded goose migrations (migrations/*.sql)
+internal/store/memstore  in-memory implementation for handler tests
 deploy/launchd-go        launchd template for the Go binary; deploy/install-launchd-go.sh renders it
 ```
 Build / test (Go ≥ 1.26):
@@ -179,6 +192,45 @@ curl -s localhost:8000/health
 ```
 Rollback: `for l in gateway gateway-ts; do mv ~/Library/LaunchAgents/com.llmserving.$l.plist.py-bak ~/Library/LaunchAgents/com.llmserving.$l.plist; done`, then the same bootout/bootstrap pair.
 Updating after cutover: `git pull --ff-only && make build && launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (and `-ts`).
+
+## Conversation storage (PostgreSQL)
+- PostgreSQL 18 + pgvector via Homebrew, managed by `brew services` (launchd), **loopback only**
+  (`listen_addresses='localhost'`), peer auth on the unix socket, scram-sha-256 on 127.0.0.1/::1.
+- One-time setup (idempotent): `brew install postgresql@18 pgvector && deploy/pg-setup.sh`
+  → role `llmchat` (random password), DBs `llmchat` + `llmchat_test`, extensions `pg_trgm` + `vector`,
+  and `~/llm-serving/.db_env` (chmod 600, gitignored) with `GW_DATABASE_URL` / `GW_TEST_DATABASE_URL`.
+  The password only lives in `.db_env` and the rendered (chmod 600) gateway plist; never commit or print it.
+- The gateway reads `GW_DATABASE_URL` (or `database.url`); empty = persistence disabled (thread endpoints → 503
+  `persistence_disabled`, chat unaffected). Migrations (goose, embedded) run at startup unless
+  `GW_DB_AUTO_MIGRATE=false`; manually: `make migrate` (`bin/gateway -migrate`).
+- Adding a migration: new `internal/store/postgres/migrations/000NN_name.sql` with `-- +goose Up/Down`.
+  Moving to another DB = new package implementing `store.Store`; handlers only see the interfaces.
+- Tests: `make test-race` (unit, in-memory store) and `make test-integration` (real Postgres, TRUNCATEs `llmchat_test`).
+
+### Backups
+- `deploy/pg-backup.sh`: `pg_dump -Fc` of `llmchat` → `~/llm-serving/backups/llmchat-YYYYmmdd-HHMMSS.dump`
+  (chmod 600, gitignored), deletes dumps older than 14 days (`RETENTION_DAYS`). Uses peer auth (no password).
+- Schedule: `deploy/install-pgbackup.sh` installs/reloads LaunchAgent `com.llmserving.pgbackup` (daily 04:00,
+  log `pgbackup.launchd.log`). Run now: `launchctl kickstart gui/$(id -u)/com.llmserving.pgbackup`.
+- Restore (PATH needs `/opt/homebrew/opt/postgresql@18/bin`):
+  ```bash
+  launchctl bootout gui/$(id -u)/com.llmserving.gateway          # stop writers
+  pg_restore --clean --if-exists --no-owner --role=llmchat -d llmchat ~/llm-serving/backups/llmchat-<ts>.dump
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway.plist
+  ```
+  To inspect first: `createdb llmchat_restore && pg_restore --no-owner -d llmchat_restore <dump>` (then `dropdb`).
+  Off-host copies: copy `backups/` elsewhere (e.g. external disk); dumps contain all conversations.
+
+### Enabling persistence on the live gateway
+```bash
+cd ~/llm-serving && git pull --ff-only && make build
+ALLOWED_USERS=<login> deploy/install-launchd-go.sh   # adds GW_DATABASE_URL from .db_env; previous plist -> *.plist.prev
+launchctl bootout gui/$(id -u)/com.llmserving.gateway; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway.plist
+curl -s localhost:8000/health
+```
+Rollback: restore `~/Library/LaunchAgents/com.llmserving.gateway.plist.prev` (no DB env) and bootout/bootstrap; or
+keep the plist and `git checkout <prev-commit> && make build && launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway`.
+The database is untouched by either rollback.
 
 ## Test
 `.venv/bin/python examples/client.py [--base http://<tailscale-ip>:8000]` or `examples/curl.sh [base]`.
