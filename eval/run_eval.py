@@ -285,6 +285,19 @@ def grade(item: dict, text: str) -> dict:
     return {"pass": passed, "score": 1.0 if passed else 0.0, "details": details}
 
 
+GATEWAY_PORTS = {8000}  # operational gateway; evals must never call it (no override)
+
+
+def refuse_gateway(url: str) -> None:
+    from urllib.parse import urlparse
+    try:
+        port = urlparse(url).port
+    except ValueError:
+        port = None
+    if port in GATEWAY_PORTS:
+        raise SystemExit(f"refusing to run: {url} is the operational gateway port; use the model server (:8080)")
+
+
 def render_template(text: str, prompt_file: str, web_state: str, prompt_date: str = "") -> str:
     """Fill {{DATE}} (KST, gateway format) and {{WEB}} (web section file) like the gateway."""
     if prompt_date:
@@ -505,6 +518,7 @@ def main():
     args = ap.parse_args()
     if not args.base_url:
         raise SystemExit("EVAL_BASE_URL or --base-url is required (do not hardcode hostnames)")
+    refuse_gateway(args.base_url)
     args.system_prompt = None
     if args.system_prompt_file:
         sp = Path(args.system_prompt_file)
