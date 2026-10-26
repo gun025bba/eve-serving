@@ -17,6 +17,7 @@ type Config struct {
 	Model           string         `yaml:"model" json:"model"`
 	Defaults        map[string]any `yaml:"defaults" json:"defaults"`
 	MaxConc         int            `yaml:"max_conc" json:"max_conc"`
+	MaxTokensCap    int            `yaml:"max_tokens_cap" json:"max_tokens_cap"`
 	MaxQueue        int            `yaml:"max_queue" json:"max_queue"`
 	QueueTimeoutS   float64        `yaml:"queue_timeout_s" json:"queue_timeout_s"`
 	ConnectTimeoutS float64        `yaml:"connect_timeout_s" json:"connect_timeout_s"`
@@ -52,8 +53,8 @@ type AuthConfig struct {
 func Default() Config {
 	return Config{
 		Upstream: "http://127.0.0.1:8080", Model: "mlx-community/Qwen3-30B-A3B-4bit",
-		Defaults: map[string]any{"max_tokens": 1024, "temperature": 0.7, "top_p": 0.9},
-		MaxConc:  2, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
+		Defaults: map[string]any{"max_tokens": 8192, "temperature": 0.7, "top_p": 0.9},
+		MaxConc:  2, MaxTokensCap: 16384, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
 		Auth:     AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
@@ -94,7 +95,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		}
 	}
 	// Integers accept decimals ("3.0") like the Python gateway did.
-	ints := map[string]*int{"MAX_CONC": &c.MaxConc, "MAX_QUEUE": &c.MaxQueue, "RETRIES": &c.Retries, "STATS_WINDOW": &c.StatsWindow}
+	ints := map[string]*int{"MAX_CONC": &c.MaxConc, "MAX_TOKENS_CAP": &c.MaxTokensCap, "MAX_QUEUE": &c.MaxQueue, "RETRIES": &c.Retries, "STATS_WINDOW": &c.StatsWindow}
 	for k, p := range ints {
 		if v := getenv("GW_" + k); v != "" {
 			f, err := strconv.ParseFloat(v, 64)
