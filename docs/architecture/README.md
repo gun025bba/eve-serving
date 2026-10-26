@@ -21,6 +21,7 @@ Eve는 단일 host(서버)에서 로컬 LLM을 서빙하는 시스템입니다. 
 | 툴 플랫폼 | **설계** (PR #2 병합, 미구현) | [tool-platform.md](tool-platform.md) |
 | 선톡 (proactive messaging) | **설계** (PR #4·#8 병합, 미구현, MAJOR) | [proactive-messaging.md](proactive-messaging.md) |
 | 개인화 메모리 | **설계** (PR #5·#10 병합, 미구현, MAJOR) | [memory.md](memory.md) |
+| UI ↔ API 계약 (선톡·메모리) | **설계** (미구현, API는 MINOR 추가) | [ui-api-contract.md](ui-api-contract.md) |
 
 ## 툴 플랫폼 마일스톤 (PR #2 설계 기준, 모두 계획)
 
