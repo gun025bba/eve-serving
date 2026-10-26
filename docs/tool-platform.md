@@ -94,6 +94,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 - **1회 승인 = 1회 실행**: 승인 시 `idempotency_key`(ULID)를 `pending_actions`에 기록(UNIQUE). 실행기 재시도는 같은 키로만 하며, 외부 API가 멱등 키를 지원하지 않으면 **재시도 없음**. `executing`에 고착된 행(타임아웃+여유 초과)은 자동 재실행하지 않고 `failed(unknown_outcome)`로 전이 후 사용자에게 "실행 여부 불명, 확인 후 새 제안" 안내.
 - 모델 텍스트나 사용자의 "응/승인" 채팅 텍스트는 확인으로 **인정하지 않음**. 승인은 UI 버튼 → 별도 엔드포인트만.
 - 턴당 쓰기 제안 1회.
+- **scheduler 발 확인 카드(PR #4)**: `actor=scheduler`가 만든 `pending_actions`는 카드에 **출처(actor=scheduler, job_id, job 이름)**를 표시하고 만료를 **60초**로 단축(일반 120초, PR #4 §3 제안값과 일치, 열린 결정 6). 토큰은 사용자 세션의 POST로만 소비(scheduler·모델 경로 소비 불가), actor=scheduler에는 write/send 스코프 자동 실행 하드 거부.
 
 ```sql
 CREATE TABLE pending_actions (
@@ -107,6 +108,8 @@ CREATE TABLE pending_actions (
   payload_hash  TEXT NOT NULL,
   payload_view  JSONB NOT NULL,                  -- 확인 카드용 표시본(시크릿 없음, 실행 후 purge)
   token_sha256  TEXT NOT NULL,
+  actor         TEXT NOT NULL DEFAULT 'user' CHECK (actor IN ('user','scheduler')),
+  job_id        TEXT,                            -- actor=scheduler면 필수, 카드 출처 표시
   tainted_turn  BOOLEAN NOT NULL,                 -- 제안 시점의 스레드 taint 스냅샷(§7)
   idempotency_key TEXT UNIQUE,                   -- 승인 시 발급, 1회 실행 보장
   reissue_count SMALLINT NOT NULL DEFAULT 0,
@@ -182,6 +185,8 @@ CREATE TABLE tool_audit (
   at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_id      BIGINT NOT NULL,          -- FK 없음: 메시지/스레드 삭제와 무관하게 보존
   thread_id    TEXT, message_id TEXT, tool_call_id TEXT, pending_action_id TEXT,
+  actor        TEXT NOT NULL CHECK (actor IN ('user','scheduler','system')),  -- scheduler: 선톡 job 실행(PR #4)
+  job_id       TEXT,                     -- actor=scheduler일 때 필수
   event        TEXT NOT NULL,            -- call_started|call_done|denied|action_proposed|approved|rejected|executed|registry_loaded|killswitch
   tool TEXT, tool_version TEXT, scope TEXT,
   payload_sha256 TEXT, confirm_token_id TEXT, tainted BOOLEAN, status TEXT,
@@ -198,6 +203,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
 -- +goose Down
 -- pending_actions·추가 컬럼만 되돌림. tool_audit는 DROP하지 않음(Down에 문장 자체가 없음)
 ```
+- **감사 로그는 `tool_audit` 하나로 통일**: 툴 호출, 확인 게이트, 정책 차단, 선톡(PR #4)의 job 생성·변경·실행·발송까지 모두 여기에 `actor`(`user|scheduler|system`)와 `job_id`로 기록. 기능별 별도 감사 테이블은 만들지 않음(`job_runs` 등은 실행 상태용이며 감사 원장 아님).
 - **append-only 보장**
   - **소유자 분리**: `tool_audit` 소유자는 `eve_audit_owner`(NOLOGIN), 마이그레이션도 이 역할로만 실행(`SET ROLE`). 앱(`eve_app`)은 소유자가 아니므로 `ALTER`/`DROP`/권한 변경 불가, INSERT/SELECT만. 기동 시 `has_table_privilege`로 `eve_app`에 UPDATE/DELETE/TRUNCATE가 **없는지** 확인, 있으면 기동 거부.
   - **역할 멤버십 분리**: `eve_app`과 게이트웨이 로그인 계정은 `eve_audit_owner`의 **멤버가 아님**(GRANT 금지, `SET ROLE` 불가). 게이트웨이 기동 시 `pg_has_role('eve_app','eve_audit_owner','MEMBER')`(게이트웨이 로그인 계정도 동일)이 **false인지** 확인, true면 기동 거부. 마이그레이션은 앱 계정이 아닌 **별도 마이그레이션 전용 로그인 계정**으로만 실행(게이트웨이는 마이그레이션 자격증명을 갖지 않음).
@@ -227,6 +233,7 @@ GRANT USAGE ON SEQUENCE tool_audit_seq_seq TO eve_app;
     - **전파**: `Output.Tainted` 또는 `taint_output:true` 툴 결과가 들어오면 그 턴과 **이후 모든 턴**이 tainted. 이전 턴의 툴 결과나 그것을 요약한 assistant 메시지가 컨텍스트에 남아 있는 한 taint 유지. 첨부·붙여넣은 외부 텍스트도 tainted로 취급, 스레드 포크/복사 시 taint 상속.
     - **리셋(권장: 새 스레드만)**: 자동 해제 없음(시간 경과, 턴 수, 사용자 "괜찮아" 텍스트로는 해제 안 됨). 해제는 (a) 새 스레드 시작, (b) tainted 메시지를 컨텍스트에서 실제로 제거(삭제·잘라내기)해 남은 컨텍스트에 외부 데이터가 없음을 서버가 확인한 경우만. 삭제 경로를 유지할 경우 tainted 메시지뿐 아니라 **그 이후 tainted 콘텐츠에서 파생된 모든 assistant 메시지와 요약**까지 삭제돼야 해제. 해제는 감사 `taint_reset`. 보안 권장은 (b)를 빼고 새 스레드만(열린 결정 11).
     - 컨텍스트 압축/요약 결과도 원본이 tainted면 tainted.
+    - **followup·scheduler 상속(PR #4)**: 모델이 예약한 followup 스레드/실행은 **원 스레드(origin)의 taint를 상속**(원 스레드가 tainted면 followup도 시작부터 tainted, 원 스레드가 나중에 리셋돼도 이미 만든 followup은 유지). scheduler 실행은 사용자 부재 실행이므로 원 스레드와 무관하게 **시작부터 tainted**. tainted 실행 결과로 새 job·followup 생성 불가(연쇄 방지).
     - tainted 스레드에서는 write/send 자동 실행 불가 → 항상 확인 게이트, 카드에 "외부 콘텐츠를 읽은 뒤 제안된 작업" 경고. 수신자/대상이 사용자 메시지에 없고 툴 결과에서만 나온 경우 **차단**.
   - **유출 차단**: egress는 매니페스트 allowlist + 기존 SSRF Dialer(tailnet/사설 대역 차단). URL·쿼리 인자는 (a) 사용자 메시지나 직전 검색 결과에 있던 값만(현행 web_fetch allowlist 일반화), (b) 시크릿/ tainted 텍스트의 8자 이상 부분열을 포함하면 차단. UI는 외부 이미지 차단 + CSP.
   - 모델에게 다른 툴 호출을 지시하는 툴 결과는 무시하도록 프롬프트 + 서버 측 예산/taint 규칙으로 강제(프롬프트에만 의존하지 않음).
@@ -280,7 +287,8 @@ SSE(기존 이벤트 유지 + 추가):
 {"object":"chat.completion.tool_result","id":"call_1_0","tool":"web_search","status":"ok","sources":[...]}
 {"object":"chat.completion.confirmation","action_id":"01J...","tool":"calendar_create_event","tool_version":"1.0.0",
  "summary":"10/28 15:00 치과 일정 추가","payload_view":{...실제 실행 값},"payload_hash":"sha256:...",
- "confirm_token":"<1회용>","expires_at":"2026-10-26T11:02:00Z","tainted":true}
+ "confirm_token":"<1회용>","expires_at":"2026-10-26T11:02:00Z","tainted":true,
+ "provenance":{"actor":"user|scheduler","job_id":null}}
 {"object":"chat.completion.action_result","action_id":"01J...","status":"executed|failed|rejected|expired"}
 ```
 엔드포인트:
@@ -389,6 +397,7 @@ SSE(기존 이벤트 유지 + 추가):
   - 검색: 차단된 결과는 제거하고 툴 결과에 `blocked_count`만 포함. **차단 도메인 목록·이름은 모델에 보내지 않음**(우회 유도 방지).
   - fetch: `status:"blocked"`, `block_reason:"domain_denied"`(`webfetch` 상수 `ReasonDomainDenied` 추가). 현재 일부 경로에서 `block_reason`이 비어 기록되는 버그도 이 작업에서 모든 blocked 경로가 상수 reason을 갖도록 정리(빈 값이면 테스트 실패).
   - SSE `tool_result`에 `blocked_count` 추가 → UI는 '차단된 출처 n개' 칩 표시(도메인 목록은 UI에도 기본 비표시, 설정 화면에서만).
+- **egress 단일 계층**: 모든 외부 egress(web_search/web_fetch, 매니페스트 egress, MCP, 선톡 Web Push 발송 포함)는 게이트웨이의 **단일 적용 계층** `internal/policy/domains` + 그 아래 SSRF Dialer로만 나감. 툴·어댑터·SearXNG·스케줄러가 각자 정책을 갖지 않으며, 어댑터는 게이트웨이가 주입한 HTTP 클라이언트만 사용(직접 `net.Dial`/기본 클라이언트 금지, 린트로 검사). push 호스트 allowlist(PR #4 §2.2.1)도 이 계층의 규칙으로 표현.
 - **통합**: 매니페스트 `egress`와 같은 정규화·매처를 쓰는 `internal/policy/domains` 하나로 통일. `web.read` 스코프의 egress = (검색 엔진 엔드포인트 고정) + (web-domains 정책을 통과한 공개 호스트), SSRF 가드는 그 아래 층에서 그대로.
 - **감사**: 모든 차단은 `tool_audit` 이벤트 `domain_blocked`(호스트 해시, 규칙 ID, hop 번호) + `eve_tool_denied_total{tool,reason="domain_denied"}`.
 - **테스트**: 정규화 표(대문자, 한글 IDN, 끝 점, IDN 변환 실패 거부, 레이블 경계 `evil-x` vs `*.x`), IP 표기 변형 표(위 전 형식 × 루프백/사설/링크로컬/매핑), 카테고리별 대표 호스트, `*.x` 경계, deny 우선, 리다이렉트로 차단 도메인 진입, 로드 실패 fail-closed, 모델 입력에 도메인 목록 부재.
@@ -401,7 +410,7 @@ SSE(기존 이벤트 유지 + 추가):
 3. builtin 툴도 게이트웨이와 별도 프로세스/사용자로 분리할지(보안 ↑, 복잡도 ↑).
 4. 서드파티 MCP 서버를 허용할지, 직접 만든 어댑터만 쓸지.
 5. 노출 툴 상한(3 vs 5) — 모델 엔지니어 평가 결과로 확정.
-6. 확인 토큰 만료(120초 제안)와 POST 재발급 횟수 상한(3회 제안). GET 재발급은 없음(확정).
+6. 확인 토큰 만료(일반 120초, scheduler 발 카드 60초 제안)와 POST 재발급 횟수 상한(3회 제안). GET 재발급은 없음(확정).
 7. 이상 탐지 알림 채널(ntfy, 웹 푸시, 텔레그램 등).
 8. 플랫폼 이후 첫 신규 툴의 순서.
 9. 웹 도메인 정책: 도입·해제·허용 확대·모드 전환은 메이저로 확정. 남은 결정은 deny 항목 **추가**만 패치로 허용할지, allowlist_only 모드를 쓸지, 공개 IP 리터럴 기본 차단 유지 여부. **보안 의견: 공개 IP 리터럴 기본 차단 유지, deny 항목 추가는 패치 허용.**
@@ -443,6 +452,14 @@ SSE(기존 이벤트 유지 + 추가):
 | 스냅샷 최대 사용 기간 | 30일, 초과 시 경고+지표+CI 실패, 런타임 차단은 유지 | §13 |
 | 서명 검증 시점 | CI와 게이트웨이 기동 시 모두 | §13 |
 | 갱신 분류 | malware 스냅샷 갱신은 서명 검증+보안 리뷰 통과 시 패치, 수동 deny 해제는 메이저 | §9, §13 |
+
+### 15.1d PR #4(선톡) §5.1과의 정합
+| PR #4 요구 | 반영 | 위치 |
+|---|---|---|
+| 외부 egress는 게이트웨이 단일 적용 계층으로만(push 포함) | 단일 계층 명시, 어댑터는 주입 클라이언트만, 린트 | §13 |
+| 감사는 `tool_audit` 하나, `actor=scheduler` 추가 | `actor`·`job_id` 컬럼, 별도 감사 테이블 금지 | §5 |
+| followup taint 상속, scheduler는 시작부터 tainted | 원 스레드 taint 상속, 연쇄 생성 차단 | §7 |
+| scheduler 발 카드 출처 표시 + 짧은 만료, 사용자 세션 POST만 소비 | `provenance{actor,job_id}`, 만료 60초, write/send 자동 실행 거부 | §3.2, §10.3, §14-6 |
 
 ### 15.2 M1을 마이너로 둘 수 있나 (결론)
 **결론: 가능. 단, 두 항목을 빼는 조건에서만.**
