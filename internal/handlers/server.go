@@ -54,6 +54,22 @@ type Server struct {
 	Start   time.Time
 	Version string
 	Store   store.Store // nil = persistence disabled (thread endpoints -> 503)
+	Web     *WebTools   // nil = web tools unavailable (also needs Cfg.Web.Enabled)
+}
+
+// uiCSP keeps the UI from loading external resources (no remote images =
+// no markdown-image exfiltration channel). Inline style attributes are used
+// by the UI, so style-src allows 'unsafe-inline'; scripts are 'self' only.
+const uiCSP = "default-src 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
+
+func withCSP(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", uiCSP)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		h.ServeHTTP(w, r)
+	})
 }
 
 type ctxKey struct{}
@@ -162,9 +178,17 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 }
 
 // whoami reports the caller identity so the UI can detect identity mode.
+func (s *Server) webDefault() string {
+	if !s.webEnabled() {
+		return "off"
+	}
+	return s.Cfg.Web.DefaultMode
+}
+
 func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.FromContext(r.Context())
-	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider})
+	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider,
+		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "persistence": s.Store != nil}})
 }
 
 // Handler returns the full router with middleware (request id, recovery, CORS).
@@ -210,7 +234,7 @@ func (s *Server) Handler() http.Handler {
 			mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			})
-			mux.Handle("GET /ui/", http.StripPrefix("/ui", http.FileServer(http.Dir(dir))))
+			mux.Handle("GET /ui/", withCSP(http.StripPrefix("/ui", http.FileServer(http.Dir(dir)))))
 		}
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,36 @@
+# Minimal SearXNG settings for loopback-only use by the gateway.
+use_default_settings: true
+general:
+  instance_name: "gateway-search"
+  debug: false
+  enable_metrics: false
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "auto"
+  formats: [json]          # gateway uses JSON only; HTML UI requests are refused
+server:
+  # secret_key comes from SEARXNG_SECRET (env); never put it here
+  limiter: true            # bot detection / rate limit (uses valkey)
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+  http_protocol_version: "1.1"
+valkey:
+  url: valkey://valkey:6379/0
+ui:
+  static_use_hash: true
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 6.0
+  pool_connections: 50
+  pool_maxsize: 10
+engines:
+  - name: wikipedia
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: google
+    disabled: true         # frequent CAPTCHAs from residential IPs

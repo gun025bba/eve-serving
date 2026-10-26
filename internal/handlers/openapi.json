@@ -102,6 +102,22 @@
           "replace_message_id": {
             "type": "string",
             "description": "Regenerate: overwrite this assistant message (same id, feedback cleared, no new user message). Requires thread_id."
+          },
+          "web_search": {
+            "description": "Web tools for this request: false/\"off\", true/\"auto\" (model decides), \"force\" (gateway searches first). Omitted = thread setting, then server default. 400 web_search_disabled when the server has web off. Streaming adds events chat.completion.tool_call, chat.completion.tool_result and chat.completion.sources (before chat.completion.persisted); non-streaming adds choices[0].message.sources.",
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "off",
+                  "auto",
+                  "force"
+                ]
+              }
+            ]
           }
         },
         "example": {
@@ -340,6 +356,29 @@
                 }
               }
             }
+          }
+        }
+      },
+      "WebSource": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "fetched": {
+            "type": "boolean"
+          },
+          "cited": {
+            "type": "boolean"
           }
         }
       }

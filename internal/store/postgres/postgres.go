@@ -219,6 +219,13 @@ func (s *Store) ReplaceMessage(ctx context.Context, user string, m store.Message
 	if _, err := tx.Exec(ctx, `DELETE FROM feedback WHERE message_id=$1`, m.ID); err != nil {
 		return m, err
 	}
+	// Regenerate replaces the message's web history too (SaveWebRun re-adds it).
+	if _, err := tx.Exec(ctx, `DELETE FROM web_sources WHERE message_id=$1`, m.ID); err != nil {
+		return m, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM tool_calls WHERE message_id=$1`, m.ID); err != nil {
+		return m, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE threads SET updated_at=now() WHERE id=$1`, tid); err != nil {
 		return m, err
 	}

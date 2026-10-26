@@ -28,7 +28,7 @@ func open(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.pool.Exec(ctx, `TRUNCATE feedback, messages, threads, users RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE web_sources, tool_calls, feedback, messages, threads, users RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.Close)
