@@ -12,7 +12,7 @@
 기본 거부 · 모든 단계 fail-closed · 런타임 툴 등록 없음 · 모델 출력은 권한 근거가 아님.
 
 ## 구성 요소 (계획)
-- **Registry**: 저장소 `manifest.yaml` + JSON Schema, kill switch(끄기만).
+- **Registry**: 저장소 `manifest.yaml` + JSON Schema, kill switch는 0600 파일 `tools-killswitch.yaml` 하나(`all_off`, `disabled: []`, SIGHUP 재로드, 끄기만; 권한·파싱 오류 시 전부 끔).
 - **Scopes**: `<domain>.<verb>` (read/write/send), `policy/grants.yaml`, trade 금지값.
 - **Taint**: 스레드 단위, tainted면 쓰기 자동 실행 금지.
 - **Confirm gate**: write/send → `pending_actions`, 1회용 토큰 120초, `payload_hash` 바인딩.
@@ -20,6 +20,10 @@
 - **Secrets**: Keychain 또는 chmod 600 파일, 툴별 선언분만 주입, Redactor.
 - **Domain policy (§13)**: `web-domains.yaml`, 정규화·deny 우선.
 
-에러 status(계획): `ok · error · blocked · timeout · denied · pending_confirmation · mock_miss` (현재 `tool_calls.status`는 앞의 4개만 허용 → 마이그레이션 필요, TBD).
+에러 status(계획): `ok · error · blocked · timeout · denied · pending_confirmation ` (현재 `tool_calls.status`는 앞의 4개만 허용 → 마이그레이션 필요, TBD). `mock_miss`는 운영 enum에서 제외(mock 모드 내부 `error`/`error_code=mock_miss`).
+
+파이프라인은 4단계로 묶습니다: 사전검사(kill switch·registry·scope·턴 예산·taint·schema·rate limit) → 게이트(write/send 확인) → 실행(audit started·adapter·크기제한/redaction) → 사후(audit 완료 등). 단계는 그대로이고 묶음만 표시합니다.
+
+- **MCP**: 청사진만, M1~M4 범위 밖(도입 시 별도 MAJOR 설계).
 
 마일스톤은 [README](README.md#툴-플랫폼-마일스톤-pr-2-제안-기준-모두-계획) 참조. 툴 추가·스코프 확대 = major.
