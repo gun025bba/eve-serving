@@ -32,3 +32,24 @@ auth:
 database:
   url: ""
   auto_migrate: true   # run embedded goose migrations at startup (GW_DB_AUTO_MIGRATE)
+web:                 # web_search / web_fetch tools (docs/web-search.md). Off by default.
+  enabled: false     # GW_WEB_ENABLED
+  default_mode: off  # off|auto|force (GW_WEB_DEFAULT_MODE); per request: "web_search"
+  max_rounds: 3
+  max_calls: 5
+  max_searches: 3
+  rate_per_min: 10        # searches per user per minute
+  fetch_rate_per_min: 20  # fetches per user per minute
+  retention_days: 90      # tool_calls / web_sources auto-deleted after this
+  providers: [searxng]    # GW_SEARCH_PROVIDERS; "brave" is a stub (disabled)
+  searxng_url: http://127.0.0.1:8888   # loopback only (enforced)
+  search_timeout_s: 6
+  search_max_results: 5
+  fetch_timeout_s: 10
+  fetch_max_bytes: 2097152
+  fetch_max_chars: 6000
+  fetch_max_pages: 3
+  fetch_allowed_ports: [80, 443]       # 5432/6379/8000/8080/8888 are always denied
+  fetch_deny_cidrs: []
+  fetch_global_conc: 4
+  fetch_per_host_conc: 2
