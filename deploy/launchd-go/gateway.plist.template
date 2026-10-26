@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Go gateway. Rendered by deploy/install-launchd-go.sh (once per bind address). -->
+<plist version="1.0"><dict>
+<key>Label</key><string>__LABEL__</string>
+<key>ProgramArguments</key><array><string>__HOME__/llm-serving/bin/gateway</string><string>-host</string><string>__BIND_HOST__</string><string>-port</string><string>8000</string></array>
+<key>WorkingDirectory</key><string>__HOME__/llm-serving</string>
+<key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>15</integer>
+<key>StandardOutPath</key><string>__HOME__/llm-serving/__LOG__.launchd.log</string><key>StandardErrorPath</key><string>__HOME__/llm-serving/__LOG__.launchd.log</string>
+</dict></plist>

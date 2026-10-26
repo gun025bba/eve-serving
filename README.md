@@ -1,13 +1,14 @@
 # Local LLM Gateway
 
-`mlx_lm.server` (Qwen3-30B-A3B-4bit, 127.0.0.1:8080) ← **gateway.py** (FastAPI) ← clients
+`mlx_lm.server` (Qwen3-30B-A3B-4bit, 127.0.0.1:8080) ← **gateway** (Go, `cmd/gateway`; legacy Python `gateway.py` kept for rollback) ← clients
 Gateway binds: `127.0.0.1:8000` (com.llmserving.gateway), `<tailscale-ip>:8000` tailnet only (com.llmserving.gateway-ts).
 Note: these are two separate processes — each has its own queue/semaphore and its own metrics.
 
 ## Files
 | file | purpose |
 |---|---|
-| gateway.py | gateway (auth, queue, retries, metrics, JSON logs, docs) |
+| cmd/gateway, internal/* | Go gateway (see *Go gateway* below) |
+| gateway.py | legacy Python/FastAPI gateway (same API; kept for rollback) |
 | config.yaml | defaults & tuning (env override: `GW_<KEY>`, e.g. `GW_MAX_CONC=3`, `GW_CORS_ORIGINS=a,b`) |
 | gateway.log | JSON lines log (one object per line) |
 | examples/client.py, examples/curl.sh | test clients |
@@ -67,6 +68,40 @@ Prometheus metrics (`curl -s localhost:8000/metrics | grep ^llm_`):
 `llm_time_to_first_token_seconds`, `llm_tokens_per_second`, `llm_prompt_tokens_total`, `llm_completion_tokens_total`,
 `llm_inflight_requests`, `llm_queue_depth`, `llm_system_memory_bytes{kind}`, `llm_mlx_server_rss_bytes`.
 Non-stream tok/s = completion tokens / upstream time (includes prefill); stream tok/s = tokens / time after first token.
+
+## Go gateway
+Layout:
+```
+cmd/gateway/main.go      flags (-base, -config, -key-file, -host, -port), wiring, graceful shutdown
+internal/config          config.yaml + GW_<KEY> env overrides
+internal/auth            Bearer key file check (constant-time)
+internal/apierr          OpenAI-style error envelope / codes
+internal/queue           semaphore (max_conc) + bounded queue (max_queue, queue_timeout_s)
+internal/proxy           upstream client: connect timeout, dial-only retries w/ backoff, idle read timeout
+internal/metrics         Prometheus metrics (same llm_* names), /stats window, memory sampling
+internal/logging         JSON-lines logger with runtime level
+internal/handlers        routes, SSE passthrough, /ui static, CORS, /docs + embedded openapi.json
+deploy/launchd-go        launchd template for the Go binary; deploy/install-launchd-go.sh renders it
+```
+Build / test (Go ≥ 1.26):
+```bash
+make test            # go test ./...
+make build           # -> bin/gateway (static, no venv)
+./bin/gateway -host 127.0.0.1 -port 8001     # reads ~/llm-serving/config.yaml and .api_key
+```
+Flags also via env: `GW_BASE`, `GW_CONFIG`, `GW_KEY_FILE`, `GW_HOST`, `GW_PORT`. `bin/gateway -version` prints the git version.
+Differences vs Python: invalid JSON / non-object bodies return `400 bad_request` (FastAPI returned 422); `/metrics` exposes `go_*`/`process_*` runtime metrics instead of `python_*`; `/docs` loads Swagger UI from jsDelivr like FastAPI did.
+
+### Cutover to Go (launchd)
+```bash
+cd ~/llm-serving && git pull --ff-only && make build
+BIND_IP=<tailscale-ip> deploy/install-launchd-go.sh     # rewrites com.llmserving.gateway{,-ts}.plist, backs up *.py-bak
+launchctl bootout gui/$(id -u)/com.llmserving.gateway;    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway.plist
+launchctl bootout gui/$(id -u)/com.llmserving.gateway-ts; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.llmserving.gateway-ts.plist
+curl -s localhost:8000/health
+```
+Rollback: `for l in gateway gateway-ts; do mv ~/Library/LaunchAgents/com.llmserving.$l.plist.py-bak ~/Library/LaunchAgents/com.llmserving.$l.plist; done`, then the same bootout/bootstrap pair.
+Updating after cutover: `git pull --ff-only && make build && launchctl kickstart -k gui/$(id -u)/com.llmserving.gateway` (and `-ts`).
 
 ## Test
 `.venv/bin/python examples/client.py [--base http://<tailscale-ip>:8000]` or `examples/curl.sh [base]`.
