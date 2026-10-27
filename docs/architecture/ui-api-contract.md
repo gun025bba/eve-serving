@@ -52,7 +52,7 @@ GET /v1/settings
 | `proactive.enabled` | bool, false | 사용자 선톡 on/off. `system.proactive_available=false`면 UI 토글 비활성. |
 | `proactive.quiet_hours` | `{"start":"22:00","end":"08:00"}` | 24시간 `HH:MM`. 서버 시간대 **Asia/Seoul** 고정. `end < start`면 자정을 넘김(22:00–08:00). `start == end`는 400. `tz` 필드는 예약(나중에 추가, MINOR). |
 | `proactive.memory_read` | bool, false | 선톡이 메모리를 읽을지(MEM §6, 기본 off). UI는 `memory.enabled=true`일 때만 표시. |
-| `memory.enabled` | bool, **false** | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 false. 실제 적용 = `system.memory_available` AND `memory.enabled`. |
+| `memory.enabled` | bool, **true**(5.0.0부터, 이전 false) | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 true(opt-out). 실제 적용 = `system.memory_available` AND `memory.enabled`. |
 | `proactive.daily_cap` | **P1에 없음** | 서버 고정 하루 3건. 키는 예약: 나중에 1–3 범위, **낮추기만** 허용(MINOR). P1에 보내면 400(알 수 없는 키). |
 
 - PM §3의 `quiet_start`/`quiet_end`/`daily_cap` 예시는 이 계약(`quiet_hours` 객체, `daily_cap` 미노출)으로 대체한다. PM의 서버 상한(코드 상수)은 그대로.
@@ -306,12 +306,17 @@ tombstone은 API로 노출하지 않는다.
 §2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
 
 ```json
-GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_available": true } }
-PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
+GET   → { ..., "memory": { "enabled": true }, "system": { ..., "memory_available": true } }
+PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 ```
 
-- 사용자 `memory.enabled`의 기본값은 **off(false)**다. 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 off로 읽는다. 사용자가 직접 켜야 한다.
-- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
+- **5.0.0부터** 사용자 `memory.enabled`의 기본값은 **on(true)**이다(4.x는 off). 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 **on으로 읽는다(opt-out)**. 사용자는 설정에서 언제든 끌 수 있고, 끈 뒤의 동작은 아래와 같으며 바뀌지 않는다.
+- **저장 경로는 두 가지다.** (1) 모델 제안(`memory.propose`)은 항목마다 승인 카드를 사용자가 승인해야 저장된다(자동 승인 없음). (2) UI 직접 추가(`POST /v1/memory/items`)는 브라우저 세션에서 사용자 본인이 명시적으로 하는 행동이라 카드가 없다. 그 밖의 저장 경로는 없다.
+- **API 키(Bearer) 접근**: API 키 가상 사용자는 `memory.enabled`가 off로 고정되며 바꿀 수 없다. `/v1/memory*` 라우트는 모두 브라우저 세션(4.0.0부터 페어링으로 발급한 세션 쿠키, 기존 `users.id`에 묶임, 유휴 30일·절대 180일) 전용이고 Bearer 요청은 403 `scope_denied`이다.
+- 5.0.0 go-live 전제 조건(memory.md §14.1): 민감 필터 QA 홀드아웃 통과와 보안 최종 승인(#53, 미충족), #33·#35 머지, #42 fail-closed, #23 cutover 완료(신원 위조 HIGH 해결: TCP 루프백 + 페어링 세션 쿠키, `Tailscale-User-*`는 로그 전용 — identity-transport.md), 첫 사용 안내 시트 구현(`ui.memory_intro_seen=false`면 `memory.propose` 미노출·주입 없음), 서버 설정 allowlist에 `ui.memory_intro_seen` 포함, 감사 HMAC 키 준비(기본 on에서 키가 없거나 틀리면 게이트웨이 전체 기동 거부).
+- 기존 사용자: 업그레이드 전에 키가 없던 사용자(명시적으로 끄지 않은 사용자 전원)는 5.0.0 업그레이드 직후 메모리가 켜진다. 명시적으로 `false`를 저장한 사용자는 그대로 off다.
+- 첫 사용 안내(UI): 메모리가 켜진 사용자에게 **한 번만** 안내 시트를 보여 준다. 안내에는 메모리가 켜졌다는 사실, 모델 제안은 승인 카드로만 저장된다는 점, 설정에서 끄는 방법을 담는다. 표시 여부는 `users.settings`의 `ui.memory_intro_seen`(bool, 기본 false, PATCH 가능)에 기록해 여러 기기에서 한 번만 보이게 한다. 서버가 이 키를 지원하기 전까지 UI는 localStorage만 쓰고 400은 무시한다. 키 추가는 MINOR이며 5.0.0에 함께 넣는다.
+- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`이면(5.0.0부터 서버 기본값은 **true**, 4.x는 false) `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
 - 실제 적용 = `system.memory_available` AND `memory.enabled`.
 - 사용자 `memory.enabled=false`(서버는 on)일 때:
   - 허용: `GET /v1/memory`, `GET /v1/memory/export`, `PATCH`·`DELETE /v1/memory/items/{id}`, `DELETE /v1/memory`(읽기·편집·삭제·내보내기).
@@ -322,7 +327,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 - 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
 - `system.*`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다. (P1 설정 응답에는 `system.memory_read_only`가 없다. 읽기 전용 상태는 쓰기 시 503 `memory_read_only`로만 드러난다. 노출이 필요해지면 MINOR로 추가한다.)
-- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR.
+- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR(4.x). **기본값을 on으로 바꾸는 것은 MAJOR(5.0.0)**다. 이유: 사용자가 opt-in하지 않아도 개인 데이터를 저장할 수 있게 되어 보안 경계가 바뀌고, 고정했던 기본 off 계약을 뒤집는다. 롤백·전제 조건은 memory.md §14.
 
 #### 3.9.7a 보안 요건 (security Med, 고정)
 
