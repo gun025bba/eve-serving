@@ -33,7 +33,7 @@ const (
 	// verb endings that make 지지/찍/뽑 a statement (not 지지율, 지지대, 찍힌).
 	stmtEnding = `(었|았|어|음|을|고|겠|해|함|자|했|합|한다|하는|$)`
 	// public-election / ballot contexts (plus 기호, 도장, generic 투표·선거).
-	voteContexts = `투표용지|사전투표|국민투표|투표|도장|기호|대통령\s?선거|국회의원\s?선거|지방\s?선거|재보궐\s?선거|재보궐|재보선|보궐\s?선거|보궐|대선|총선|지선|선거`
+	voteContexts = `투표용지|사전투표|국민투표|투표|기호|대통령\s?선거|국회의원\s?선거|지방\s?선거|재보궐\s?선거|재보궐|재보선|보궐\s?선거|보궐|대선|총선|지선|선거`
 	// non-public votes / non-election numbered actions: never political.
 	voteExcludes = `반장|동아리|회의|오디션|인기\s?투표|주차|사진|가챠|시험|학생회|반\s?대표|팀\s?대표`
 	voteEndings  = `(었|았|음|을|고|겠|다|어( |$|요))`
