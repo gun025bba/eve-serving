@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 const (
@@ -17,7 +18,17 @@ const (
 	ToolProposeVersion = "1"
 	ScopeWrite         = "memory.write"
 	ProposalTTL        = 24 * time.Hour
+
+	// Static card verbs for memory.propose (Q19, one verb per call). The
+	// proposal kind is chosen by the server (AddProposal / ForgetProposal),
+	// never by model args, so each call's card has one fixed verb.
+	VerbAdd    = tools.VerbAdd
+	VerbForget = tools.VerbDelete
 )
+
+// ProposeVerbs is memory.propose's code-defined manifest entry: the allowed
+// card verbs (Q19). The tool stays single (PM decision); each call uses one.
+var ProposeVerbs = []string{VerbAdd, VerbForget}
 
 var (
 	ErrTainted   = errors.New("memory: denied in tainted thread")
@@ -116,10 +127,11 @@ func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c Proposa
 	}
 	p := Payload{Op: "delete"}
 	view := struct {
+		Verb      string     `json:"verb"`
 		Op        string     `json:"op"`
 		Items     []viewItem `json:"items"`
 		Ambiguous bool       `json:"ambiguous"`
-	}{Op: "delete", Ambiguous: ambiguous || len(ids) > 1}
+	}{Verb: VerbForget, Op: "delete", Ambiguous: ambiguous || len(ids) > 1}
 	for _, id := range ids {
 		i := d.find(id)
 		if i < 0 {
@@ -148,10 +160,11 @@ func AddProposal(text, kind string, c ProposalCtx, now time.Time) (store.Action,
 	}
 	p := Payload{Op: "add", Items: []PayloadItem{{Text: t, Kind: kind}}}
 	view := struct {
+		Verb      string     `json:"verb"`
 		Op        string     `json:"op"`
 		Items     []viewItem `json:"items"`
 		Ambiguous bool       `json:"ambiguous"`
-	}{Op: "add", Items: []viewItem{{Text: t, Kind: kind}}}
+	}{Verb: VerbAdd, Op: "add", Items: []viewItem{{Text: t, Kind: kind}}}
 	return action(c, "메모리에 추가", p, view, now)
 }
 
