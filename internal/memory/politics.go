@@ -63,7 +63,7 @@ const (
 	// non-public by default (backlog: default-public needs PM sign-off).
 	personSubjects = `(나|저|난|전|내|제|우리|저희|우리\s?가족|가족|엄마|어머니|아빠|아버지|부모님|남편|아내|와이프|신랑|부인|아들|딸|자식|애|형|오빠|누나|언니|동생|남동생|여동생|할머니|할아버지|시아버지|시어머니|시부모님|시댁|장인|장모|장인어른|장모님|처가|처남|처제|형부|제부|매형|올케|며느리|사위|손자|손녀|증조할머니|증조할아버지|외할머니|외할아버지|삼촌|이모|고모|외삼촌|사촌|조카|친척|남친|여친|남자친구|여자친구|애인|친구|동료|상사|선배|후배|옆집|이웃)`
 	unqualifiers   = `^` + personSubjects + `(가|이|는|은|도|랑|이랑|하고|도요)?$` +
-		`|^(지난|지난주|지난달|지난해|지지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|도|랑|에)$`
+		`|^(지난|지난주|지난달|지난해|지지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|도|랑|에|(보|먹|마치|듣|놀|자|씻|끝내|끝나|마시|사|만나|일어나)고|후|전에|다음에)$`
 	// known non-public qualifiers: a bare 투표/선거 right after one of these
 	// nouns (optionally + 에서/의/별/내) is not a public election. Anything
 	// else (pronouns, kinship, time words, verbs) leaves it public.
@@ -98,6 +98,8 @@ var (
 	photoRe = regexp.MustCompile(photoObjects)
 	// party membership glued to the name: '민주당원이야', '진보당원임'.
 	partyMemberRe = regexp.MustCompile(`(^|\s)(` + partyNames + `)\s?(당)?원\s?(이야|이에요|이예요|입니다|이다|이라|이거든|이고|이었|임|이|으로|이\s?됐|됐|되었|됨|돼서|가입\s?(했|함|해서|해\s?있|돼|되었|됨|완료))`)
+	// joining / leaving a party: '국힘 입당했어', '민주당에 가입했어', '탈당했어'.
+	partyJoinRe   = regexp.MustCompile(`(^|\s)(` + partyNames + `)\s?(에|을|를|에서)?\s?((입당|탈당|가입|탈퇴)\s?(했|함|해\s?있|한\s?지|하고\s?왔|했다|했음|해버렸)|들어갔|들어감|나왔어|나왔음)`)
 	partyPrefixRe = regexp.MustCompile(`^(` + partyNames + `)`)
 
 	publicRe   = regexp.MustCompile(publicKeywords)
@@ -124,27 +126,7 @@ var (
 
 // relClauseRe: a relative clause describing the vote ('영화 고르는 투표',
 // '이름 정하는 투표') marks it as non-public.
-var clauseBreakRe = regexp.MustCompile(`(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|는데|지만)$`)
-
 var relClauseRe = regexp.MustCompile(`(고르|정하|뽑|결정하|선택하|하)는$`)
-
-// nonPublicClause reports whether any token before a bare vote word is a
-// known non-public qualifier or a relative clause; only called when no
-// public-election word matched first.
-// The scan stops at a clause connective, so '회의 끝나고 투표 2번 찍었어'
-// stays public.
-func nonPublicClause(toks []string) bool {
-	for i := len(toks) - 1; i >= 0; i-- {
-		t := toks[i]
-		if clauseBreakRe.MatchString(t) {
-			return false
-		}
-		if qualRe.MatchString(t) || relClauseRe.MatchString(t) {
-			return true
-		}
-	}
-	return false
-}
 
 // voteInContext reports whether a vote-number disclosure follows a public
 // (or unqualified bare) vote word.
@@ -165,7 +147,12 @@ func voteInContext(f string) bool {
 			}
 			toks := strings.Fields(before)
 			last := toks[len(toks)-1]
-			if qualRe.MatchString(last) || !unqualRe.MatchString(last) || nonPublicClause(toks) {
+			// Only the word right before the vote decides: a non-public noun
+			// ('노조 선거', '교회 투표', '친구들끼리 투표') or a relative clause
+			// ('고르는 투표') keeps it non-public; a person subject, time word or
+			// connective ('나 투표', '영화 보고 투표') makes it public; any other
+			// noun stays non-public by default (PM; backlog).
+			if qualRe.MatchString(last) || relClauseRe.MatchString(last) || !unqualRe.MatchString(last) {
 				continue
 			}
 		}
@@ -185,13 +172,43 @@ func voteInContext(f string) bool {
 // 민주당') and inverted order ('찍었어 민주당', '지지하는 건 민주당') are out of scope for this round.
 func politicsStructural(folded, original string) bool {
 	folded = photoRe.ReplaceAllString(folded, " _ ")
-	if partyStmtRe.MatchString(folded) || partyStmtRe.MatchString(joinSyllables(folded)) || partyMemberRe.MatchString(folded) || shortPartyRe.MatchString(folded) || stanceRe.MatchString(folded) {
+	if generalPolitical(folded) || generalPolitical(joinSyllables(folded)) {
+		return true
+	}
+	if partyStmtRe.MatchString(folded) || partyStmtRe.MatchString(joinSyllables(folded)) || partyMemberRe.MatchString(folded) || partyJoinRe.MatchString(folded) || shortPartyRe.MatchString(folded) || stanceRe.MatchString(folded) {
 		return true
 	}
 	if strings.HasSuffix(strings.TrimSpace(original), "?") && !pastStmtRe.MatchString(folded) && !publicRe.MatchString(folded) {
 		return false
 	}
 	return voteInContext(folded)
+}
+
+// General rule (QA r16): a political anchor (party name incl.
+// abbreviations, politician, 기호 N, or a public-election word) plus a
+// vote / support / membership verb anywhere in the same sentence blocks,
+// unless the sentence is a request for information.
+const (
+	// conjugation tail shared by verb stems: past, present, future,
+	// honorific and reported forms (-었대, -는대, -신다, -겠).
+	conj  = `(었|았|어|음|는다|는대|는데|겠|으셨|으신|으시|셨|신다|신대|을\s?(거|게|래|겁니다)|ㄹ\s?게)`
+	hconj = `(했|함|한다|한대|합니다|하겠|하셨|하신|하시|할\s?(거|게|래|겁니다)|하고\s?(왔|있))`
+
+	voteClass    = `(찍|뽑)` + conj + `|(투표|기표)\s?` + hconj + `|(찬성|반대)\s?표|한\s?표|표\s?(를)?\s?(줬|줌|준다|준대|주겠|주셨|드렸|던졌|던짐|던진다|행사)`
+	supportClass = `지지\s?(` + hconj + `|해|해요|하는\s?(정당|당|후보|사람)|자\s?(야|임|이|예|라|였|입))` +
+		`|밀어\s?(줬|줌|준다|준대|주겠|주셨|주고|주는|드렸)|(응원|지지)하는\s?(정당|당|후보)`
+	memberClass = `(권리\s?)?당원\s?(이|임|으로|됐|되었|되셨|이\s?(됐|되)|가입)|(입당|탈당|탈퇴)\s?(` + hconj + `|해\s?있)|가입\s?(` + hconj + `|해\s?있|돼\s?있)|들어갔|들어가셨`
+)
+
+var (
+	anchorRe    = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)|기호\s?\d|` + publicKeywords)
+	verbClassRe = regexp.MustCompile(voteClass + `|` + supportClass + `|` + memberClass)
+	// requests for information stay allowed ('입당 절차 알려줘', '뭐야?').
+	infoRequestRe = regexp.MustCompile(`(알려|요약|정리|찾아|비교|설명|보여|번역)\s?(해\s?)?(줘|주세요|줄래|줄 수)|뭐야|뭐예요|무엇|어떻게|절차|방법|조건|언제|어디|누구|몇\s?(명|석|표|퍼센트)|기사|뉴스|일정`)
+)
+
+func generalPolitical(f string) bool {
+	return anchorRe.MatchString(f) && verbClassRe.MatchString(f) && !infoRequestRe.MatchString(f)
 }
 
 // joinSyllables re-joins runs of 3+ single-rune tokens so '민 주 당 지지해'
