@@ -367,6 +367,9 @@ func (s *Server) reviseMemoryCheck(r *http.Request, id string, itemIDs []string)
 		if a.ID != id || a.Tool != memory.ToolPropose {
 			continue
 		}
+		if !s.memoryFor(r) {
+			return "kill_switch" // per-user memory.enabled off
+		}
 		p, err := store.FilterItems(a.Payload, itemIDs)
 		if err != nil {
 			return "invalid"

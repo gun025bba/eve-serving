@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -53,6 +54,9 @@ func memToolEnv(t *testing.T, memOn bool, args string, searchFirst bool) (*webEn
 	}
 	e.srv.Memory, e.srv.MemoryAuditKey = fs, []byte(strings.Repeat("k", 32))
 	e.srv.Cfg.Memory.Enabled = memOn
+	if memOn {
+		enableUserMemory(t, e.st, "alice@example", "bob@example")
+	}
 	// routes depend on memory state: rebuild the handler
 	e.ts.Close()
 	e.ts = httptest.NewServer(e.srv.Handler())
@@ -293,5 +297,30 @@ func TestMemoryApprove_NonPending409(t *testing.T) {
 	// another user's (decided) card is 404, not 409
 	if r, b := e.call(t, "bob@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 404 {
 		t.Fatalf("foreign: %d %s", r.StatusCode, b)
+	}
+}
+
+func TestMemoryGating_UserOff(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	// user turns memory off between propose and approve
+	if _, err := e.st.(store.UserSettingsStore).MergeUserSettings(t.Context(), "alice@example", "memory", []byte(`{"enabled":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`)
+	if r.StatusCode != 403 || !strings.Contains(string(b), "kill_switch") {
+		t.Fatalf("user off approve: %d %s", r.StatusCode, b)
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("written while user off")
+	}
+	// revise is refused too
+	if r, b := e.call(t, "alice@example", "POST", "/v1/proposals/"+id+"/revise", `{"item_ids":["x"]}`); r.StatusCode != 403 || !strings.Contains(string(b), "kill_switch") {
+		t.Fatalf("user off revise: %d %s", r.StatusCode, b)
+	}
+	// and no tool offered / no card for a user-off chat
+	chatAuto(t, e)
+	if acts, _ := e.st.ListPendingActions(t.Context(), "alice@example"); len(acts) != 1 {
+		t.Fatalf("user-off chat created a card: %d", len(acts))
 	}
 }

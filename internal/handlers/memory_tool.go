@@ -25,8 +25,8 @@ import (
 
 // withMemoryTool appends the memory_propose definition while memory is on;
 // otherwise defs are returned unchanged (request bodies identical to before).
-func (s *Server) withMemoryTool(defs []any) []any {
-	if !s.memoryOn() {
+func (s *Server) withMemoryTool(defs []any, on bool) []any {
+	if !on {
 		return defs
 	}
 	return append(append([]any{}, defs...), memory.ToolDef())
@@ -255,6 +255,11 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Tool != memory.ToolPropose {
 		s.writeCode(w, r, "scope_denied")
+		return
+	}
+	// per-user switch: effective = system.memory_available AND memory.enabled
+	if !s.memoryFor(r) {
+		s.writeCode(w, r, "kill_switch")
 		return
 	}
 	pc := memory.ProposalCtx{Actor: a.Provenance.Actor, Tainted: a.Tainted}

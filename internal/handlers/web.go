@@ -350,7 +350,8 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(res)
 	}
 	var memTaint []string
-	if s.memoryOn() {
+	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
+	if memUser {
 		_, memTaint = s.historyTainted(r, clean, pr)
 	}
 	rounds := 0
@@ -420,7 +421,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = s.withMemoryTool(tools.ToolDefs())
+			b["tools"] = s.withMemoryTool(tools.ToolDefs(), memUser)
 			b["tool_choice"] = "auto"
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
 			if ferr != nil {
@@ -467,7 +468,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
-				if c.name == memory.ToolName && s.memoryOn() {
+				if c.name == memory.ToolName && memUser {
 					// Any web result already in this request taints the proposal.
 					reasons := append([]string(nil), memTaint...)
 					for _, wc := range sess.Calls {
