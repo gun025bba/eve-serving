@@ -138,8 +138,11 @@ func (s *Server) actionAudit(r *http.Request, ev string, a store.Action) {
 }
 
 func (s *Server) reissueAction(w http.ResponseWriter, r *http.Request) {
+	if s.denyAPIKey(w, r) {
+		return
+	}
 	io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10))
-	a, tok, err := s.Store.ReissueAction(r.Context(), user(r), r.PathValue("id"), time.Now().UTC())
+	a, tok, err := s.Store.ReissueAction(r.Context(), user(r), r.PathValue("id"), s.now())
 	if err != nil {
 		s.actionErr(w, r, err)
 		return
@@ -178,6 +181,9 @@ func parseRevise(raw []byte) ([]string, bool) {
 }
 
 func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
+	if s.denyAPIKey(w, r) {
+		return
+	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
 	if err != nil {
 		s.writeCode(w, r, "invalid")
@@ -192,7 +198,7 @@ func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
 		s.writeCode(w, r, code)
 		return
 	}
-	a, tok, err := s.Store.ReviseAction(r.Context(), user(r), r.PathValue("id"), ids, time.Now().UTC())
+	a, tok, err := s.Store.ReviseAction(r.Context(), user(r), r.PathValue("id"), ids, s.now())
 	if err != nil {
 		s.actionErr(w, r, err)
 		return

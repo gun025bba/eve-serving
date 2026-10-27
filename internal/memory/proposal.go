@@ -28,7 +28,7 @@ type viewItem struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-type payloadItem struct {
+type PayloadItem struct {
 	ID   string `json:"id,omitempty"`
 	Text string `json:"text,omitempty"`
 	Kind string `json:"kind,omitempty"`
@@ -39,7 +39,7 @@ type payloadItem struct {
 // normalized text for add.
 type Payload struct {
 	Op    string        `json:"op"`
-	Items []payloadItem `json:"items"`
+	Items []PayloadItem `json:"items"`
 }
 
 // ProposalCtx is server-set provenance; never taken from model output.
@@ -49,7 +49,8 @@ type ProposalCtx struct {
 	Tainted             bool
 }
 
-func (c ProposalCtx) check() error {
+// Check enforces scheduler/taint denial.
+func (c ProposalCtx) Check() error {
 	if c.Actor == "scheduler" {
 		return ErrScheduler
 	}
@@ -93,7 +94,7 @@ func action(c ProposalCtx, summary string, payload, view any, now time.Time) (st
 // candidates as checkboxes (partial selection = revise with item_ids).
 // There is no path that deletes without a card.
 func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c ProposalCtx, now time.Time) (store.Action, error) {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return store.Action{}, err
 	}
 	ids = SortedIDs(ids)
@@ -117,7 +118,7 @@ func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c Proposa
 		}
 		it := d.Items[i]
 		u := it.UpdatedAt
-		p.Items = append(p.Items, payloadItem{ID: it.ID})
+		p.Items = append(p.Items, PayloadItem{ID: it.ID})
 		view.Items = append(view.Items, viewItem{ID: it.ID, Text: it.Text, Kind: it.Kind, UpdatedAt: &u})
 	}
 	return action(c, "메모리에서 삭제", p, view, now)
@@ -126,7 +127,7 @@ func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c Proposa
 // AddProposal builds a confirmation card for a model-suggested item; the
 // card shows the normalized text that will be stored (S5-M3).
 func AddProposal(text, kind string, c ProposalCtx, now time.Time) (store.Action, error) {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return store.Action{}, err
 	}
 	if !kinds[kind] {
@@ -136,7 +137,7 @@ func AddProposal(text, kind string, c ProposalCtx, now time.Time) (store.Action,
 	if err != nil {
 		return store.Action{}, err
 	}
-	p := Payload{Op: "add", Items: []payloadItem{{Text: t, Kind: kind}}}
+	p := Payload{Op: "add", Items: []PayloadItem{{Text: t, Kind: kind}}}
 	view := struct {
 		Op        string     `json:"op"`
 		Items     []viewItem `json:"items"`
@@ -158,7 +159,7 @@ func parsePayload(raw json.RawMessage) (Payload, error) {
 // still be owned (else ErrNotFound -> 409 item_gone), add text must still
 // pass normalization and the secret filter.
 func Revalidate(st Store, uid int64, raw json.RawMessage, c ProposalCtx) error {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return err
 	}
 	p, err := parsePayload(raw)

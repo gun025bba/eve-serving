@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -37,6 +38,7 @@ var (
 	ErrConflict     = errors.New("memory: updated_at mismatch")
 	ErrTooMany      = errors.New("memory: item limit reached")
 	ErrTooLong      = errors.New("memory: text too long")
+	ErrMarkup       = errors.New("memory: memory-block marker in text")
 	ErrEmpty        = errors.New("memory: text empty")
 	ErrFileTooLarge = errors.New("memory: file size limit reached")
 	ErrInvalid      = errors.New("memory: invalid field")
@@ -451,10 +453,25 @@ func Clean(text string) (string, error) {
 	if err := CheckSecret(t); err != nil {
 		return "", err
 	}
+	if HasBlockMarker(t) {
+		return "", ErrMarkup
+	}
 	if err := CheckSensitive(t); err != nil {
 		return "", err
 	}
 	return t, nil
+}
+
+// blockMarkerRe matches memory-block delimiters in case, whitespace,
+// separator and escape variants: <user_memory>, </ USER-MEMORY >,
+// &lt;user_memory, \u003c/user_memory, %3Cuser_memory, user memory nonce.
+var blockMarkerRe = regexp.MustCompile(`(?i)(<|&lt;?|&#0*60;?|&#x0*3c;?|\\+u0*3c|\\+x3c|%3c|＜)\s*/?\s*user[\s_\-.]*memory|user[\s_\-.]*memory[\s_\-.]*(nonce|block)|</?\s*memory[\s_\-]*(nonce|block)`)
+
+// HasBlockMarker reports whether t contains anything that could open or
+// close the injected <user_memory> block. Checked by Clean (propose, add,
+// update) and again at approve via Revalidate.
+func HasBlockMarker(t string) bool {
+	return blockMarkerRe.MatchString(strings.ReplaceAll(t, "\u200b", ""))
 }
 
 // NewItem is the input for Add.

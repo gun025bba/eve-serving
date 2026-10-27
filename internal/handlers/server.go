@@ -45,6 +45,9 @@ func init() {
 }
 
 type Server struct {
+	// Now is the clock seam (tests); nil = time.Now.
+	Now func() time.Time
+
 	threadLocks keyedLocks // per-thread persist serialization (retry dedup)
 
 	Cfg     config.Config
@@ -459,4 +462,11 @@ func docs(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head>
 <body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',persistAuthorization:true});</script></body></html>`)
+}
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
