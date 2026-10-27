@@ -2,9 +2,7 @@ package memory
 
 import (
 	"regexp"
-	"sort"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/gun025bba/eve-serving/internal/tools"
@@ -17,49 +15,16 @@ const (
 	MaxLogValueBytes = 4096
 	// minRegisteredRunes: shorter item texts are not masked (would mangle logs).
 	minRegisteredRunes = 2
-	maxRegistered      = 50000
 )
 
 // entryLine matches the injected per-item line form ({"kind":..,"text":..})
 // even when it appears without the surrounding block.
 var entryLine = regexp.MustCompile(`\{\s*"kind"\s*:\s*"[a-z_]+"\s*,\s*"text"\s*:`)
 
-var reg struct {
-	mu    sync.RWMutex
-	set   map[string]struct{}
-	texts []string // longest first
-}
-
-// RegisterText adds a memory item text to the log mask set (process-local,
-// never persisted). Item text that leaks into an error string or a "text"
-// field outside the block is then masked as [REDACTED:memory].
-func RegisterText(t string) {
-	t = strings.TrimSpace(t)
-	if utf8.RuneCountInString(t) < minRegisteredRunes {
-		return
-	}
-	reg.mu.Lock()
-	defer reg.mu.Unlock()
-	if reg.set == nil {
-		reg.set = map[string]struct{}{}
-	}
-	if _, ok := reg.set[t]; ok || len(reg.set) >= maxRegistered {
-		return
-	}
-	reg.set[t] = struct{}{}
-	reg.texts = append(reg.texts, t)
-	sort.SliceStable(reg.texts, func(i, j int) bool { return len(reg.texts[i]) > len(reg.texts[j]) })
-}
-
-func registerDoc(d Doc) {
-	for _, it := range d.Items {
-		RegisterText(it.Text)
-	}
-}
-
 // unescapeForMatch undoes the JSON/HTML escapes that could hide markers
 // (\u003c, \u003e, \u0026, \", \\) so matching sees the plain form.
-var unescaper = strings.NewReplacer(`\u003c`, "<", `\u003C`, "<", `\u003e`, ">", `\u003E`, ">", `\u0026`, "&",
+var unescaper = strings.NewReplacer(`%3C`, "<", `%3c`, "<", `%3E`, ">", `%3e`, ">", `\x3c`, "<", `\x3C`, "<", `\x3e`, ">", `\x3E`, ">",
+	`&#60;`, "<", `&#x3c;`, "<", `&#x3C;`, "<", `\u003c`, "<", `\u003C`, "<", `\u003e`, ">", `\u003E`, ">", `\u0026`, "&",
 	`\\u003c`, "<", `\\u003e`, ">", `&lt;`, "<", `&gt;`, ">", `\"`, `"`, `\\"`, `"`)
 
 // RedactLog is the log Redactor (memory.md §9.1). It is installed always;
@@ -77,17 +42,16 @@ func RedactLog(s string) string {
 	if strings.Contains(u, "<user_memory") || strings.Contains(u, "</user_memory") || strings.Contains(u, Preamble) || entryLine.MatchString(u) {
 		return redactedMemory
 	}
-	reg.mu.RLock()
-	for _, t := range reg.texts {
-		if strings.Contains(s, t) {
-			s = strings.ReplaceAll(s, t, redactedMemory)
-		}
-		if u != s && strings.Contains(u, t) {
-			reg.mu.RUnlock()
+	m, over := machine()
+	if over && freeText(s) {
+		return redactedMemory // fail closed: registry over cap
+	}
+	if m != nil {
+		if _, hit := maskRegistered(m, u); hit && u != s {
 			return redactedMemory // escaped form of an item text
 		}
+		s, _ = maskRegistered(m, s)
 	}
-	reg.mu.RUnlock()
 	s = tools.Default().Redact.Redact(s)
 	for _, p := range tools.SecretPatterns {
 		s = p.Re.ReplaceAllString(s, redactedSecret)
@@ -100,4 +64,18 @@ func RedactLog(s string) string {
 		s = s[:cut] + "…[truncated]"
 	}
 	return s
+}
+
+// freeText: values that could carry user text (anything beyond a short
+// identifier/number token) are masked in fail-closed mode.
+func freeText(s string) bool {
+	if len(s) > 64 {
+		return true
+	}
+	for _, r := range s {
+		if r > 0x7f || r == ' ' {
+			return true
+		}
+	}
+	return false
 }

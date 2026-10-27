@@ -312,7 +312,7 @@ func (s *FileStore) Load(uid int64) (Doc, error) {
 	if d.Tombstones == nil {
 		d.Tombstones = []Tombstone{}
 	}
-	registerDoc(d)
+	registerDoc(uid, d)
 	return d, nil
 }
 
@@ -355,7 +355,7 @@ func (s *FileStore) Update(uid int64, fn func(*Doc) error) (Doc, error) {
 	if len(b) > MaxFileBytes {
 		return Doc{}, ErrFileTooLarge
 	}
-	registerDoc(d)
+	registerDoc(uid, d)
 	if err := s.writeAtomic(s.path(uid), b); err != nil {
 		return Doc{}, err
 	}
@@ -418,6 +418,7 @@ func (s *FileStore) Purge(uid int64) error {
 		return err
 	}
 	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	ReleaseUser(uid) // release log-mask texts with the file
 	err = os.Remove(s.path(uid))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -440,9 +441,7 @@ func syncDir(dir string) error {
 // Clean validates and normalizes new item text: normalization first, then
 // length and the secret filter on the normalized form (§2-3).
 func Clean(text string) (string, error) {
-	RegisterText(text) // candidate text is masked in logs even if rejected
 	t := Normalize(text)
-	RegisterText(t)
 	if t == "" {
 		return "", ErrEmpty
 	}

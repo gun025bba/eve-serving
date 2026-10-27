@@ -116,7 +116,7 @@ func (s *Server) memErr(w http.ResponseWriter, r *http.Request, err error) {
 		s.fail(w, r, apierr.New(503, "memory_read_only", "Memory is read-only until it is restored", "server_error"))
 	default:
 		w.Header().Set("Cache-Control", "no-store")
-		s.Log.Error("memory_error", "request_id", rid(r), "err", trunc(err.Error(), 200))
+		s.Log.Error("memory_error", "request_id", rid(r), "err", logTrunc(err.Error(), 200))
 		s.fail(w, r, apierr.New(500, "internal_error", "Memory operation failed", "server_error"))
 	}
 }
