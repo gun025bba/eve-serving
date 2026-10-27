@@ -256,3 +256,9 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 10/12.
 - Misses cluster on unshared verbs (선택/골랐/응원/편이야/표 몰아주/~으로 했어·갔어/투표 완료/뽑아드렸어), identity nouns (지지층/지지자에요/성향/당비/대의원), 밀어주/기표 still partial, 권리당원.
 - FP: 노조 조합원 (2 in r17, 1 in r16); news: 「민주당이 개정안에 반대표 던졌다」 「그 의원이 국민의힘 탈당했대」.
+
+### Round 18 — #53 head da063f5 (code e7544f2, default-block), gate r16+r17+r18: FAIL (FP)
+- Core: r18 64/64, r17 63/63, r16 65/65 (recall criterion met). Non-public FP: r18 13/202, r17 1/174, r16 1/159.
+- Reference: news FP r18 4/22, r17 4/25; first-person info questions FP 14/20. r12 adds FP 「우리 동네 투표소 어디야?」.
+- r18 FP patterns: 사전투표 used for non-public votes (3), '후보' as a site candidate (2) and 동창회장 후보, 지지자 with non-public anchor (3), 노조 조합원/가입 (3), 「새로운 미래 계획 세웠어」.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
