@@ -61,9 +61,9 @@ const (
 	// person subjects, time words and connectives that leave a bare
 	// 투표/선거 unqualified (public). Any other preceding noun makes it
 	// non-public by default (backlog: default-public needs PM sign-off).
-	personSubjects = `(나|저|난|전|내|제|우리|저희|우리\s?가족|가족|엄마|어머니|아빠|아버지|부모님|남편|아내|와이프|신랑|부인|아들|딸|자식|애|형|오빠|누나|언니|동생|남동생|여동생|할머니|할아버지|삼촌|이모|고모|외삼촌|사촌|조카|친척|남친|여친|남자친구|여자친구|애인|친구|동료|상사|선배|후배|옆집|이웃)`
+	personSubjects = `(나|저|난|전|내|제|우리|저희|우리\s?가족|가족|엄마|어머니|아빠|아버지|부모님|남편|아내|와이프|신랑|부인|아들|딸|자식|애|형|오빠|누나|언니|동생|남동생|여동생|할머니|할아버지|시아버지|시어머니|시부모님|시댁|장인|장모|장인어른|장모님|처가|처남|처제|형부|제부|매형|올케|며느리|사위|손자|손녀|증조할머니|증조할아버지|외할머니|외할아버지|삼촌|이모|고모|외삼촌|사촌|조카|친척|남친|여친|남자친구|여자친구|애인|친구|동료|상사|선배|후배|옆집|이웃)`
 	unqualifiers   = `^` + personSubjects + `(가|이|는|은|도|랑|이랑|하고|도요)?$` +
-		`|^(지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|도|랑|에)$`
+		`|^(지난|지난주|지난달|지난해|지지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|도|랑|에)$`
 	// known non-public qualifiers: a bare 투표/선거 right after one of these
 	// nouns (optionally + 에서/의/별/내) is not a public election. Anything
 	// else (pronouns, kinship, time words, verbs) leaves it public.
@@ -97,7 +97,7 @@ var (
 		`|\S+\s?(국회의원|대통령|도지사|구청장|군수|교육감)\s?(을|를)?\s?(지지\s?(해|하|함|했|합|한다)|찍었|뽑았)`)
 	photoRe = regexp.MustCompile(photoObjects)
 	// party membership glued to the name: '민주당원이야', '진보당원임'.
-	partyMemberRe = regexp.MustCompile(`(^|\s)(` + partyNames + `)\s?원\s?(이야|이에요|이예요|입니다|이다|이라|이거든|이고|이었|임|이)`)
+	partyMemberRe = regexp.MustCompile(`(^|\s)(` + partyNames + `)\s?(당)?원\s?(이야|이에요|이예요|입니다|이다|이라|이거든|이고|이었|임|이|으로|이\s?됐|됐|되었|됨|돼서|가입\s?(했|함|해서|해\s?있|돼|되었|됨|완료))`)
 	partyPrefixRe = regexp.MustCompile(`^(` + partyNames + `)`)
 
 	publicRe   = regexp.MustCompile(publicKeywords)
