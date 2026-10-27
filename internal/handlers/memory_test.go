@@ -60,7 +60,22 @@ func newMemEnv(t *testing.T, enabled bool, led audit.Ledger) (*env, *memory.File
 	s.Store = e.st
 	e.ts = httptest.NewServer(s.Handler())
 	t.Cleanup(e.ts.Close)
+	memSrvMu.Lock()
+	memSrv[e] = s
+	memSrvMu.Unlock()
 	return e, fs
+}
+
+var (
+	memSrvMu sync.Mutex
+	memSrv   = map[*env]*Server{}
+)
+
+func srvOf(t *testing.T, e *env) *Server {
+	t.Helper()
+	memSrvMu.Lock()
+	defer memSrvMu.Unlock()
+	return memSrv[e]
 }
 
 func (e *env) lastUpstream() map[string]any {
