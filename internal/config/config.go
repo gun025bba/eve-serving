@@ -2,7 +2,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -186,31 +189,84 @@ func Default() Config {
 }
 
 // Load reads path (if it exists) over the defaults, then applies env overrides via getenv.
+// getenv cannot tell "set but empty" from "unset"; the gateway uses LoadEnv
+// with os.LookupEnv so an empty GW_MEMORY_ENABLED is a startup error.
 func Load(path string, getenv func(string) string) (Config, error) {
+	return LoadEnv(path, func(k string) (string, bool) { v := getenv(k); return v, v != "" })
+}
+
+// decodeStrict decodes YAML rejecting unknown keys (typos such as `enable:`).
+// An empty document leaves c unchanged.
+func decodeStrict(b []byte, c any) error {
+	d := yaml.NewDecoder(bytes.NewReader(b))
+	d.KnownFields(true)
+	if err := d.Decode(c); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+// memoryEnabledFromYAML returns memory.enabled if the key is present. A key
+// that is present but null/empty is an error, never "unset".
+func memoryEnabledFromYAML(b []byte) (*bool, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil || len(root.Content) == 0 {
+		return nil, err
+	}
+	find := func(n *yaml.Node, key string) *yaml.Node {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == key {
+				return n.Content[i+1]
+			}
+		}
+		return nil
+	}
+	v := find(find(root.Content[0], "memory"), "enabled")
+	if v == nil {
+		return nil, nil
+	}
+	if v.Tag == "!!null" || strings.TrimSpace(v.Value) == "" {
+		return nil, fmt.Errorf("memory.enabled is present but empty/null; set true or false")
+	}
+	var out bool
+	if err := v.Decode(&out); err != nil {
+		return nil, fmt.Errorf("memory.enabled: %w", err)
+	}
+	return &out, nil
+}
+
+// LoadEnv is Load with a lookup that distinguishes unset from empty.
+func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
+	getenv := func(k string) string { v, _ := lookup(k); return v }
 	c := Default()
 	var cfgMemory *bool
 	if b, err := os.ReadFile(path); err == nil {
-		if err := yaml.Unmarshal(b, &c); err != nil {
+		if err := decodeStrict(b, &c); err != nil {
 			return c, fmt.Errorf("parse %s: %w", path, err)
 		}
-		var probe struct {
-			Memory struct {
-				Enabled *bool `yaml:"enabled"`
-			} `yaml:"memory"`
-		}
-		if yaml.Unmarshal(b, &probe) == nil && probe.Memory.Enabled != nil {
-			cfgMemory = probe.Memory.Enabled
+		if cfgMemory, err = memoryEnabledFromYAML(b); err != nil {
+			return c, fmt.Errorf("parse %s: %w", path, err)
 		}
 	} else if !os.IsNotExist(err) {
 		return c, err
 	}
+	var envMemory *bool
+	if v, ok := lookup("GW_MEMORY_ENABLED"); ok {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return c, fmt.Errorf("GW_MEMORY_ENABLED is set but empty; set true or false, or unset it")
+		}
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return c, fmt.Errorf("GW_MEMORY_ENABLED: invalid value (want true/false)")
+		}
+		envMemory = &b
+	}
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
-	}
-	var envMemory *bool
-	if v := getenv("GW_MEMORY_ENABLED"); v != "" {
-		b, _ := strconv.ParseBool(v) // already validated in applyEnv
-		envMemory = &b
 	}
 	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(cfgMemory, envMemory)
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
@@ -299,13 +355,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		}
 		c.Database.AutoMigrate = b
 	}
-	if v := getenv("GW_MEMORY_ENABLED"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
-		}
-		_ = b // resolved "off wins" in Load via ResolveMemoryEnabled
-	}
+	// GW_MEMORY_ENABLED is validated and resolved ("off wins") in LoadEnv.
 	if v := getenv("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {

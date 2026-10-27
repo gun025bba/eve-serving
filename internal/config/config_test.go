@@ -145,3 +145,82 @@ func TestMemoryResolvedLogLine(t *testing.T) {
 }
 
 func boolp(b bool) *bool { return &b }
+
+func writeCfg(t *testing.T, body string) string {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func noEnv(string) (string, bool) { return "", false }
+
+func TestStrictYAML(t *testing.T) {
+	cases := map[string]string{
+		"parse failure":  "memory: [unclosed\n",
+		"typo key":       "memory:\n  enable: false\n",
+		"top-level typo": "memroy:\n  enabled: false\n",
+		"null enabled":   "memory:\n  enabled: null\n",
+		"empty enabled":  "memory:\n  enabled:\n",
+		"tilde enabled":  "memory:\n  enabled: ~\n",
+	}
+	for name, body := range cases {
+		if _, err := LoadEnv(writeCfg(t, body), noEnv); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	c, err := LoadEnv(writeCfg(t, ""), noEnv)
+	if err != nil || !c.Memory.Enabled || c.Memory.EnabledSource != "default" {
+		t.Fatalf("empty file: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: false\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("explicit false: %v %+v", err, c.Memory)
+	}
+}
+
+func TestRepoConfigYAMLStrict(t *testing.T) {
+	if _, err := LoadEnv(filepath.Join("..", "..", "config.yaml"), noEnv); err != nil {
+		t.Fatalf("repo config.yaml must load with KnownFields: %v", err)
+	}
+}
+
+func TestMemoryEnvEmptyOrInvalid(t *testing.T) {
+	for _, v := range []string{"", "  ", "yes-please", "on"} {
+		env := func(k string) (string, bool) {
+			if k == "GW_MEMORY_ENABLED" {
+				return v, true
+			}
+			return "", false
+		}
+		if _, err := LoadEnv("", env); err == nil {
+			t.Errorf("GW_MEMORY_ENABLED=%q: want startup error", v)
+		}
+	}
+	env := func(k string) (string, bool) {
+		if k == "GW_MEMORY_ENABLED" {
+			return " false ", true
+		}
+		return "", false
+	}
+	if c, err := LoadEnv("", env); err != nil || c.Memory.Enabled || c.Memory.EnabledSource != "env" {
+		t.Fatalf("trimmed false: %v %+v", err, c.Memory)
+	}
+}
+
+func TestMemoryResolvedLogNoSecrets(t *testing.T) {
+	c := Default()
+	c.Database.URL = "postgres://u:hunter2pw@db/x"
+	c.Memory.AuditKeyFile = "/tmp/audit.key"
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(boolp(true), nil)
+	var buf bytes.Buffer
+	msg, args := MemoryResolvedLog(c)
+	slog.New(slog.NewTextHandler(&buf, nil)).Info(msg, args...)
+	out := buf.String()
+	for _, bad := range []string{"SECRETKEY", "hunter2pw", "postgres://", "audit.key", "key=", "password", "token"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("log line leaks %q: %s", bad, out)
+		}
+	}
+}

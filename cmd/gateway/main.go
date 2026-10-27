@@ -64,7 +64,7 @@ func main() {
 	if *keyPath == "" {
 		*keyPath = filepath.Join(b, ".api_key")
 	}
-	cfg, err := config.Load(config.Expand(*cfgPath), os.Getenv)
+	cfg, err := config.LoadEnv(config.Expand(*cfgPath), os.LookupEnv)
 	if err != nil {
 		fatal("config: %v", err)
 	}
