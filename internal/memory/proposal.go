@@ -1,8 +1,12 @@
 package memory
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/oklog/ulid/v2"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/store"
@@ -47,6 +51,11 @@ type ProposalCtx struct {
 	ThreadID, MessageID string
 	Actor               string // "user" | "scheduler"
 	Tainted             bool
+	// ActionID/ActionCreated make Execute idempotent: item ids are derived
+	// from them, so a retry after a failed execution (card released back to
+	// pending) never adds duplicates.
+	ActionID      string
+	ActionCreated time.Time
 }
 
 // Check enforces scheduler/taint denial.
@@ -205,12 +214,56 @@ func Execute(st Store, uid int64, raw json.RawMessage, c ProposalCtx, src *Sourc
 		}
 		return ids, Delete(st, uid, ids, now)
 	}
-	for _, it := range p.Items {
-		n, err := Add(st, uid, NewItem{Kind: it.Kind, Text: it.Text, Confidence: "confirmed", Source: src}, now)
+	// one atomic Update for all items (no partial adds); ids are derived
+	// from the action, so a repeated Execute is a no-op for items present.
+	var add []Item
+	for i, it := range p.Items {
+		t, err := Clean(it.Text)
 		if err != nil {
-			return ids, err
+			return nil, err
 		}
-		ids = append(ids, n.ID)
+		n := now.UTC()
+		item := Item{ID: actionItemID(c, i, n), Kind: it.Kind, Text: t, Pinned: it.Kind == "profile", Confidence: "confirmed",
+			Source: src, CreatedAt: n, UpdatedAt: n}
+		if it.Kind == "task" {
+			e := n.Add(TaskTTL)
+			item.ExpiresAt = &e
+		}
+		add = append(add, item)
+		ids = append(ids, item.ID)
+	}
+	_, err := st.Update(uid, func(d *Doc) error {
+		have := map[string]bool{}
+		for _, x := range d.Items {
+			have[x.ID] = true
+		}
+		for _, it := range add {
+			if have[it.ID] {
+				continue
+			}
+			if len(d.Items) >= MaxItems {
+				return ErrTooMany
+			}
+			d.Items = append(d.Items, it)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return ids, nil
+}
+
+// actionItemID is a ULID whose time is the action's creation and whose
+// entropy is sha256(action id, index); without an action id it is random.
+func actionItemID(c ProposalCtx, i int, now time.Time) string {
+	if c.ActionID == "" {
+		return ulid.Make().String()
+	}
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d", c.ActionID, i)))
+	at := c.ActionCreated
+	if at.IsZero() {
+		at = now
+	}
+	return ulid.MustNew(ulid.Timestamp(at), bytes.NewReader(h[:])).String()
 }

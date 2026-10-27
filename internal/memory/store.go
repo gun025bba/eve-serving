@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
@@ -465,7 +467,15 @@ var blockMarkerRe = regexp.MustCompile(`(?i)(<|&lt;?|&#0*60;?|&#x0*3c;?|\\+u0*3c
 // close the injected <user_memory> block. Checked by Clean (propose, add,
 // update) and again at approve via Revalidate.
 func HasBlockMarker(t string) bool {
-	return blockMarkerRe.MatchString(strings.ReplaceAll(t, "\u200b", ""))
+	// NFKC folds fullwidth/compat forms; strip every format (Cf) and
+	// control rune so zero-width joiners, bidi marks etc. cannot split a marker.
+	t = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cc, r) {
+			return -1
+		}
+		return r
+	}, norm.NFKC.String(t))
+	return blockMarkerRe.MatchString(t)
 }
 
 // NewItem is the input for Add.

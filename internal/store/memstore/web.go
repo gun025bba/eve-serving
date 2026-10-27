@@ -105,6 +105,17 @@ func (s *Store) SetThreadSettings(_ context.Context, user, id string, v json.Raw
 	if _, err := s.getT(user, id); err != nil {
 		return err
 	}
-	s.settings[id] = append([]byte{}, v...)
+	// top-level merge, same as postgres `settings || $3::jsonb`
+	cur := map[string]json.RawMessage{}
+	json.Unmarshal(s.settings[id], &cur)
+	var add map[string]json.RawMessage
+	if err := json.Unmarshal(v, &add); err != nil {
+		return err
+	}
+	for k, x := range add {
+		cur[k] = x
+	}
+	b, _ := json.Marshal(cur)
+	s.settings[id] = b
 	return nil
 }
