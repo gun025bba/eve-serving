@@ -28,8 +28,10 @@ LOG=$BASE/gateway-test.log; LLOG=$BASE/gateway-test.launchd.log
 DB=llmchat_test; APPROLE=llmchat_test
 umask 077
 # Explicit connection target: never inherit PGHOST/PGPORT/PGSERVICE etc. from the caller.
-unset PGSERVICE PGSERVICEFILE PGDATABASE PGHOSTADDR PGOPTIONS
+unset PGSERVICE PGSERVICEFILE PGDATABASE PGHOSTADDR PGOPTIONS PGUSER PGPASSFILE PGSSLMODE
 export PGHOST=${QA_PGHOST:-/tmp} PGPORT=${QA_PGPORT:-5432}
+# refuse a non-local target before any connection is made
+case $PGHOST in /*|localhost|127.0.0.1|::1) ;; *) echo "refusing: QA_PGHOST must be local (socket dir, localhost, 127.0.0.1, ::1)" >&2; exit 2;; esac
 
 # Leak check: looks for each key's raw bytes, hex and base64 (prefixes) in the given text file.
 # Prints only YES/no, never key material.

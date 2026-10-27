@@ -41,3 +41,18 @@ func TestSensitive_VoteNumberR1(t *testing.T) {
 		}
 	}
 }
+
+// QA round 9: 투표 + N번 + 에/로 + 했/찍; comma/ellipsis party boundary;
+// 찍/뽑 ending restricted (security Low).
+func TestSensitive_VoteRound9(t *testing.T) {
+	for _, s := range []string{"투표는 2번에 했어", "투표 3번으로 찍었어", "조국혁신당, 지지해", "녹색당…지지함", "녹색당...지지함", "기호 2번 뽑음"} {
+		if CheckSensitive(s) == nil {
+			t.Errorf("not blocked: %q", s)
+		}
+	}
+	for _, s := range []string{"투표 2번 해도 돼?", "주차 기호 2번에 찍힌 차", "정의당 새 대표 기사 요약해줘", "조국혁신당 의석수 몇 석이야?", "기호 1번 후보 토론 영상", "팀 대표 뽑았어"} {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("false positive %q: %v", s, err)
+		}
+	}
+}
