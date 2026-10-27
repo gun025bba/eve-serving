@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gun025bba/eve-serving/internal/auth"
@@ -57,5 +58,38 @@ func TestPatchSettingsNeedsInteractive(t *testing.T) {
 	s.patchSettings(w, r)
 	if w.Code != 403 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+// TestInteractiveOnlyUsesScope pins the actions/reissue/revise/push gate:
+// any principal with the interactive scope passes regardless of provider; a
+// principal without it (API key) gets the unchanged 403 scope_denied body.
+// DELETE /v1/session (sessionOnly) stays the single provider-based exception.
+func TestInteractiveOnlyUsesScope(t *testing.T) {
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }
+	run := func(mw func(http.HandlerFunc) http.HandlerFunc, id auth.Identity) (int, string) {
+		r := httptest.NewRequest("GET", "/v1/actions", nil)
+		r = r.WithContext(auth.WithIdentity(r.Context(), id))
+		w := httptest.NewRecorder()
+		mw(ok)(w, r)
+		return w.Code, w.Body.String()
+	}
+	sess := auth.Identity{User: "u", Provider: auth.ProviderSession, Scopes: []string{auth.ScopeInteractive, auth.ScopeAdmin}}
+	key := auth.Identity{User: "api-key", Provider: auth.ProviderAPIKey, Scopes: []string{auth.ScopeAdmin}}
+	other := auth.Identity{User: "u", Provider: "other", Scopes: []string{auth.ScopeInteractive}}
+
+	if c, _ := run(interactiveOnly, sess); c != 204 {
+		t.Fatalf("session: %d", c)
+	}
+	if c, _ := run(interactiveOnly, other); c != 204 {
+		t.Fatalf("interactive non-session provider should pass: %d", c)
+	}
+	c1, b1 := run(interactiveOnly, key)
+	c2, b2 := run(sessionOnly, key)
+	if c1 != 403 || !strings.Contains(b1, `"scope_denied"`) || c1 != c2 || b1 != b2 {
+		t.Fatalf("api key: interactiveOnly %d %s vs sessionOnly %d %s", c1, b1, c2, b2)
+	}
+	if c, _ := run(sessionOnly, other); c != 403 {
+		t.Fatalf("logout stays provider-based: %d", c)
 	}
 }
