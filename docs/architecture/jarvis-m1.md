@@ -1,5 +1,9 @@
 # Jarvis M1 — 캘린더·리마인더 연동 + 아침 브리핑 — **제안 · 미구현**
 
+상태: **보안 조건부 승인, 머지 전 최종 head 리뷰**.
+
+> **경계 원칙(인증 독립)**: 기능은 인증 방식에 의존하지 않는다. 기능·라우트는 인증 미들웨어가 요청 컨텍스트에 붙인 principal `{user_id, scopes}`(내부 `users.id`)만 보고 필요한 scope만 검사하며, 쿠키·세션·페어링·Bearer 구분은 인증 계층 안에만 둔다.
+
 비전: Eve는 사용자를 알고, 직접 행동하고, 먼저 말하고, 어디서든 닿는 개인 비서다. M1은 그중 **"내 일정을 알고 아침에 먼저 말해 준다"**만 한다.
 원칙: 새 상자를 최소로 만든다. 기존 툴 플랫폼(`docs/tool-platform.md`, #21), 선톡(`proactive-messaging.md`), 메모리 5.0.0(#54), 신원 전달(#23 `identity-transport.md`)을 재사용한다.
 
@@ -17,7 +21,10 @@
 | `reminders.complete(id)` | `reminders.write` | `update` | **필수** |
 | `calendar.add_event(...)` | `calendar.write` | `add` | **필수** — M1에서는 **노출하지 않음**(청사진) |
 
-- 쓰기는 모두 기존 `pending_actions` 확인 게이트를 탄다. 모델은 `{"status":"pending_confirmation","action_id":...}`만 받고, 승인은 브라우저 세션(페어링 쿠키)에서만 가능하다. Bearer는 403 `scope_denied`, 자동 승인은 없다. 메모리 approve 흐름과 같은 규칙이다.
+- 쓰기는 모두 기존 `pending_actions` 확인 게이트를 탄다. 모델은 `{"status":"pending_confirmation","action_id":...}`만 받고, 승인은 `interactive` scope가 필요하다(없으면 403 `scope_denied`, 현재 API 키가 해당). 자동 승인은 없다. 메모리 approve 흐름과 같은 규칙이다.
+- **확인 카드 내용(보안 조건)**: 카드 `payload_view`에 실제 쓸 값 그대로 — 제목(title), 기한(due), 대상 목록(list) — 를 표시한다. 같은 턴에 툴 결과(일정·리마인더 내용)를 읽은 뒤 나온 쓰기 제안도 허용하되, 카드에 정확한 값이 보여야 하고 사용자가 승인해야만 실행된다.
+- **읽기 상한(보안 조건)**: `calendar.list_events` 기간은 최대 31일, 결과 최대 50건. `reminders.list`는 최대 100건. 초과하면 잘라서 `truncated:true`로 표시한다.
+- **라우트 권한 테스트**: Jarvis의 `interactive` 전용 라우트(approve, `/v1/settings`의 briefing·pim 키 변경, 선택 `POST /v1/briefing/preview`)를 `TestRouteAuthMatrix`에 반드시 추가한다(`interactive` 없으면 403).
 - 결과 형식(기존 `tool_result` 그대로):
   `{"status":"ok","data":{"events":[{"id":"<opaque>","title":"...","start":"2026-10-28T09:00:00+09:00","end":"...","all_day":false,"calendar":"<name>"}]}}`
   리마인더: `{"id","title","due","list","done"}`. 메모·참석자·위치·URL은 M1에서 **반환하지 않는다**(최소 데이터, 프롬프트 인젝션 면적 축소). title은 untrusted로 래핑한다(web_search와 같은 방식).
@@ -33,6 +40,13 @@
 **추천: A.** 주의:
 - EventKit은 TCC 권한이 필요하다 → 헬퍼는 서비스 계정 `_evegw`가 아니라 **건영 로그인 세션의 LaunchAgent**로 돌고, 처음 한 번 권한 팝업을 승인한다(sudo 불필요, 건영 직접).
 - 소켓: `<user-run-dir>/pim.sock` 0660, 그룹은 `_evegw`만 들어 있는 전용 그룹 `_evepim`(사람·에이전트는 넣지 않음). Tailscale serve와 무관한 host 내부 IPC라 #23의 샌드박스 문제는 없다. 소켓 디렉터리 소유·권한 검사(fail-closed)는 #23 런북 §0 규칙을 재사용한다.
+- **헬퍼 보안 조건(보안 합의)**:
+  - 소켓 디렉터리는 **0750, 고정 소유자**(건영 계정:`_evepim`)다.
+  - 기동 시 소켓 경로에 기존 파일이나 심볼릭 링크가 있으면(`lstat`) **기동을 거부**한다(자동 삭제 없음).
+  - peer uid(`getpeereid`)가 allowlist(`_evegw`)와 **정확히 일치**해야 한다.
+  - 요청 스키마는 고정이고 크기 상한(예: 8 KiB)이 있다. 모르는 필드나 메서드는 거부한다.
+  - 헬퍼에는 **네트워크 접근이 없다**(소켓 외 리스너 없음, 외부 연결 코드 없음. 가능하면 sandbox 프로필로 network deny).
+  - 로그에 **일정·리마인더 내용(제목·시간·메모)을 남기지 않는다**.
 - 헬퍼 API는 툴 표와 1:1인 최소 JSON-RPC 4개(`list_events`, `list_reminders`, `add_reminder`, `complete_reminder`)만 둔다. 임의 쿼리·삭제·캘린더 목록 변경은 없다.
 - [건영 승인 필요] 쓰기(`reminders.add/complete`)는 로컬 저장소에 쓰지만 **macOS가 연결된 계정(iCloud 등)으로 동기화해 외부로 나간다**. 쓰기 verb 활성화는 건영 승인 후에 한다(읽기만 먼저 배포 가능).
 - 다중 사용자: EventKit은 host 로그인 사용자 한 명의 데이터다 → M1은 **`pim.owner_user_id` 한 명**(users.id)에게만 툴을 노출한다. 다른 사용자는 툴 자체가 숨겨진다. 청사진: 사용자별 CalDAV(안 B)나 사용자별 헬퍼.
@@ -64,7 +78,7 @@
   - `briefing.skip_if_empty` bool, 기본 true
   - `pim.enabled` bool, 기본 false(툴 노출 여부)
 - 서버 설정: `pim.socket_path`, `pim.owner_user_id`(하드코딩 대신 설정, 청사진 = 사용자별 매핑 테이블)
-- API: 새 엔드포인트 없음. 설정 저장 시 서버가 `scheduled_jobs`를 upsert하고, 스레드·메시지는 기존 API로 본다. 테스트용 `POST /v1/briefing/preview`(세션 전용, 저장·발송 없이 미리보기)는 선택.
+- API: 새 엔드포인트 없음. 설정 저장 시 서버가 `scheduled_jobs`를 upsert하고, 스레드·메시지는 기존 API로 본다. 테스트용 `POST /v1/briefing/preview`(`interactive` scope, 저장·발송 없이 미리보기)는 선택.
 - DB: 새 테이블 없음. `scheduled_jobs.template_id='morning_briefing'`. `last_status`에 `skipped_empty` 값 추가(CHECK가 있으면 마이그레이션 1개).
 - **기본 off 이유**: 캘린더는 새 민감 데이터 범주이고, macOS TCC를 건영이 직접 승인해야 하며, 선톡은 사용자가 스스로 켜야 스팸이 되지 않는다. 켜는 것은 설정 토글 하나다.
 
@@ -81,7 +95,10 @@
 - 전달: `Deliverer`에 WebPush/APNs(TestFlight 이후)를 추가한다. 각각 외부 발송 승인을 받는다.
 - 다른 선제 트리거(일정 30분 전 알림 등): 같은 job/템플릿 구조로 추가한다.
 
-## 8. SemVer 초기 판단
+## 8. SemVer 판단: **MAJOR**
+- 새 로컬 신뢰 경계(gateway↔`eve-pim` 소켓)와 새 TCC 개인 데이터(캘린더·미리알림) 접근이 생기므로 MAJOR다(보안 경계 변경). 아래 이전 초안의 MINOR 판단을 대체한다.
+
+### (이전 초안)
 - **MINOR**(기존 계약에 추가만 하고 기본 off): 새 툴, 설정 키, 템플릿, `last_status` 값 추가.
 - 단, 다음 중 하나라도 들어가면 **MAJOR**로 다시 판단한다: 쓰기 verb가 외부 계정으로 동기화되는 것을 기본 on, 외부 전달 채널, 새 host 프로세스의 보안 경계를 보안 담당이 "경계 변경"으로 판정하는 경우. 확실하지 않으면 MAJOR 원칙에 따라, **헬퍼 소켓 경계에 대한 보안 판정 전까지는 잠정 MINOR**로 둔다.
 - 선행 조건: 선톡 스케줄러(proactive-messaging) 구현, #21 확인 게이트, #23 4.0.0 컷오버.
