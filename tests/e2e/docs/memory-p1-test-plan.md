@@ -229,3 +229,10 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Private r12 (gate per architect R1, 초성/English-mixed reclassified recall): core 26/27, FP 0/40, recall 0/3.
 - Private r13 (new): core 17/20, FP 0/40, recall 2/10.
 - Gate: FAIL (core 43/47 blocked, FP 0/80).
+
+### R14 — PR #53 @ f57f1b2 (merged onto main 1edcf6a), private holdout
+- Public suite (2e9da67 + latest qa/memory-p1, QA_STRICT=1): all TestQA_* pass; holdout report core 19/19, FP 0/34, recall 10/12.
+- Private r12 (초성/English-mixed counted as recall): core 27/27, FP 4/40, recall 0/3.
+- Private r13: core 19/20, FP 4/40, recall 2/10.
+- Private r14 (new): core 19/20, FP 5/40, recall 1/10.
+- Gate: FAIL (core 65/67 blocked, FP 13/120).
