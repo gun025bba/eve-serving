@@ -36,10 +36,14 @@ func foldPunct(s string) string {
 // Rule lists, kept together so they can move to config later.
 const (
 	// current and recent parties, including common abbreviations.
-	partyNames      = `더불어\s?민주당|더불어\s?민주연합|더민주|더민|민주당|민주|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|조혁당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운\s?미래|새미래|자유통일당|우리공화당|노동당|사회민주당|사민당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
+	partyNames      = `더불어\s?민주당|더불어\s?민주연합|더민주|민주당|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|조혁당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운\s?미래|새미래|자유통일당|우리공화당|노동당|사회민주당|사민당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
 	politicianNames = `이재명|윤석열|한동훈|조국|이준석|김문수|안철수|홍준표|문재인|박근혜|이낙연|오세훈|김동연|심상정|트럼프|바이든|해리스|trump|biden|harris`
 	// a single-syllable surname directly before 후보 ('윤 후보 찍었어').
 	surnameCandidate = `[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모남궁]\s?후보`
+
+	// short, ambiguous abbreviations: only with a vote verb, never with
+	// 지지/응원/후원 ('민주주의 지지해', '민주 시민 응원해' are not parties).
+	shortPartyNames = `민주|더민`
 
 	// vote-verb dictionary: support verbs; endings make them statements (not 지지율, 지지대, 지지층, 찍힌).
 	supportVerbs = `(지지|찍|뽑)(었|았|어|음|을|고|겠|해|함|하|했|합|한다|하는|$|자\s?(야|임|이|예|라|였|입|$))` +
@@ -47,13 +51,16 @@ const (
 		`|당원\s?(이|임|으로)`
 
 	// explicit public-election keywords.
-	publicKeywords = `대통령\s?선거|국회의원\s?선거|지방\s?선거|재보궐\s?선거|재보궐|재보선|보궐\s?선거|보궐|대선|총선|지선|국민\s?투표|사전\s?투표|투표소|기호` +
+	publicKeywords = `대통령\s?선거|국회의원\s?선거|지방\s?선거|재보궐\s?선거|재보궐|재보선|보궐\s?선거|보궐|대선|총선|지선|국민\s?투표|사전\s?투표|투표소|기호|election` +
 		`|(시장|도지사|지사|구청장|군수|교육감|시의원|구의원|도의원|군의원)\s?선거`
 	// bare vote words; public only when not qualified by a preceding noun.
 	bareVote = `투표용지|투표|선거`
 	// tokens before a bare vote word that do not qualify it (time words,
 	// determiners, verb connectives, particles).
-	unqualifiers = `^(나|저|난|전|내가|제가|나도|저도|나는|저는|우리|저희|우리가|저희가|가족|우리가족|엄마|아빠|엄마가|아빠가|남편|아내|와이프|남편이|아내가|부모님|부모님이|친구|친구가|동생|형|누나|언니|오빠)$|(지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|한|는|은|도|랑|에|고)$`
+	// known non-public qualifiers: a bare 투표/선거 right after one of these
+	// nouns (optionally + 에서/의/별/내) is not a public election. Anything
+	// else (pronouns, kinship, time words, verbs) leaves it public.
+	nonPublicQualifiers = `^(반장|부반장|반|반별|학급|학교|학년|학생회|학생회장|전교|전교회장|동아리|동아리장|과대|과대표|회장|부회장|위원장|대표|팀|팀장|사내|회사|부서|직장|노조|조합|아파트|입주자|동대표|관리단|주민|오디션|아이돌|인기|팬|팬클럽|mvp|메뉴|점심|저녁|회식|장소|여행지|여행|온라인|게임|영화|노래|콘테스트|대회|축제|공연|반티|티|이름|로고|디자인|안건|회의|가족회의|투표함|설문|교회|모임|단톡|단톡방|카톡|커뮤니티|카페|길드|클랜|리그|시상식|어워드|순위)(에서|의|별|내|용)?$`
 	// non-public votes named right before the vote word (kept for clarity;
 	// also caught by the qualifier rule).
 	voteExcludes = `(반장|동아리|회의|오디션|인기|동\s?대표|아파트|입주자|학생회|반\s?대표|팀\s?대표|학교|노조)(장|에서|의)?\s?(회장|대표|반장|위원장)?\s?(선거|투표)`
@@ -70,6 +77,10 @@ var (
 	voteVerbs = `(찍|뽑)` + voteEndings + `|` + ballotVerbs
 
 	partyStmtRe = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `|` + surnameCandidate + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
+	// re-joined syllable runs ('나 민주당 지지해' from '나 민.주.당'): no
+	// leading boundary, since a run may be glued to nothing else.
+	partyJoinedRe = regexp.MustCompile(`(` + partyNames + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
+	shortPartyRe  = regexp.MustCompile(`(^|\s)(` + shortPartyNames + `)(에|을|를|한테|에게|은|는|도|만|쪽)?( \S{1,8}){0,3}? ?(` + voteVerbs + `)`)
 
 	// stance statements without a vote number (moved from the old category
 	// regex so politics lives in one place).
@@ -81,7 +92,7 @@ var (
 
 	publicRe   = regexp.MustCompile(publicKeywords)
 	bareVoteRe = regexp.MustCompile(bareVote)
-	unqualRe   = regexp.MustCompile(unqualifiers)
+	qualRe     = regexp.MustCompile(nonPublicQualifiers)
 	excludeRe  = regexp.MustCompile(voteExcludes)
 
 	// after a vote context: N번 (+ 에/으로/로) (+ 칸) + 찍/뽑 + ending, or
@@ -112,12 +123,13 @@ func voteInContext(f string) bool {
 	for _, loc := range bareVoteRe.FindAllStringIndex(f, -1) {
 		before := strings.TrimRight(f[:loc[0]], " ")
 		if before != "" {
-			// glued to the previous word ('인기투표') or qualified by a noun.
+			// glued to the previous word ('인기투표') or after a known
+			// non-public qualifier noun ('학교 투표', 'MVP 투표').
 			if loc[0] == len(before) {
 				continue
 			}
 			toks := strings.Fields(before)
-			if !unqualRe.MatchString(toks[len(toks)-1]) {
+			if qualRe.MatchString(toks[len(toks)-1]) {
 				continue
 			}
 		}
@@ -133,11 +145,11 @@ func voteInContext(f string) bool {
 // disclosure ('이 서류 2번에 도장 찍어야 해?') unless it is a first-person
 // past statement ('사전투표 2번 찍었어?').
 //
-// TODO(architect): choseong (ㅁㅈㄷ) and English-mixed forms ('I voted for
-// 민주당', 'election에서') are out of scope for this round.
+// TODO(architect): choseong (ㅁㅈㄷ), English-mixed forms ('I voted for
+// 민주당') and inverted order ('찍었어 민주당') are out of scope for this round.
 func politicsStructural(folded, original string) bool {
 	folded = photoRe.ReplaceAllString(folded, " _ ")
-	if partyStmtRe.MatchString(folded) || partyStmtRe.MatchString(joinSyllables(folded)) || stanceRe.MatchString(folded) {
+	if partyStmtRe.MatchString(folded) || partyJoinedRe.MatchString(joinSyllables(folded)) || shortPartyRe.MatchString(folded) || stanceRe.MatchString(folded) {
 		return true
 	}
 	if strings.HasSuffix(strings.TrimSpace(original), "?") && !pastStmtRe.MatchString(folded) && !publicRe.MatchString(folded) {
@@ -146,25 +158,28 @@ func politicsStructural(folded, original string) bool {
 	return voteInContext(folded)
 }
 
-// joinSyllables re-joins runs of single-rune tokens so '민 주 당 지지해'
+// joinSyllables re-joins runs of 3+ single-rune tokens so '민 주 당 지지해'
 // (from 민.주.당 / 민-주-당 / 민_주_당) reads '민주당 지지해'.
 func joinSyllables(f string) string {
 	toks := strings.Fields(f)
 	var out []string
-	run := ""
+	var run []string
+	flush := func() {
+		if len(run) >= 3 {
+			out = append(out, strings.Join(run, ""))
+		} else {
+			out = append(out, run...)
+		}
+		run = nil
+	}
 	for _, t := range toks {
 		if len([]rune(t)) == 1 {
-			run += t
+			run = append(run, t)
 			continue
 		}
-		if run != "" {
-			out = append(out, run)
-			run = ""
-		}
+		flush()
 		out = append(out, t)
 	}
-	if run != "" {
-		out = append(out, run)
-	}
+	flush()
 	return strings.Join(out, " ")
 }
