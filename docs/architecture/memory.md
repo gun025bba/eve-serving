@@ -162,6 +162,7 @@
 - **로그 Redactor 통합**: 메모리 내용이 로그에 남지 않도록 Redactor를 거칠 것.
 - **users.id 키**: `users.id`는 BIGSERIAL(int64)이고 파일명은 `<id>.json`이다. 검증 순서: 양의 정수 → `^[0-9]+$` 일치 → 파싱 후 문자열 재생성이 원본과 같음(round-trip) → 저장 디렉터리의 바로 아래(direct child)인지 → 파일 안의 `user_id`와 교차 확인.
 - **민감 범주 최소 거부 목록(deny list)**: 민감 범주는 저장하지 않는다.
+- **HMAC key validation fix (security Med, 2026-10-27)**: if the key is hex, decode it before checking; require at least 32 bytes after decoding and at least 12 distinct bytes; reject all-zero and repeating-pattern keys; the runbook generates the key with `openssl rand 32`; a rejection error message states the reason.
 
 #### Can wait
 - 암호화와 crypto-shred는 후속 단계로 미룰 수 있다. 단, 메모리가 **어떤 백업에든 포함되는 순간 필수**가 된다.
