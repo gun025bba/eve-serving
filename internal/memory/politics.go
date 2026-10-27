@@ -41,7 +41,8 @@ const (
 	// a single-syllable surname directly before 후보 ('윤 후보 찍었어').
 	surnameCandidate = `[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모남궁]\s?후보`
 
-	// short, ambiguous abbreviations: only with a vote verb, never with
+	// short, ambiguous abbreviations: only with a vote verb directly after
+	// (no words in between: '민주 방식으로 뽑았어' is not a party vote), never with
 	// 지지/응원/후원 ('민주주의 지지해', '민주 시민 응원해' are not parties).
 	shortPartyNames = `민주|더민`
 
@@ -57,10 +58,16 @@ const (
 	bareVote = `투표용지|투표|선거`
 	// tokens before a bare vote word that do not qualify it (time words,
 	// determiners, verb connectives, particles).
+	// person subjects, time words and connectives that leave a bare
+	// 투표/선거 unqualified (public). Any other preceding noun makes it
+	// non-public by default (backlog: default-public needs PM sign-off).
+	personSubjects = `(나|저|난|전|내|제|우리|저희|우리\s?가족|가족|엄마|어머니|아빠|아버지|부모님|남편|아내|와이프|신랑|부인|아들|딸|자식|애|형|오빠|누나|언니|동생|남동생|여동생|할머니|할아버지|삼촌|이모|고모|외삼촌|사촌|조카|친척|남친|여친|남자친구|여자친구|애인|친구|동료|상사|선배|후배|옆집|이웃)`
+	unqualifiers   = `^` + personSubjects + `(가|이|는|은|도|랑|이랑|하고|도요)?$` +
+		`|^(지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|한|는|은|도|랑|에|고)$`
 	// known non-public qualifiers: a bare 투표/선거 right after one of these
 	// nouns (optionally + 에서/의/별/내) is not a public election. Anything
 	// else (pronouns, kinship, time words, verbs) leaves it public.
-	nonPublicQualifiers = `^(반장|부반장|반|반별|학급|학교|학년|학생회|학생회장|전교|전교회장|동아리|동아리장|과대|과대표|회장|부회장|위원장|대표|팀|팀장|사내|회사|부서|직장|노조|조합|아파트|입주자|동대표|관리단|주민|오디션|아이돌|인기|팬|팬클럽|mvp|메뉴|점심|저녁|회식|장소|여행지|여행|온라인|게임|영화|노래|콘테스트|대회|축제|공연|반티|티|이름|로고|디자인|안건|회의|가족회의|투표함|설문|교회|모임|단톡|단톡방|카톡|커뮤니티|카페|길드|클랜|리그|시상식|어워드|순위)(에서|의|별|내|용)?$`
+	nonPublicQualifiers = `^(반장|부반장|반|반별|학급|학교|학년|학생회|학생회장|전교|전교회장|동아리|동아리장|과대|과대표|회장|부회장|위원장|대표|팀|팀장|사내|회사|부서|직장|노조|조합|아파트|입주자|동대표|관리단|주민|오디션|아이돌|인기|팬|팬클럽|mvp|메뉴|점심|저녁|회식|장소|여행지|여행|온라인|게임|영화|노래|콘테스트|대회|축제|공연|반티|티|이름|로고|디자인|안건|회의|가족회의|투표함|설문|교회|성당|절|집사|구역|셀|친구들|친구|동창|동호회|학원|유튜브|트위치|인스타|방송|라이브|채팅|채팅방|모임|단톡|단톡방|카톡|커뮤니티|카페|길드|클랜|리그|시상식|어워드|순위)(에서|의|별|내|용|끼리|끼리서)?$`
 	// non-public votes named right before the vote word (kept for clarity;
 	// also caught by the qualifier rule).
 	voteExcludes = `(반장|동아리|회의|오디션|인기|동\s?대표|아파트|입주자|학생회|반\s?대표|팀\s?대표|학교|노조)(장|에서|의)?\s?(회장|대표|반장|위원장)?\s?(선거|투표)`
@@ -76,11 +83,8 @@ const (
 var (
 	voteVerbs = `(찍|뽑)` + voteEndings + `|` + ballotVerbs
 
-	partyStmtRe = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `|` + surnameCandidate + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
-	// re-joined syllable runs ('나 민주당 지지해' from '나 민.주.당'): no
-	// leading boundary, since a run may be glued to nothing else.
-	partyJoinedRe = regexp.MustCompile(`(` + partyNames + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
-	shortPartyRe  = regexp.MustCompile(`(^|\s)(` + shortPartyNames + `)(에|을|를|한테|에게|은|는|도|만|쪽)?( \S{1,8}){0,3}? ?(` + voteVerbs + `)`)
+	partyStmtRe  = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `|` + surnameCandidate + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
+	shortPartyRe = regexp.MustCompile(`(^|\s)(` + shortPartyNames + `)(에|을|를|한테|에게|은|는|도|만|쪽)? ?(` + voteVerbs + `)`)
 
 	// stance statements without a vote number (moved from the old category
 	// regex so politics lives in one place).
@@ -89,10 +93,14 @@ var (
 		`|(진보|보수|좌파|우파)\s?(쪽|측|성향)?\s?(의\s?)?(후보|정당|당)\s?(을|를|만)?\s?(찍|뽑|지지)` +
 		`|\S+\s?(국회의원|대통령|도지사|구청장|군수|교육감)\s?(을|를)?\s?(지지\s?(해|하|함|했|합|한다)|찍었|뽑았)`)
 	photoRe = regexp.MustCompile(photoObjects)
+	// party membership glued to the name: '민주당원이야', '진보당원임'.
+	partyMemberRe = regexp.MustCompile(`(^|\s)(` + partyNames + `)\s?원\s?(이야|이에요|이예요|입니다|이다|이라|이거든|이고|이었|임|이)`)
+	partyPrefixRe = regexp.MustCompile(`^(` + partyNames + `)`)
 
 	publicRe   = regexp.MustCompile(publicKeywords)
 	bareVoteRe = regexp.MustCompile(bareVote)
 	qualRe     = regexp.MustCompile(nonPublicQualifiers)
+	unqualRe   = regexp.MustCompile(unqualifiers)
 	excludeRe  = regexp.MustCompile(voteExcludes)
 
 	// after a vote context: N번 (+ 에/으로/로) (+ 칸) + 찍/뽑 + ending, or
@@ -129,7 +137,8 @@ func voteInContext(f string) bool {
 				continue
 			}
 			toks := strings.Fields(before)
-			if qualRe.MatchString(toks[len(toks)-1]) {
+			last := toks[len(toks)-1]
+			if qualRe.MatchString(last) || !unqualRe.MatchString(last) {
 				continue
 			}
 		}
@@ -146,10 +155,10 @@ func voteInContext(f string) bool {
 // past statement ('사전투표 2번 찍었어?').
 //
 // TODO(architect): choseong (ㅁㅈㄷ), English-mixed forms ('I voted for
-// 민주당') and inverted order ('찍었어 민주당') are out of scope for this round.
+// 민주당') and inverted order ('찍었어 민주당', '지지하는 건 민주당') are out of scope for this round.
 func politicsStructural(folded, original string) bool {
 	folded = photoRe.ReplaceAllString(folded, " _ ")
-	if partyStmtRe.MatchString(folded) || partyJoinedRe.MatchString(joinSyllables(folded)) || shortPartyRe.MatchString(folded) || stanceRe.MatchString(folded) {
+	if partyStmtRe.MatchString(folded) || partyStmtRe.MatchString(joinSyllables(folded)) || partyMemberRe.MatchString(folded) || shortPartyRe.MatchString(folded) || stanceRe.MatchString(folded) {
 		return true
 	}
 	if strings.HasSuffix(strings.TrimSpace(original), "?") && !pastStmtRe.MatchString(folded) && !publicRe.MatchString(folded) {
@@ -166,7 +175,19 @@ func joinSyllables(f string) string {
 	var run []string
 	flush := func() {
 		if len(run) >= 3 {
-			out = append(out, strings.Join(run, ""))
+			// split off leading standalone syllables ('나' in '나 민 주 당')
+			// so the party name starts its own token.
+			k := 0
+			for ; k <= len(run)-2; k++ {
+				if partyPrefixRe.MatchString(strings.Join(run[k:], "")) {
+					break
+				}
+			}
+			if k > len(run)-2 {
+				k = 0
+			}
+			out = append(out, run[:k]...)
+			out = append(out, strings.Join(run[k:], ""))
 		} else {
 			out = append(out, run...)
 		}
