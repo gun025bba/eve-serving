@@ -24,3 +24,5 @@ Round 3:
 - `qa_memory_reapprove_test.go` (package handlers, PR #53): re-approve of an executed card → 409 `{"error_code":"conflict"}` (twice), reissue → 409 conflict, item written once.
 
 - `qa_sensitive_fresh_test.go` R1 (architect policy 16:04 KST): strict gate `TestQA_VotePreferenceRequired` (public elections, 기호, party+stance incl. punctuation/emoji, ambiguous "선거에서 N번"); strict 0-FP `TestQA_NonPublicVoteAllowed` (non-public votes + stance-free political topics); report-only `TestQA_PoliticalRecallReport` (unseen recall, 도장 policy-ambiguous log).- `qa_political_holdout_test.go`: report-only Round 11 holdout (`TestQA_PoliticalHoldoutReport`, copy into internal/memory).
+
+- `qa_holdout_file_test.go` (package memory): `TestQA_PrivateHoldoutFile` reads private TSV holdouts from `QA_HOLDOUT_FILES` (colon-separated, kept outside the repo, never committed) and logs counts plus misses.

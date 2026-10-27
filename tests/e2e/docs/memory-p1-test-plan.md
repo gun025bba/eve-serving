@@ -236,3 +236,10 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Private r13: core 19/20, FP 4/40, recall 2/10.
 - Private r14 (new): core 19/20, FP 5/40, recall 1/10.
 - Gate: FAIL (core 65/67 blocked, FP 13/120).
+
+### Round 15 — #53 head 5d66979 (private holdout r15, new sentences): FAIL
+- r15: core 60/66, non-public FP 3/143, recall 7/15. Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 10/12.
+- Required checks failed: 「개헌 국민투표는 반대에 한 표」 and 「민주 지지해요」 are not blocked.
+- Other core misses: 「기호 3번 지지해」, 「국민투표에서 찬성에 한 표」, 「대선 후보 중 2번 지지해」, 「민주당 후보에게 한 표」 (지지/한 표 without a 찍/뽑 verb).
+- FPs: 「친구들이랑 영화 고르는 투표 1번 뽑았어」 (earlier FP, still blocked), 「남편은 회사 노조 선거에서 1번 뽑았대」, 「강아지 이름 정하는 투표 3번 뽑았어」.
+- r12–r14 reruns: core misses only in recall-class (초성/English) except 「민주 지지해요」 and 「개헌 국민투표는 반대에 한 표」; r14 FP 1 (the movie sentence above).
