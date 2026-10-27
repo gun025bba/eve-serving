@@ -22,6 +22,7 @@ import (
 	policydata "github.com/gun025bba/eve-serving/deploy/policy"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/auth"
+	"github.com/gun025bba/eve-serving/internal/cli"
 	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/handlers"
 	"github.com/gun025bba/eve-serving/internal/logging"
@@ -29,6 +30,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/proxy"
 	"github.com/gun025bba/eve-serving/internal/queue"
+	"github.com/gun025bba/eve-serving/internal/session"
 	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/gun025bba/eve-serving/internal/store/postgres"
 	"github.com/gun025bba/eve-serving/internal/tools"
@@ -45,7 +47,20 @@ func envOr(k, d string) string {
 	return d
 }
 
+// checkLoopback refuses any bind address other than 127.0.0.1 or ::1 (4.0.0:
+// tailscale serve proxies to loopback; nothing else may reach the gateway).
+func checkLoopback(host string) error {
+	switch strings.Trim(host, "[]") {
+	case "127.0.0.1", "::1":
+		return nil
+	}
+	return fmt.Errorf("refusing to start: bind address %q is not 127.0.0.1 or ::1 (GW_HOST)", host)
+}
+
 func main() {
+	if cli.IsCommand(os.Args[1:]) {
+		os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	base := flag.String("base", envOr("GW_BASE", "~/llm-serving"), "base dir holding config.yaml and .api_key")
 	cfgPath := flag.String("config", os.Getenv("GW_CONFIG"), "config file (default <base>/config.yaml)")
 	keyPath := flag.String("key-file", os.Getenv("GW_KEY_FILE"), "API key file (default <base>/.api_key)")
@@ -81,6 +96,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "migrations applied")
 		return
 	}
+	if err := checkLoopback(*host); err != nil {
+		fatal("%v", err)
+	}
 	key, err := auth.LoadKey(config.Expand(*keyPath))
 	if err != nil {
 		fatal("api key: %v", err)
@@ -111,9 +129,14 @@ func main() {
 	up := proxy.New(proxy.Options{BaseURL: cfg.Upstream, ConnectTimeout: secs(cfg.ConnectTimeoutS), ReadTimeout: secs(cfg.ReadTimeoutS),
 		Retries: cfg.Retries, Backoff: secs(cfg.RetryBackoffS),
 		OnRetry: func(a int, e error) { log.Warn("upstream_connect_retry", "attempt", a, "error", e.Error()) }})
-	chain, err := auth.Build(cfg.Auth.Providers, auth.Options{APIKey: key, AllowedUsers: cfg.AllowedUsers})
-	if err != nil {
-		fatal("%v", err)
+	providers := cfg.Auth.Providers
+	if cfg.TestIdentity.Injection {
+		if err := auth.CheckInjection(auth.InjectionCheck{Env: cfg.Env, Host: *host, DBURL: cfg.Database.URL,
+			ProdUsers: cfg.AllowedUsers, Providers: cfg.Auth.Providers, Users: cfg.TestIdentity.Users}); err != nil {
+			fatal("%v", err)
+		}
+		providers = append([]string{auth.ProviderTestIdentity}, providers...)
+		log.Warn("test_identity_injection_enabled", "users", len(cfg.TestIdentity.Users))
 	}
 	var st store.Store
 	var ledger audit.Ledger
@@ -154,8 +177,28 @@ func main() {
 		ledger = &audit.Memory{}
 		log.Warn("audit_memory_only", "reason", "no database configured")
 	}
+	// Browser sessions (4.0.0) need the database and a 0600 pepper file;
+	// a missing or too-open pepper refuses startup (fail-closed).
+	var sessions *session.Manager
+	opts := auth.Options{APIKey: key, AllowedUsers: cfg.AllowedUsers, TestUsers: cfg.TestIdentity.Users}
+	if pgStore != nil {
+		pepper, err := session.LoadSecret(cli.PepperPath(cfg, *base))
+		if err != nil {
+			fatal("refusing to start: session pepper: %v", err)
+		}
+		if sessions, err = session.New(pgStore, pepper); err != nil {
+			fatal("refusing to start: %v", err)
+		}
+		opts.Sessions = sessions
+	} else {
+		log.Warn("browser_sessions_disabled", "reason", "no database configured; API key only")
+	}
+	chain, err := auth.Build(providers, opts)
+	if err != nil {
+		fatal("%v", err)
+	}
 	switch strings.ToLower(cfg.Env) {
-	case "", "prod", "dev":
+	case "", "prod", "dev", "test", "e2e":
 	default:
 		log.Warn("unknown_gw_env", "value", cfg.Env, "treated_as", "prod")
 	}
@@ -165,7 +208,7 @@ func main() {
 		m.WebAuditDisabled.WithLabelValues("breaker").Set(1)
 		log.Error("audit_breaker_open", "msg", "web tools disabled: repeated audit failures; restart after fixing the audit store")
 	}
-	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Sessions: sessions, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
 	if cfg.Memory.Enabled {
 		if _, ok := st.(store.UserIDResolver); !ok {
@@ -203,8 +246,17 @@ func main() {
 	}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
-	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
-		ErrorLog: stdlog.New(log.Writer(logging.WARN, "http_server_error"), "", 0)} // through the redactor
+	handler := srv.Handler()
+	tl, err := net.Listen("tcp", addr)
+	if err != nil {
+		fatal("listen: %v", err)
+	}
+	servers := []*http.Server{{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		ErrorLog: stdlog.New(log.Writer(logging.WARN, "http_server_error"), "", 0)}} // through the redactor
+	listeners := []net.Listener{tl}
+	if len(cfg.AllowedHosts) == 0 {
+		log.Warn("allowed_hosts_empty", "detail", "only localhost/127.0.0.1/::1 Host headers accepted; set GW_ALLOWED_HOSTS to the serve name")
+	}
 	sysEvent := func(ev, status string, detail map[string]string) {
 		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()
@@ -273,14 +325,22 @@ func main() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 10*time.Second)
 		defer c()
-		hs.Shutdown(sctx)
+		for _, hs := range servers {
+			hs.Shutdown(sctx)
+		}
 	}()
 	log.Info("gateway_start", "addr", addr, "version", version, "upstream", cfg.Upstream, "max_conc", cfg.MaxConc, "max_queue", cfg.MaxQueue,
-		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers), "persistence", st != nil)
+		"auth_providers", strings.Join(cfg.Auth.Providers, ","), "allowed_users", len(cfg.AllowedUsers), "allowed_hosts", len(cfg.AllowedHosts), "sessions", sessions != nil, "persistence", st != nil)
 	fmt.Fprintf(os.Stderr, "gateway %s listening on %s\n", version, addr)
-	if err := hs.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error("gateway_exit", "error", err.Error())
-		fatal("listen: %v", err)
+	errc := make(chan error, len(servers))
+	for i := range servers {
+		go func(hs *http.Server, l net.Listener) { errc <- hs.Serve(l) }(servers[i], listeners[i])
+	}
+	for range servers {
+		if err := <-errc; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("gateway_exit", "error", err.Error())
+			fatal("serve: %v", err)
+		}
 	}
 	log.Info("gateway_stop")
 }

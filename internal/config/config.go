@@ -69,8 +69,9 @@ type Config struct {
 	// ToolsKillswitchFile is the optional 0600 off-only kill switch file
 	// (docs/tool-platform.md §1.3). Empty = no kill switch (nothing disabled).
 	ToolsKillswitchFile string `yaml:"tools_killswitch_file" json:"tools_killswitch_file"`
-	// AllowedUsers are Tailscale logins accepted via the Tailscale-User-Login
-	// header (loopback only). Empty = identity auth disabled.
+	// AllowedUsers are the users.login values that may pair a browser
+	// (`eve-gw pair --user`) and keep using a paired session. Empty = no
+	// browser sessions. Tailscale-User-* headers are never used for identity.
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
@@ -80,6 +81,26 @@ type Config struct {
 	Web      WebConfig    `yaml:"web" json:"web"`
 	Push     PushConfig   `yaml:"push" json:"push"`
 	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+	// AllowedHosts are extra Host header values (port ignored) accepted besides
+	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
+	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
+	AllowedHosts []string `yaml:"allowed_hosts" json:"allowed_hosts"`
+	// SessionPepperFile holds the HMAC pepper for pairing codes and session
+	// tokens (GW_SESSION_PEPPER_FILE, default <base>/.session_pepper). It must
+	// be 0600; rotating it signs every browser out.
+	SessionPepperFile string `yaml:"session_pepper_file" json:"-"`
+	// Removed in 4.0.0 (unix socket identity). Set = startup refused.
+	LegacyUnixSocket  string `yaml:"unix_socket" json:"-"`
+	LegacyTCPDisabled bool   `yaml:"tcp_disabled" json:"-"`
+	// TestIdentity is e2e-only identity injection (binary built with -tags e2e).
+	TestIdentity TestIdentityConfig `yaml:"test_identity" json:"-"`
+}
+
+// TestIdentityConfig: GW_TEST_IDENTITY_INJECTION / GW_TEST_IDENTITY_USERS.
+// A default (non-e2e) binary refuses to start when Injection is true.
+type TestIdentityConfig struct {
+	Injection bool     `yaml:"injection"`
+	Users     []string `yaml:"users"`
 }
 
 // MemoryConfig enables personalization memory (docs/architecture/memory.md).
@@ -174,7 +195,7 @@ func Default() Config {
 		MaxConc:  2, MaxTokensCap: 16384, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
-		Auth:       AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
+		Auth:       AuthConfig{Providers: []string{"session", "api-key"}},
 		Database:   DBConfig{AutoMigrate: true},
 		Web:        defaultWeb(),
 		Generation: DefaultGen(),
@@ -209,6 +230,17 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
+	}
+	if strings.TrimSpace(c.LegacyUnixSocket) != "" || c.LegacyTCPDisabled {
+		return c, fmt.Errorf("unix_socket / tcp_disabled were removed in 4.0.0: the gateway listens on 127.0.0.1 TCP only (docs/architecture/identity-transport.md)")
+	}
+	for _, p := range c.Auth.Providers {
+		if p == "tailscale-identity" {
+			return c, fmt.Errorf("auth provider tailscale-identity was removed in 4.0.0; use [session, api-key] (browsers must pair again)")
+		}
+	}
+	if c.AllowedHosts == nil {
+		c.AllowedHosts = []string{}
 	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
@@ -307,6 +339,27 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_PUSH_VAPID_KEY_ID"); v != "" {
 		c.Push.VAPIDKeyID = v
+	}
+	if v := getenv("GW_UNIX_SOCKET"); v != "" {
+		c.LegacyUnixSocket = v
+	}
+	if v := getenv("GW_ALLOWED_HOSTS"); v != "" {
+		c.AllowedHosts = splitList(v)
+	}
+	if v := getenv("GW_SESSION_PEPPER_FILE"); v != "" {
+		c.SessionPepperFile = v
+	}
+	for k, p := range map[string]*bool{"TCP_DISABLED": &c.LegacyTCPDisabled, "TEST_IDENTITY_INJECTION": &c.TestIdentity.Injection} {
+		if v := getenv("GW_" + k); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("GW_%s: %w", k, err)
+			}
+			*p = b
+		}
+	}
+	if v := getenv("GW_TEST_IDENTITY_USERS"); v != "" {
+		c.TestIdentity.Users = splitList(v)
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)

@@ -7,7 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gun025bba/eve-serving/internal/session"
 )
 
 func TestCheck(t *testing.T) {
@@ -35,42 +38,64 @@ func TestLoadKey(t *testing.T) {
 	}
 }
 
-func newReq(remote, login, bearer string) *http.Request {
+func newReq(login, bearer, cookie string) *http.Request {
 	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = remote
+	r.RemoteAddr = "127.0.0.1:5000"
 	if login != "" {
 		r.Header.Set(HeaderTailscaleLogin, login)
 	}
 	if bearer != "" {
 		r.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: session.CookieName, Value: cookie})
+	}
 	return r
 }
 
+func pairedManager(t *testing.T, logins ...string) (*session.Manager, map[string]string) {
+	m, err := session.New(session.NewMemory(), []byte(strings.Repeat("p", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	toks := map[string]string{}
+	for _, l := range logins {
+		code, err := m.IssueCode(context.Background(), l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tok, _, err := m.Pair(context.Background(), code)
+		if err != nil {
+			t.Fatal(err)
+		}
+		toks[l] = tok
+	}
+	return m, toks
+}
+
 func TestChain(t *testing.T) {
-	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{" Alice@GitHub ", ""}})
+	m, toks := pairedManager(t, "alice@github", "mallory@github")
+	c, err := Build([]string{ProviderSession, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{" Alice@GitHub ", ""}, Sessions: m})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		name, remote, login, bearer string
+		name, login, bearer, cookie string
 		method, outLogin            string
 		err                         error
 	}{
-		{"loopback allowlisted", "127.0.0.1:5000", "alice@github", "", ProviderTailscale, "alice@github", nil},
-		{"loopback v6 case-insensitive", "[::1]:5000", "ALICE@github", "", ProviderTailscale, "ALICE@github", nil},
-		{"loopback not allowlisted", "127.0.0.1:5000", "mallory@github", "", "", "", ErrForbiddenIdentity},
-		{"non-loopback header ignored", "100.64.0.9:5000", "alice@github", "", "", "", ErrNoCredentials},
-		{"lan header ignored", "192.168.1.2:5000", "alice@github", "", "", "", ErrNoCredentials},
-		{"api key", "100.64.0.9:5000", "", "k1", ProviderAPIKey, "api-key", nil},
-		{"api key + spoofed header", "100.64.0.9:5000", "alice@github", "k1", ProviderAPIKey, "api-key", nil},
-		{"bad key", "127.0.0.1:5000", "", "nope", "", "", ErrInvalidKey},
-		{"forbidden identity + valid key", "127.0.0.1:5000", "mallory@github", "k1", "", "", ErrForbiddenIdentity},
-		{"forbidden identity + bad key", "127.0.0.1:5000", "mallory@github", "nope", "", "", ErrForbiddenIdentity},
-		{"nothing", "127.0.0.1:5000", "", "", "", "", ErrNoCredentials},
+		{"session", "", "", toks["alice@github"], ProviderSession, "alice@github", nil},
+		{"session + spoofed header keeps session user", "mallory@github", "", toks["alice@github"], ProviderSession, "alice@github", nil},
+		{"session no longer allowlisted", "", "", toks["mallory@github"], "", "", ErrForbiddenIdentity},
+		{"unknown session", "", "", "nope", "", "", ErrInvalidSession},
+		{"tailscale header alone is nothing", "alice@github", "", "", "", "", ErrNoCredentials},
+		{"tailscale header + key = key user", "alice@github", "k1", "", ProviderAPIKey, "api-key", nil},
+		{"api key", "", "k1", "", ProviderAPIKey, "api-key", nil},
+		{"bad key", "", "nope", "", "", "", ErrInvalidKey},
+		{"nothing", "", "", "", "", "", ErrNoCredentials},
 	}
 	for _, tc := range cases {
-		id, err := c.Authenticate(newReq(tc.remote, tc.login, tc.bearer))
+		id, err := c.Authenticate(newReq(tc.login, tc.bearer, tc.cookie))
 		if !errors.Is(err, tc.err) && !(err == nil && tc.err == nil) {
 			t.Errorf("%s: err %v want %v", tc.name, err, tc.err)
 			continue
@@ -81,27 +106,35 @@ func TestChain(t *testing.T) {
 	}
 }
 
-func TestEmptyAllowlistDisabled(t *testing.T) {
-	ts := NewTailscale(nil)
-	if ts.Enabled() {
-		t.Fatal("enabled")
-	}
-	c := Chain{ts, APIKey{Key: "k1"}}
-	if _, err := c.Authenticate(newReq("127.0.0.1:1", "alice@github", "")); err == nil {
-		t.Fatal("empty allowlist authenticated")
+func TestSessionWithoutStore(t *testing.T) {
+	c := Chain{NewSession(nil, []string{"a@x"}), APIKey{Key: "k1"}}
+	if _, err := c.Authenticate(newReq("a@x", "", "tok")); err == nil {
+		t.Fatal("authenticated without a session store")
 	}
 }
 
-func TestStripUntrusted(t *testing.T) {
-	r := newReq("100.64.0.9:1", "alice@github", "")
-	StripUntrusted(r)
-	if r.Header.Get(HeaderTailscaleLogin) != "" {
-		t.Fatal("not stripped")
+func TestStripTailscale(t *testing.T) {
+	r := newReq("alice@github", "", "")
+	r.Header.Set("Tailscale-User-Name", "Alice")
+	r.Header.Set("Tailscale-User-Profile-Pic", "x")
+	r.Header.Set("Tailscale-User-Anything-New", "x")
+	ctx := StripTailscale(r)
+	for k := range r.Header {
+		if strings.HasPrefix(strings.ToLower(k), "tailscale-user-") {
+			t.Fatal("not stripped:", k)
+		}
 	}
-	r = newReq("127.0.0.1:1", "alice@github", "")
-	StripUntrusted(r)
-	if r.Header.Get(HeaderTailscaleLogin) == "" {
-		t.Fatal("loopback stripped")
+	if TailscaleHint(ctx) != "alice@github" {
+		t.Fatal("hint", TailscaleHint(ctx))
+	}
+}
+
+func TestLoadKeyMode(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "k")
+	os.WriteFile(p, []byte("abc"), 0o644)
+	os.Chmod(p, 0o644)
+	if _, err := LoadKey(p); err == nil {
+		t.Fatal("0644 key file accepted")
 	}
 }
 
@@ -113,16 +146,17 @@ func TestRegistry(t *testing.T) {
 		t.Fatal("empty provider list accepted")
 	}
 	// order matters: api-key first still authenticates key callers
-	c, err := Build([]string{ProviderAPIKey, ProviderTailscale}, Options{APIKey: "k", AllowedUsers: []string{"a@x"}})
+	m, toks := pairedManager(t, "a@x")
+	c, err := Build([]string{ProviderAPIKey, ProviderSession}, Options{APIKey: "k", AllowedUsers: []string{"a@x"}, Sessions: m})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id, err := c.Authenticate(newReq("127.0.0.1:1", "a@x", "")); err != nil || id.Provider != ProviderTailscale {
+	if id, err := c.Authenticate(newReq("", "", toks["a@x"])); err != nil || id.Provider != ProviderSession {
 		t.Fatal(id, err)
 	}
 	Register("test-fixed", func(Options) (Authenticator, error) { return fixed{}, nil })
 	c, _ = Build([]string{"test-fixed"}, Options{})
-	if id, _ := c.Authenticate(newReq("1.2.3.4:1", "", "")); id.User != "fixed" {
+	if id, _ := c.Authenticate(newReq("", "", "")); id.User != "fixed" {
 		t.Fatal(id)
 	}
 }
@@ -143,6 +177,24 @@ func TestContextAndNoop(t *testing.T) {
 	}
 	if !(NoopLimiter{}).Allow(ctx, Identity{}) {
 		t.Fatal("noop denied")
+	}
+}
+
+func TestLoadKeyRefusesSymlink(t *testing.T) {
+	d := t.TempDir()
+	real := filepath.Join(d, "k")
+	if err := os.WriteFile(real, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d, "l")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(link); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	if k, err := LoadKey(real); err != nil || k != "abc" {
+		t.Fatal(k, err)
 	}
 }
 
@@ -174,38 +226,6 @@ func TestChainStopsOnRejection(t *testing.T) {
 	c := Chain{stubAuth{ErrNoCredentials, &a}, stubAuth{nil, &b}}
 	if id, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); err != nil || id.User != "next" {
 		t.Fatal(id, err)
-	}
-}
-
-func TestPresentButEmptyOrDuplicateHeaders(t *testing.T) {
-	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"alice@github"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mk := func(h map[string][]string) *http.Request {
-		r := httptest.NewRequest("GET", "/", nil)
-		r.RemoteAddr = "127.0.0.1:5000"
-		for k, v := range h {
-			r.Header[http.CanonicalHeaderKey(k)] = v
-		}
-		return r
-	}
-	cases := []struct {
-		name string
-		h    map[string][]string
-		want error
-	}{
-		{"empty login + valid key", map[string][]string{HeaderTailscaleLogin: {""}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
-		{"blank login + valid key", map[string][]string{HeaderTailscaleLogin: {"   "}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
-		{"duplicate login", map[string][]string{HeaderTailscaleLogin: {"alice@github", "alice@github"}}, ErrForbiddenIdentity},
-		{"empty authorization", map[string][]string{"Authorization": {""}}, ErrInvalidKey},
-		{"blank authorization", map[string][]string{"Authorization": {"  "}}, ErrInvalidKey},
-		{"duplicate authorization", map[string][]string{"Authorization": {"Bearer k1", "Bearer k1"}}, ErrInvalidKey},
-	}
-	for _, tc := range cases {
-		if _, err := c.Authenticate(mk(tc.h)); !errors.Is(err, tc.want) {
-			t.Errorf("%s: err %v want %v", tc.name, err, tc.want)
-		}
 	}
 }
 

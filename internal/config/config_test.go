@@ -55,7 +55,7 @@ func TestAllowedUsersEnv(t *testing.T) {
 
 func TestAuthProviders(t *testing.T) {
 	c, _ := Load("/nonexistent.yaml", func(string) string { return "" })
-	if len(c.Auth.Providers) != 2 || c.Auth.Providers[0] != "tailscale-identity" {
+	if len(c.Auth.Providers) != 2 || c.Auth.Providers[0] != "session" {
 		t.Fatal(c.Auth.Providers)
 	}
 	c, _ = Load("/nonexistent.yaml", func(k string) string {

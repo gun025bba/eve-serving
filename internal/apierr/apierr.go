@@ -30,7 +30,13 @@ func InvalidKey() *Error {
 	return New(401, "invalid_api_key", "Missing or invalid API key. Use 'Authorization: Bearer <key>'.", "authentication_error")
 }
 func Unauthenticated() *Error {
-	return New(401, "unauthenticated", "Authentication required: open via the tailnet HTTPS URL, or send 'Authorization: Bearer <key>'.", "authentication_error")
+	return New(401, "unauthenticated", "Authentication required: pair this browser (eve-gw pair), or send 'Authorization: Bearer <key>'.", "authentication_error")
+}
+func InvalidSession() *Error {
+	return New(401, "invalid_session", "Session expired or revoked: pair this browser again.", "authentication_error")
+}
+func ScopeDenied() *Error {
+	return New(403, "scope_denied", "This route needs a paired browser session; API keys are not accepted.", "permission_error")
 }
 func ForbiddenIdentity() *Error {
 	return New(403, "identity_not_allowed", "This identity is not in the gateway allowlist.", "permission_error")

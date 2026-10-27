@@ -1,0 +1,1 @@
+{"TCP":{"443":{"HTTPS":true}},"Web":{"h.ts.net:443":{"Handlers":{"/":{"Proxy":"unix:/opt/eve-gw/run/gw.sock"}}}},"AllowFunnel":{"h.ts.net:443":true}}

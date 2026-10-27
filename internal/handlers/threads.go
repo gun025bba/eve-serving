@@ -58,6 +58,12 @@ func user(r *http.Request) string {
 	return id.User
 }
 
+// logUser is the user id for log lines (test identities are pseudonymized).
+func logUser(r *http.Request) string {
+	id, _ := auth.FromContext(r.Context())
+	return auth.LogUser(id)
+}
+
 func intParam(r *http.Request, k string, def, lo, hi int) (int, error) {
 	v := r.URL.Query().Get(k)
 	if v == "" {
@@ -375,7 +381,7 @@ func (s *Server) exportFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// isAdmin: API-key callers or an explicitly allowlisted Tailscale login.
+// isAdmin: API-key callers or a paired session whose login is allowlisted.
 func (s *Server) isAdmin(r *http.Request) bool {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -384,15 +390,7 @@ func (s *Server) isAdmin(r *http.Request) bool {
 	if id.Provider == auth.ProviderAPIKey {
 		return true
 	}
-	if id.Provider != auth.ProviderTailscale {
-		return false
-	}
-	for _, u := range s.Cfg.AllowedUsers {
-		if strings.EqualFold(strings.TrimSpace(u), id.User) {
-			return true
-		}
-	}
-	return false
+	return id.Provider == auth.ProviderSession && auth.AllowedLogin(s.Cfg.AllowedUsers, id.User)
 }
 
 func (s *Server) deleteFeedback(w http.ResponseWriter, r *http.Request) {

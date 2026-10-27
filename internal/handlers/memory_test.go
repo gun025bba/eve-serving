@@ -42,7 +42,7 @@ func newMemEnv(t *testing.T, enabled bool, led audit.Ledger) (*env, *memory.File
 	seen, mu := &[]map[string]any{}, &sync.Mutex{}
 	up := reasoningUpstream(t, seen, mu)
 	t.Cleanup(up.Close)
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
@@ -173,7 +173,7 @@ func TestMemoryAPI_SecretRejectedNotStored(t *testing.T) {
 func TestMemoryAPI_OriginCSRF(t *testing.T) {
 	e, _ := newMemEnv(t, true, &failLedger{})
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/memory/items", strings.NewReader(`{"kind":"fact","text":"x"}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://evil.invalid")
 	resp, err := http.DefaultClient.Do(req)

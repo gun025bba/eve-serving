@@ -215,14 +215,16 @@ func (s *Server) pushEnabled() bool {
 	return p.Enabled && p.VAPIDPublicKey != "" && p.VAPIDKeyID != "" && s.Store != nil && tools.Default().Kill.ProactiveAllowed()
 }
 
+// pushed: push routes are session-only (checked before the enabled gate so
+// API-key callers always get 403).
 func (s *Server) pushed(h http.HandlerFunc) http.HandlerFunc {
-	return s.authed(func(w http.ResponseWriter, r *http.Request) {
+	return s.authed(sessionOnly(func(w http.ResponseWriter, r *http.Request) {
 		if !s.pushEnabled() {
 			s.writeCode(w, r, "not_found")
 			return
 		}
 		h(w, r)
-	})
+	}))
 }
 
 func (s *Server) vapidKey(w http.ResponseWriter, r *http.Request) {
