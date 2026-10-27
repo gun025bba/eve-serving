@@ -83,9 +83,6 @@ func (s *Server) runDetached(w http.ResponseWriter, r *http.Request, body map[st
 		}
 	}()
 	err = pr.startPlaceholder(r)
-	// From here the generating row guards the turn (#30), so the in-memory
-	// mark can go; earlier exits are covered by the handler's defer.
-	pr.releaseInflight()
 	if err != nil {
 		if errors.Is(err, store.ErrGenerating) {
 			s.M.GenRejected.WithLabelValues("conflict").Inc()
@@ -94,6 +91,9 @@ func (s *Server) runDetached(w http.ResponseWriter, r *http.Request, body map[st
 		return
 	}
 	gctx, cancel := context.WithTimeout(context.WithValue(context.WithoutCancel(r.Context()), slotHeldKey{}, true), dur(h.cfg.TimeoutS))
+	if s.testHookBeforeStart != nil {
+		s.testHookBeforeStart()
+	}
 	g, err := h.start(gctx, cancel, pr.user, pr.threadID, pr.msgID)
 	if err != nil {
 		cancel()
@@ -101,6 +101,11 @@ func (s *Server) runDetached(w http.ResponseWriter, r *http.Request, body map[st
 		return
 	}
 	reserved, released = false, true
+	// #30: only now does the generating row plus the registered run guard the
+	// turn (lastTurnGenerating needs both), so the in-memory mark can go.
+	// Every earlier exit, including a failed start, is covered by the
+	// handler's deferred releaseInflight.
+	pr.releaseInflight()
 	pr.failCode = g.failCode
 	r2 := r.WithContext(gctx)
 	if err := g.subscribe(); err != nil { // the original request is subscriber #1

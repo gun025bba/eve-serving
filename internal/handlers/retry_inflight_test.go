@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,5 +75,57 @@ func TestRetryAfterCancelProceeds(t *testing.T) {
 	}
 	if n := len(threadMsgs(t, e, tid)); n != 2 {
 		t.Fatalf("want 2 messages after retry, got %d", n)
+	}
+}
+
+// #30 (security Med 1): a resend arriving after the generating row exists
+// but before the run is registered must still get 409, not a second
+// user message and a second answer.
+func TestRetryInPlaceholderToStartWindow409(t *testing.T) {
+	var e *env
+	var armed atomic.Bool
+	var tid string
+	var code int
+	var body []byte
+	e, _ = newDetachEnv(t, 3, 5*time.Millisecond, func(s *Server) {
+		s.Q = queue.New(4, 4, 5*time.Second)
+		s.testHookBeforeStart = func() {
+			if !armed.CompareAndSwap(true, false) {
+				return
+			}
+			r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"stream":true,"messages":[{"role":"user","content":"x"}],"thread_id":"`+tid+`"}`)
+			code, body = r.StatusCode, b
+		}
+	})
+	r0, evs0 := openStream(t, e, "alice@example", longChat, 1)
+	tid, _ = metaOf(t, evs0)
+	io.Copy(io.Discard, r0.Body)
+	r0.Body.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for ms := threadMsgs(t, e, tid); ms[len(ms)-1].Status == store.StatusGenerating; ms = threadMsgs(t, e, tid) {
+		if time.Now().After(deadline) {
+			t.Fatal("seed turn still generating")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	before := len(threadMsgs(t, e, tid))
+	armed.Store(true)
+	r1, _ := openStream(t, e, "alice@example", `{"stream":true,"messages":[{"role":"user","content":"x"}],"thread_id":"`+tid+`"}`, 1)
+	defer r1.Body.Close()
+	if armed.Load() {
+		t.Fatal("hook did not fire")
+	}
+	if code != 409 || errCode(js(t, body)) != "generation_in_progress" {
+		t.Fatalf("resend in window: %d %s", code, body)
+	}
+	users := 0
+	for _, m := range threadMsgs(t, e, tid) {
+		if m.Role == "user" {
+			users++
+		}
+	}
+	// seed turn + the in-window turn only; the 409'd resend added nothing.
+	if users != 2 || len(threadMsgs(t, e, tid)) != before+2 {
+		t.Fatalf("resend in window stored a second turn: %d users", users)
 	}
 }

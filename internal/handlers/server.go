@@ -45,6 +45,9 @@ func init() {
 }
 
 type Server struct {
+	// testHookBeforeStart, if set, runs after the generating row is created
+	// and before the run is registered (#30 window). Tests only.
+	testHookBeforeStart func()
 	// Now is the clock seam (tests); nil = time.Now.
 	Now func() time.Time
 
