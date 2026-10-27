@@ -319,20 +319,35 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) {
 	if err != nil || blk == "" {
 		return
 	}
-	if m, ok := msgs[0].(map[string]any); ok && m["role"] == "system" {
-		if c, ok := m["content"].(string); ok {
-			cp := make(map[string]any, len(m))
-			for k, v := range m {
-				cp[k] = v
-			}
-			cp["content"] = c + "\n\n" + blk
-			out := append([]any{cp}, msgs[1:]...)
-			body["messages"] = out
-			return
+	// The block must be the very last text of the system prompt: append it to
+	// the LAST message of the leading run of system messages, so no client
+	// system text follows it. (Web mode later prepends tools.SystemPrompt;
+	// tool output never enters a system message.)
+	last := -1
+	for i, mm := range msgs {
+		m, ok := mm.(map[string]any)
+		if !ok || m["role"] != "system" {
+			break
 		}
+		last = i
+	}
+	if last < 0 {
+		body["messages"] = append([]any{map[string]any{"role": "system", "content": blk}}, msgs...)
+		return
+	}
+	m := msgs[last].(map[string]any)
+	c, ok := m["content"].(string)
+	if !ok {
 		return // structured system content: do not touch (fail-closed)
 	}
-	body["messages"] = append([]any{map[string]any{"role": "system", "content": blk}}, msgs...)
+	cp := make(map[string]any, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	cp["content"] = c + "\n\n" + blk
+	out := append([]any{}, msgs...)
+	out[last] = cp
+	body["messages"] = out
 }
 
 // reviseMemoryCheck re-runs memory.propose creation validations on the

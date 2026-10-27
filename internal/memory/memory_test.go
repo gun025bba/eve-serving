@@ -1,6 +1,9 @@
 package memory
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -538,10 +541,9 @@ func TestMemoryKey_RejectsWeakKeys(t *testing.T) {
 		t.Fatalf("good key: %v", err)
 	}
 	for name, b := range map[string][]byte{
-		"repeated":         []byte(strings.Repeat("k", 32)),
-		"pattern":          []byte(strings.Repeat("ab", 32)),
-		"trailing newline": append(append([]byte{}, good...), '\n'),
-		"short":            good[:31],
+		"repeated": []byte(strings.Repeat("k", 32)),
+		"pattern":  []byte(strings.Repeat("ab", 32)),
+		"short":    good[:31],
 	} {
 		if _, err := ReadKeyFile(write(b)); err == nil {
 			t.Fatalf("%s accepted", name)
@@ -572,5 +574,114 @@ func TestMemoryFileKey_RoundTrip(t *testing.T) {
 		if err != nil || k != strconv.FormatInt(id, 10) {
 			t.Fatalf("%d -> %q %v", id, k, err)
 		}
+	}
+}
+
+func TestMemoryKey_ParseKeyCriteria(t *testing.T) {
+	// openssl rand -hex 32 output passes with or without its newline, across
+	// many random seeds (only the distinct/repeat checks could ever trip).
+	fails := 0
+	for range 2000 {
+		rnd := make([]byte, 32)
+		rand.Read(rnd)
+		h := hex.EncodeToString(rnd)
+		_, e1 := ParseKey([]byte(h))
+		_, e2 := ParseKey([]byte(h + "\n"))
+		if e1 != nil || e2 != nil {
+			fails++
+		}
+	}
+	if fails > 0 {
+		t.Fatalf("openssl rand -hex 32 rejected %d/2000 times", fails)
+	}
+	rnd := make([]byte, 32)
+	rand.Read(rnd)
+	for i, c := range rnd { // raw case: avoid accidental trailing whitespace / all-hex text
+		if c == '\n' || c == '\r' || c == ' ' || c == '\t' || c == '\v' || c == '\f' || c < 0x80 {
+			rnd[i] = 0x80 | byte(i)
+		}
+	}
+	hex32 := hex.EncodeToString(rnd)
+	cases := []struct{ name, in, wantErr string }{
+		{"raw 32 bytes (openssl rand 32)", string(rnd), ""},
+		{"raw 32 bytes + one newline", string(rnd) + "\n", ""},
+		{"hex 32 + one newline", hex32 + "\n", ""},
+		{"hex 32 + two newlines", hex32 + "\n\n", "more than one trailing newline"},
+		{"hex 32 + trailing space", hex32 + " ", "trailing whitespace"},
+		{"hex 32 + space + newline", hex32 + " \n", "trailing whitespace"},
+		{"hex 32 + CRLF", hex32 + "\r\n", "trailing whitespace"},
+		{"openssl rand -hex 16", hex32[:32], "16 bytes"},
+		{"openssl rand -hex 16 + newline", hex32[:32] + "\n", "16 bytes"},
+		{"raw 31 bytes", string(rnd[:31]), "31 bytes"},
+		{"all zero hex", strings.Repeat("00", 32), "all zero"},
+		{"all zero raw", string(make([]byte, 32)), "all zero"},
+		{"first 8 bytes repeated", strings.Repeat(hex32[:16], 4), "repeating pattern"},
+		{"repeat with partial tail (raw)", strings.Repeat("ABCDEFGH", 5)[:36], "repeating pattern"},
+		{"11 distinct bytes", fewDistinctHex(11), "11 distinct bytes"},
+		{"12 distinct bytes", fewDistinctHex(12), ""},
+	}
+	for _, c := range cases {
+		k, err := ParseKey([]byte(c.in))
+		if c.wantErr == "" {
+			if err != nil || len(k) < MinKeyBytes {
+				t.Fatalf("%s: want ok, got %v", c.name, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+			t.Fatalf("%s: want %q, got %v", c.name, c.wantErr, err)
+		}
+		if len(c.in) >= 8 && strings.Contains(err.Error(), c.in[:8]) {
+			t.Fatalf("%s: error leaks key material", c.name)
+		}
+	}
+	if k, _ := ParseKey([]byte(hex32 + "\n")); !bytes.Equal(k, rnd) {
+		t.Fatal("hex key not decoded to its bytes")
+	}
+}
+
+func fewDistinctHex(n int) string {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(i%n + 1) // period n (not 8): exactly n distinct values
+	}
+	return hex.EncodeToString(b)
+}
+
+func TestMemoryOpen_RemovesLeftoverTempFilesAfterCheck(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "mem")
+	os.Mkdir(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "3.json"), []byte("{}"), 0o600)
+	os.WriteFile(filepath.Join(dir, ".tmp-123"), []byte("partial"), 0o600)
+	if _, err := Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-123")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temp file not removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "3.json")); err != nil {
+		t.Fatalf("data file removed: %v", err)
+	}
+	// an unsafe temp file refuses startup and is left in place for inspection
+	os.WriteFile(filepath.Join(dir, ".tmp-456"), []byte("x"), 0o644)
+	os.Chmod(filepath.Join(dir, ".tmp-456"), 0o644)
+	if _, err := Open(dir); err == nil {
+		t.Fatal("0644 temp file accepted")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-456")); err != nil {
+		t.Fatal("unsafe temp file should be kept")
+	}
+}
+
+func TestMemoryLocks_MapShrinksAfterUse(t *testing.T) {
+	fs := newFS(t)
+	var wg sync.WaitGroup
+	for i := int64(1); i <= 50; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); add(t, fs, i, "fact", "x"); fs.Purge(i) }()
+	}
+	wg.Wait()
+	if n := fs.lockCount(); n != 0 {
+		t.Fatalf("lock map holds %d idle entries", n)
 	}
 }

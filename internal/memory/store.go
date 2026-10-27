@@ -96,7 +96,7 @@ type FileStore struct {
 	uid   int
 	Now   func() time.Time
 	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	locks map[int64]*userLock
 }
 
 // Open prepares dir (0700, owned by the gateway account). An existing dir
@@ -135,18 +135,21 @@ func Open(dir string) (*FileStore, error) {
 	if err := checkEntries(dir, uid); err != nil {
 		return nil, err
 	}
-	return &FileStore{dir: dir, uid: uid, Now: time.Now, locks: map[string]*sync.Mutex{}}, nil
+	return &FileStore{dir: dir, uid: uid, Now: time.Now, locks: map[int64]*userLock{}}, nil
 }
 
 // checkEntries is the startup permission audit: every entry must be a
 // regular file (no symlink/dir) owned by the gateway account with no
 // group/other bits, named <users.id>.json|.lock or a leftover .tmp-*.
 // Anything else refuses startup rather than being silently "fixed".
+// Leftover .tmp-* files (a crash between write and rename) are checked like
+// every other entry first, and only then removed.
 func checkEntries(dir string, uid int) error {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
+	var tmps []string
 	for _, e := range ents {
 		n := e.Name()
 		if !strings.HasPrefix(n, ".tmp-") {
@@ -165,6 +168,17 @@ func checkEntries(dir string, uid int) error {
 		if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != uid {
 			return errors.New("memory: data file is not owned by the gateway account")
 		}
+		if strings.HasPrefix(n, ".tmp-") {
+			tmps = append(tmps, n)
+		}
+	}
+	for _, n := range tmps {
+		if err := os.Remove(filepath.Join(dir, n)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("memory: cannot remove leftover temp file: %w", err)
+		}
+	}
+	if len(tmps) > 0 {
+		return syncDir(dir)
 	}
 	return nil
 }
@@ -222,14 +236,39 @@ func (s *FileStore) Dir() string { return s.dir }
 
 func (s *FileStore) path(uid int64) string { p, _ := s.file(uid, ".json"); return p }
 
-func (s *FileStore) userLock(uid int64) *sync.Mutex {
+// lockUser takes the per-user in-process mutex. Entries are reference
+// counted and removed when the last holder/waiter releases, so the map only
+// holds users with an operation in flight (it cannot grow without bound).
+func (s *FileStore) lockUser(uid int64) (unlock func()) {
+	s.mu.Lock()
+	l := s.locks[uid]
+	if l == nil {
+		l = &userLock{}
+		s.locks[uid] = l
+	}
+	l.refs++
+	s.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		s.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(s.locks, uid)
+		}
+		s.mu.Unlock()
+	}
+}
+
+type userLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+// lockCount is the number of live per-user lock entries (tests).
+func (s *FileStore) lockCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	k := strconv.FormatInt(uid, 10)
-	if s.locks[k] == nil {
-		s.locks[k] = &sync.Mutex{}
-	}
-	return s.locks[k]
+	return len(s.locks)
 }
 
 func empty(uid int64) Doc {
@@ -283,9 +322,8 @@ func (s *FileStore) Update(uid int64, fn func(*Doc) error) (Doc, error) {
 	if err != nil {
 		return Doc{}, err
 	}
-	l := s.userLock(uid)
-	l.Lock()
-	defer l.Unlock()
+	unlock := s.lockUser(uid)
+	defer unlock()
 	lf, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return Doc{}, ErrUnsafeFile
@@ -364,9 +402,8 @@ func (s *FileStore) Purge(uid int64) error {
 	if err != nil {
 		return err
 	}
-	l := s.userLock(uid)
-	l.Lock()
-	defer l.Unlock()
+	unlock := s.lockUser(uid)
+	defer unlock()
 	// Same flock as Update, so a purge cannot interleave with another
 	// process's read-modify-write. The .lock file itself is kept: removing
 	// it while others may hold or wait on it would split the lock.
