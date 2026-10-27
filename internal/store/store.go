@@ -13,6 +13,7 @@ import (
 	"errors"
 	"html"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -215,9 +216,26 @@ type UserIDResolver interface {
 }
 
 // NewID returns a ULID for t (time-sortable, 26 chars).
+// NewID returns a ULID for t. IDs minted in the same millisecond are
+// strictly increasing (monotonic entropy), so (created_at, id) ordering is
+// stable even when timestamps tie.
 func NewID(t time.Time) string {
-	return ulid.MustNew(ulid.Timestamp(t), rand.Reader).String()
+	idMu.Lock()
+	defer idMu.Unlock()
+	ms := ulid.Timestamp(t)
+	if ms < idLastMS {
+		// clock went back or caller passed an older time: fresh entropy
+		return ulid.MustNew(ms, rand.Reader).String()
+	}
+	idLastMS = ms
+	return ulid.MustNew(ms, idEntropy).String()
 }
+
+var (
+	idMu      sync.Mutex
+	idLastMS  uint64
+	idEntropy = ulid.Monotonic(rand.Reader, 0)
+)
 
 // Preview shortens s to n runes on one line.
 func Preview(s string, n int) string {
