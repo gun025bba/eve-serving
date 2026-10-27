@@ -27,6 +27,28 @@ var unescaper = strings.NewReplacer(`%3C`, "<", `%3c`, "<", `%3E`, ">", `%3e`, "
 	`&#60;`, "<", `&#x3c;`, "<", `&#x3C;`, "<", `\u003c`, "<", `\u003C`, "<", `\u003e`, ">", `\u003E`, ">", `\u0026`, "&",
 	`\\u003c`, "<", `\\u003e`, ">", `&lt;`, "<", `&gt;`, ">", `\"`, `"`, `\\"`, `"`)
 
+var numRefRe = regexp.MustCompile(`(?i)&#(x0*3c|0*60|x0*3e|0*62);?|%25(?:25)*(3c|3e)`)
+
+// unescapeAll repeats the unescape until stable (max 4 rounds), and folds
+// zero-padded/upper-case numeric references and nested %25 encodings.
+func unescapeAll(s string) string {
+	for i := 0; i < 4; i++ {
+		n := numRefRe.ReplaceAllStringFunc(s, func(m string) string {
+			l := strings.ToLower(m)
+			if strings.HasSuffix(l, "3c") || strings.HasSuffix(l, "3c;") || strings.Contains(l, "60") {
+				return "<"
+			}
+			return ">"
+		})
+		n = unescaper.Replace(n)
+		if n == s {
+			return n
+		}
+		s = n
+	}
+	return s
+}
+
 // RedactLog is the log Redactor (memory.md §9.1). It is installed always;
 // memory-specific masks only ever match while memory produced data.
 //   - a value carrying the <user_memory> block, its preamble, or the per-item
@@ -38,7 +60,7 @@ func RedactLog(s string) string {
 	if s == "" {
 		return s
 	}
-	u := unescaper.Replace(s)
+	u := unescapeAll(s)
 	if strings.Contains(u, "<user_memory") || strings.Contains(u, "</user_memory") || strings.Contains(u, Preamble) || entryLine.MatchString(u) {
 		return redactedMemory
 	}
