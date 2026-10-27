@@ -269,3 +269,12 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Ambiguous bypass probe (public vote with a non-public companion word): 13/15 blocked; leaks 「회사 동료랑 사전투표 가서 2번 찍었어」 「아파트 이웃들 다 기호 3번 지지자야」.
 - Reference: questions FP r19 4/22 (all -지?), r18 3/20; news FP r19 3/20, r18 4/22, r17 6/25.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 20 — #53 head 7a6eddd (code b5d18fe), gate r16–r20 with PM relabel: FAIL (FP)
+- Relabel: self/family union membership → should-block (12 sentences across r16–r19); news: only -대/-래 endings allow; -지? blocked only with an evaluative word.
+- Core: r20 61/61, r19 63/63, r18 64/64, r17 63/63, r16 65/65. Union membership: 5/12 blocked (7 leak).
+- Non-public FP: r20 12/220, r19 16/201, r18 3/197, r17 0/170, r16 0/158.
+- FP patterns: '[group] 회장 N번 지지자' family statements (22), 사전투표 with a group (3), 기호/사전투표 as an everyday word (3), decoys with 조국/정의당 (3).
+- Ambiguous probe: r20 18/20, r19 14/15.
+- Reference: info-question FP r20 5/12, r19 4/22, r18 4/20; evaluative -지? 4/6 blocked; news -대/-래 FP r20 2/10, r19 0/13, r18 1/14, r17 4/18.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
