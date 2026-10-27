@@ -1,0 +1,10 @@
+QA report-only holdout qa/memory-p1 2e9da67 (also run at 45f191f, same result)
+measured on CODE head 6de417e (this results file is committed on top of it), 2026-10-27 17:03 KST
+
+holdout core blocked 19/19 | recall 10/12 | allow FP 0/34
+recall misses (accepted): English-mixed 'support 해' (TODO), no election word '이번엔 1번 찍었다 아이가'
+strict suites (QA_STRICT=1) at 6de417e: 081a31c and 00e5985 pass; corpus 40/25 FP0 FN0, fresh 24/16 FP0 FN0, unseen 12/15 FP0 FN0, unseen political recall 12/12
+own generalization set (TestSensitive_PoliticsGeneralR16): block 40/40 | allow FP 0/60
+
+reproduce: git fetch origin qa/memory-p1; copy tests/e2e/go/qa_*_test.go (package memory -> internal/memory/, package handlers -> internal/handlers/), then
+  QA_STRICT=1 go test -count=1 -v -run 'TestQA_' ./internal/memory ./internal/handlers
