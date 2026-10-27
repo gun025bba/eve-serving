@@ -63,11 +63,11 @@ const (
 	// non-public by default (backlog: default-public needs PM sign-off).
 	personSubjects = `(나|저|난|전|내|제|우리|저희|우리\s?가족|가족|엄마|어머니|아빠|아버지|부모님|남편|아내|와이프|신랑|부인|아들|딸|자식|애|형|오빠|누나|언니|동생|남동생|여동생|할머니|할아버지|삼촌|이모|고모|외삼촌|사촌|조카|친척|남친|여친|남자친구|여자친구|애인|친구|동료|상사|선배|후배|옆집|이웃)`
 	unqualifiers   = `^` + personSubjects + `(가|이|는|은|도|랑|이랑|하고|도요)?$` +
-		`|^(지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|한|는|은|도|랑|에|고)$`
+		`|^(지난|이번|다음|저번|그|그때|올해|작년|내년|어제|오늘|아까|이번엔|지난번|저번에|이번에)$|(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|도|랑|에)$`
 	// known non-public qualifiers: a bare 투표/선거 right after one of these
 	// nouns (optionally + 에서/의/별/내) is not a public election. Anything
 	// else (pronouns, kinship, time words, verbs) leaves it public.
-	nonPublicQualifiers = `^(반장|부반장|반|반별|학급|학교|학년|학생회|학생회장|전교|전교회장|동아리|동아리장|과대|과대표|회장|부회장|위원장|대표|팀|팀장|사내|회사|부서|직장|노조|조합|아파트|입주자|동대표|관리단|주민|오디션|아이돌|인기|팬|팬클럽|mvp|메뉴|점심|저녁|회식|장소|여행지|여행|온라인|게임|영화|노래|콘테스트|대회|축제|공연|반티|티|이름|로고|디자인|안건|회의|가족회의|투표함|설문|교회|성당|절|집사|구역|셀|친구들|친구|동창|동호회|학원|유튜브|트위치|인스타|방송|라이브|채팅|채팅방|모임|단톡|단톡방|카톡|커뮤니티|카페|길드|클랜|리그|시상식|어워드|순위)(에서|의|별|내|용|끼리|끼리서)?$`
+	nonPublicQualifiers = `^(반장|부반장|반|반별|학급|학교|학년|학생회|학생회장|전교|전교회장|동아리|동아리장|과대|과대표|회장|부회장|위원장|대표|팀|팀장|사내|회사|부서|직장|노조|조합|아파트|입주자|동대표|관리단|주민|오디션|아이돌|인기|팬|팬클럽|mvp|메뉴|점심|저녁|회식|장소|여행지|여행|온라인|게임|영화|노래|콘테스트|대회|축제|공연|반티|티|이름|강아지|고양이|반려견|로고|디자인|안건|회의|가족회의|투표함|설문|교회|성당|절|집사|구역|셀|친구들|친구|동창|동호회|학원|유튜브|트위치|인스타|방송|라이브|채팅|채팅방|모임|단톡|단톡방|카톡|커뮤니티|카페|길드|클랜|리그|시상식|어워드|순위)(에서|의|별|내|용|끼리|끼리서)?$`
 	// non-public votes named right before the vote word (kept for clarity;
 	// also caught by the qualifier rule).
 	voteExcludes = `(반장|동아리|회의|오디션|인기|동\s?대표|아파트|입주자|학생회|반\s?대표|팀\s?대표|학교|노조)(장|에서|의)?\s?(회장|대표|반장|위원장)?\s?(선거|투표)`
@@ -75,7 +75,10 @@ const (
 	photoObjects = `(사진|영상|동영상|포스터|셀카|화보|광고|프로필)\s?(을|를|도|만)?\s?(\d+\s?번\s?)?(찍|뽑)`
 	// vote-verb dictionary for the vote-number rule (beyond 찍/뽑 + ending).
 	// Single source for every rule family (party, vote number, 국민투표).
-	ballotVerbs   = `(한\s?)?표\s?(를)?\s?(던졌|던짐|던지고|던질|줬|줌|주고|준|줄|주었|행사\s?(했|함|하고))|기표\s?(했|함|하고|할)|투표\s?(했|함|하고|할)`
+	ballotVerbs = `(한\s?)?표\s?(를)?\s?(던졌|던짐|던지고|던질|줬|줌|주고|준|줄|주었|행사\s?(했|함|하고))|기표\s?(했|함|하고|할)|투표\s?(했|함|하고|할)` +
+		// '지지' statements and a bare '한 표' count as vote verbs next to a
+		// party, 기호, 국민투표 or public-election word.
+		`|지지\s?(해|하|함|했|합|한다|할)|한\s?표($|\s|를|요|입니다|임)`
 	voteParticles = `(에|으로|로|한테|에게|을|를|에서)`
 	voteEndings   = `(었|았|음|을|고|겠|다|어( |$|요)|는)`
 )
@@ -119,6 +122,30 @@ var (
 	pastStmtRe = regexp.MustCompile(`(찍었|뽑았|했어|했음|했다)`)
 )
 
+// relClauseRe: a relative clause describing the vote ('영화 고르는 투표',
+// '이름 정하는 투표') marks it as non-public.
+var clauseBreakRe = regexp.MustCompile(`(하고|나고|가고|오고|끝나고|하면|해서|나서|가서|와서|하며|는데|지만)$`)
+
+var relClauseRe = regexp.MustCompile(`(고르|정하|뽑|결정하|선택하|하)는$`)
+
+// nonPublicClause reports whether any token before a bare vote word is a
+// known non-public qualifier or a relative clause; only called when no
+// public-election word matched first.
+// The scan stops at a clause connective, so '회의 끝나고 투표 2번 찍었어'
+// stays public.
+func nonPublicClause(toks []string) bool {
+	for i := len(toks) - 1; i >= 0; i-- {
+		t := toks[i]
+		if clauseBreakRe.MatchString(t) {
+			return false
+		}
+		if qualRe.MatchString(t) || relClauseRe.MatchString(t) {
+			return true
+		}
+	}
+	return false
+}
+
 // voteInContext reports whether a vote-number disclosure follows a public
 // (or unqualified bare) vote word.
 func voteInContext(f string) bool {
@@ -138,7 +165,7 @@ func voteInContext(f string) bool {
 			}
 			toks := strings.Fields(before)
 			last := toks[len(toks)-1]
-			if qualRe.MatchString(last) || !unqualRe.MatchString(last) {
+			if qualRe.MatchString(last) || !unqualRe.MatchString(last) || nonPublicClause(toks) {
 				continue
 			}
 		}

@@ -89,7 +89,11 @@ func TestSensitive_PoliticsPolicyR10(t *testing.T) {
 		// English keywords currently in politics.go (pinned; English-mixed text and choseong are TODO)
 		"election에서 3번 뽑았어", "election 때 1번 찍었음", "trump 찍었어", "biden 지지해", "harris 뽑았어",
 		"my political view is liberal", "my political party is green", "political affiliation: none", "i voted for him",
-		"아들이 투표 2번 찍었어", "제가 투표 2번 찍었어", "나 민주당원이야", "정의당원이야", "나 진보당원임", "우리 엄마 녹색당원입니다", "남편이 국민의힘 당원이야", "나 민 주 당 지지해",
+		"아들이 투표 2번 찍었어",
+		// QA private set on 5d66979
+		"민주 지지해요", "개헌 국민투표는 반대에 한 표", "기호 3번 지지해", "국민투표에서 찬성에 한 표", "대선 후보 중 2번 지지해", "민주당 후보에게 한 표",
+		"총선 때 1번 지지했어", "기호 2번에 한 표", "정의당에 한 표", "국힘 지지합니다",
+		"제가 투표 2번 찍었어", "나 민주당원이야", "정의당원이야", "나 진보당원임", "우리 엄마 녹색당원입니다", "남편이 국민의힘 당원이야", "나 민 주 당 지지해",
 	}
 	allow := []string{
 		"반장 투표는 2번에 했어", "반장 선거에서 2번 찍었어", "동아리 회장 선거에서 1번 찍었어", "회의에서 투표 2번 했어", "아파트 동대표 선거에서 2번 뽑았어",
@@ -111,6 +115,8 @@ func TestSensitive_PoliticsPolicyR10(t *testing.T) {
 		"한국민의힘 지지해", "민주 방식으로 뽑았어", "민주 절차로 뽑았어", "민주적으로 뽑았어",
 		"교회 투표 2번 찍었어", "집사 선거에서 1번 뽑았어", "친구들끼리 투표 2번 찍었어", "유튜브 투표 3번 찍었어", "커뮤니티 투표에서 1번 찍었어",
 		"당원 모집 공고 요약해줘",
+		"친구들이랑 영화 고르는 투표 1번 뽑았어", "남편은 회사 노조 선거에서 1번 뽑았대", "강아지 이름 정하는 투표 3번 뽑았어",
+		"아들이 반 티 정하는 투표 2번 찍었어", "나 점심 고르는 투표 1번 뽑았어", "한 표 차이로 이겼어", "그 의견 지지해",
 	}
 	for _, s := range block {
 		if CheckSensitive(s) == nil {

@@ -49,7 +49,7 @@ var thirdPartyRe = regexp.MustCompile(`(?i)(^|[^가-힣])(엄마|아빠|어머�
 
 // ... together with any sensitive term (broader than the self rules,
 // because third-party statements are always refused).
-var thirdPartyTermRe = regexp.MustCompile(`(?i)불교\s*(를|을)?\s*(믿|신자|도)|기독교|천주교|개신교|이슬람|무슬림|가톨릭\s*(신자|믿)|(교회|성당|절|사찰)\s*(에|를|을)?\s*(다녀|다니|다님|나가|열심)|신자|(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|래|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|지지자|노조|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
+var thirdPartyTermRe = regexp.MustCompile(`(?i)불교\s*(를|을)?\s*(믿|신자|도)|기독교|천주교|개신교|이슬람|무슬림|가톨릭\s*(신자|믿)|(교회|성당|절|사찰)\s*(에|를|을)?\s*(다녀|다니|다님|나가|열심)|신자|(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|래|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|지지자|노조\s*(원|가입|조합원|활동|간부|위원장\s*(이|임))|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
 
 // foreignIDRe candidates are validated (date + 7th digit 5-8) to avoid
 // matching arbitrary 13-digit numbers.
