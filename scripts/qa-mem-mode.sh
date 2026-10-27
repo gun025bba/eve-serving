@@ -62,8 +62,8 @@ PY
 }
 
 # Sets users.settings memory.enabled for one login in the test DB (values via psql vars).
-user_mem_set() { psql -qtAX -d "$DB" -v ON_ERROR_STOP=1 -v login="$1" -v val="$2" <<'SQL'
-INSERT INTO users (login) VALUES (:'login') ON CONFLICT (login) DO NOTHING;
+# Existing users only (no row is created); one transaction; needs migration 00007.
+user_mem_set() { psql -1 -qtAX -d "$DB" -v ON_ERROR_STOP=1 -v login="$1" -v val="$2" <<'SQL'
 UPDATE users SET settings = settings || jsonb_build_object('memory',
     (CASE WHEN jsonb_typeof(settings->'memory') = 'object' THEN settings->'memory' ELSE '{}'::jsonb END)
     || jsonb_build_object('enabled', (:'val')::boolean))
@@ -94,7 +94,10 @@ case $MODE in
     : "${QA_USER:?set QA_USER to the test user login}"
     [ "$DB" = llmchat_test ] || { echo "refusing: not the test DB" >&2; exit 2; }
     val=false; [ "$MODE" = user-on ] && val=true
+    psql -qtAX -d "$DB" -c "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='settings'" | grep -q 1 ||
+      { echo "$MODE: users.settings missing (test DB not migrated to 00007); nothing changed" >&2; exit 3; }
     got=$(user_mem_set "$QA_USER" "$val") || { echo "$MODE: update failed" >&2; exit 3; }
+    [ -n "$got" ] || { echo "$MODE: no such user in $DB (log in once via the test gateway first)" >&2; exit 3; }
     echo "mode=$MODE db=$DB memory.enabled=$got"
     [ "$got" = "$val" ]; exit;;
   off) EN=false; KEY=key-ok; EXPECT=start;;
