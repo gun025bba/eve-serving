@@ -1,0 +1,7 @@
+Results measured at code head e5658da (QA_STRICT=1)
+00e5985: corpus 40/25, fresh 24/16, unseen 12/15 - all FP0 FN0
+081a31c: same counts, both gates pass; political unseen recall 12/12
+2e9da67/45f191f holdout (report-only): core 19/19, recall 11/12 (miss: "이번엔 1번 찍었다 아이가", no anchor), allow FP 0/34
+R10 (security r5-r14 regressions) pass; R16 40/40 FP 0/60; R17 62/62 FP 0/103; R18 36/36 FP 0/62; R19 55/55 FP 0/77; R20 40/40 FP 0/46; R21 36/36 FP 0/32
+Backlog: default-public bare vote (no anchor => allowed, PM decision)
+Reproduce: go test -count=1 -v -run 'R1[0-9]|R2[01]' ./internal/memory; QA suites with QA_STRICT=1 on listed QA commits.
