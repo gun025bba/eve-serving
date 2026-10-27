@@ -262,3 +262,10 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Reference: news FP r18 4/22, r17 4/25; first-person info questions FP 14/20. r12 adds FP 「우리 동네 투표소 어디야?」.
 - r18 FP patterns: 사전투표 used for non-public votes (3), '후보' as a site candidate (2) and 동창회장 후보, 지지자 with non-public anchor (3), 노조 조합원/가입 (3), 「새로운 미래 계획 세웠어」.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 19 — #53 head 1c2f6b7 (code 8e08c18), gate r16–r19: FAIL (FP)
+- Core: r19 63/63, r18 64/64, r17 63/63, r16 65/65. Non-public FP: r19 48/203, r18 7/202 (shared sentences still blocked), r17 1/174, r16 1/159.
+- r19 FP patterns: 사전투표 with a non-public org (22), 기호 N번 with a non-public org (15), 지지자 with a non-public org (12 incl. r18), plus 「사전 투표 아니고 사전 주문 2번 했어」; borderline decoys 「정의당이라는 카페 이름 웃기다」 「조국을 위한 노래 들었어」. The org bypass covers only a small fixed org list.
+- Ambiguous bypass probe (public vote with a non-public companion word): 13/15 blocked; leaks 「회사 동료랑 사전투표 가서 2번 찍었어」 「아파트 이웃들 다 기호 3번 지지자야」.
+- Reference: questions FP r19 4/22 (all -지?), r18 3/20; news FP r19 3/20, r18 4/22, r17 6/25.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
