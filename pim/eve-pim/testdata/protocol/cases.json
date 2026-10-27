@@ -1,0 +1,97 @@
+[
+ {
+  "name": "ok_list_events",
+  "request": "{\"v\":1,\"id\":\"r1\",\"method\":\"list_events\",\"params\":{\"from\":\"2026-10-28T00:00:00+09:00\",\"to\":\"2026-10-29T00:00:00+09:00\"}}",
+  "error": null
+ },
+ {
+  "name": "ok_list_reminders_empty",
+  "request": "{\"v\":1,\"id\":\"r2\",\"method\":\"list_reminders\",\"params\":{}}",
+  "error": null
+ },
+ {
+  "name": "ok_list_reminders_full",
+  "request": "{\"v\":1,\"id\":\"r3\",\"method\":\"list_reminders\",\"params\":{\"due_before\":\"2026-10-29T00:00:00Z\",\"include_done\":true}}",
+  "error": null
+ },
+ {
+  "name": "ok_add",
+  "request": "{\"v\":1,\"id\":\"r4\",\"method\":\"add_reminder\",\"params\":{\"title\":\"x\",\"due\":\"2026-10-29T09:00:00+09:00\",\"list\":\"L\"}}",
+  "error": null
+ },
+ {
+  "name": "ok_complete",
+  "request": "{\"v\":1,\"id\":\"r5\",\"method\":\"complete_reminder\",\"params\":{\"id\":\"abc\"}}",
+  "error": null
+ },
+ {
+  "name": "unknown_method",
+  "request": "{\"v\":1,\"id\":\"e1\",\"method\":\"delete_event\",\"params\":{}}",
+  "error": "unknown_method"
+ },
+ {
+  "name": "unknown_top_key",
+  "request": "{\"v\":1,\"id\":\"e2\",\"method\":\"list_reminders\",\"params\":{},\"x\":1}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "missing_params",
+  "request": "{\"v\":1,\"id\":\"e3\",\"method\":\"list_reminders\"}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "unknown_param",
+  "request": "{\"v\":1,\"id\":\"e4\",\"method\":\"list_reminders\",\"params\":{\"query\":\"*\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "wrong_type",
+  "request": "{\"v\":1,\"id\":\"e5\",\"method\":\"list_reminders\",\"params\":{\"include_done\":\"yes\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "bad_version",
+  "request": "{\"v\":2,\"id\":\"e6\",\"method\":\"list_reminders\",\"params\":{}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "bad_date",
+  "request": "{\"v\":1,\"id\":\"e7\",\"method\":\"list_events\",\"params\":{\"from\":\"tomorrow\",\"to\":\"2026-10-29T00:00:00Z\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "range_32d",
+  "request": "{\"v\":1,\"id\":\"e8\",\"method\":\"list_events\",\"params\":{\"from\":\"2026-10-01T00:00:00Z\",\"to\":\"2026-11-02T00:00:00Z\"}}",
+  "error": "range_too_long"
+ },
+ {
+  "name": "reversed_range",
+  "request": "{\"v\":1,\"id\":\"e9\",\"method\":\"list_events\",\"params\":{\"from\":\"2026-10-02T00:00:00Z\",\"to\":\"2026-10-01T00:00:00Z\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "empty_title",
+  "request": "{\"v\":1,\"id\":\"e10\",\"method\":\"add_reminder\",\"params\":{\"title\":\"  \"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "control_char_title",
+  "request": "{\"v\":1,\"id\":\"e11\",\"method\":\"add_reminder\",\"params\":{\"title\":\"a\\u0007b\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "not_object",
+  "request": "[1,2]",
+  "error": "invalid_request"
+ },
+ {
+  "name": "too_large",
+  "request": "{\"v\":1,\"id\":\"a\",\"method\":\"list_reminders\",\"params\":{}}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ",
+  "error": "too_large"
+ },
+ {
+  "name": "not_json",
+  "request": "hello",
+  "error": "invalid_request"
+ }
+]

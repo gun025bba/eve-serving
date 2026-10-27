@@ -1,0 +1,2 @@
+{"v":1,"id":"g1","method":"list_events","params":{"from":"2026-10-28T00:00:00+09:00","to":"2026-10-29T00:00:00+09:00"}}
+{"v":1,"id":"g2","method":"list_reminders","params":{"due_before":"2026-10-29T00:00:00+09:00","include_done":false}}

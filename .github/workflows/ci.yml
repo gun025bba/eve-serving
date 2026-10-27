@@ -61,3 +61,16 @@ jobs:
           echo "$out"
           [ $rc -ne 0 ] && grep -q 'without -tags e2e' <<<"$out"
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  pim-helper:
+    # eve-pim is macOS-only (EventKit); GitHub-hosted macOS runner.
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: pim/eve-pim
+    steps:
+      - uses: actions/checkout@v4
+      - name: no network code in eve-pim
+        run: |
+          if grep -rnE 'import (Network|CFNetwork)|URLSession|NWConnection|NWListener|AF_INET|getaddrinfo' Sources; then echo "network code in eve-pim"; exit 1; fi
+      - run: swift build -c release
+      - run: swift test
