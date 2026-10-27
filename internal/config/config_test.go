@@ -174,6 +174,14 @@ func TestStrictYAML(t *testing.T) {
 	if err != nil || !c.Memory.Enabled || c.Memory.EnabledSource != "default" {
 		t.Fatalf("empty file: %v %+v", err, c.Memory)
 	}
+	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: !!bool false\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("!!bool false: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "web:\n  enabled: false\nmemory:\n  enabled: true\n"), noEnv)
+	if err != nil || !c.Memory.Enabled {
+		t.Fatalf("web.enabled must not affect memory: %v %+v", err, c.Memory)
+	}
 	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: false\n"), noEnv)
 	if err != nil || c.Memory.Enabled {
 		t.Fatalf("explicit false: %v %+v", err, c.Memory)

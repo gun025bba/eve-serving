@@ -231,7 +231,7 @@ func memoryEnabledFromYAML(b []byte) (*bool, error) {
 	if v.Tag == "!!null" || strings.TrimSpace(v.Value) == "" {
 		return nil, fmt.Errorf("memory.enabled is present but empty/null; set true or false")
 	}
-	if v.Kind != yaml.ScalarNode || v.Style != 0 {
+	if v.Kind != yaml.ScalarNode || v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0 || v.Tag != "!!bool" {
 		return nil, fmt.Errorf("memory.enabled must be exactly true or false")
 	}
 	out, err := strictBool(v.Value)
