@@ -304,17 +304,18 @@ tombstone은 API로 노출하지 않는다.
 §2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
 
 ```json
-GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_read_only": false, "memory_available": true } }
-PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
+GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_available": true } }
+PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 ```
 
-- 기본값은 **false**다(키가 없으면 false). 사용자가 켜야 한다.
-- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, `memory` 블록은 응답에 나오지 않으며, `memory` 키를 PATCH하면 400 `invalid`이다. 기존 클라이언트는 새 필드를 무시하면 되므로 하위 호환이다(MINOR).
+- 사용자 `memory.enabled`의 기본값은 **off(false)**다. 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 off로 읽는다. 사용자가 직접 켜야 한다.
+- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
 - 실제 적용 = `system.memory_available` AND `memory.enabled`. 둘 중 하나라도 false면 주입·`memory.propose`·approve가 모두 꺼진다(approve는 403 `kill_switch`).
-- 저장: `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`). 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고 다른 키·모르는 키는 보존한다.
+- 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고, 모르는 기존 키는 보존한다.
 - 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
-- `system.memory_read_only`·`system.memory_available`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다.
+- `system.*`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다. (P1 설정 응답에는 `system.memory_read_only`가 없다. 읽기 전용 상태는 쓰기 시 503 `memory_read_only`로만 드러난다. 노출이 필요해지면 MINOR로 추가한다.)
+- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR.
 
 #### 3.9.8 메모리 오류 코드 요약
 
@@ -322,13 +323,27 @@ PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 |---|---|---|
 | 400 | `{"error_code":"invalid"}` | strict decode 실패, kind·길이·형식 오류 |
 | 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 approve, taint, scheduler |
-| 404 | `{"error_code":"not_found"}` 또는 기존 404 | 항목·제안 없음 / 서버 off이면 라우트 없음(기존 404 그대로) |
+| 404 | `{"error_code":"not_found"}` | 항목·제안 없음, 다른 사용자 소유(본문 동일) |
+| 404 | `{"detail":"Not Found"}` | 서버 메모리 off(`GW_MEMORY_ENABLED=false`): `/v1/memory*`·approve 라우트가 등록되지 않아 게이트웨이 기본 404 |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
 | 410 | `expired` | 제안·토큰 만료, 틀리거나 대체된 토큰 |
 | 422 | `secret_detected` / `cap_exceeded` / `payload_mismatch` | 시크릿·민감 범주 / 200개·64KB·300자 / 해시 불일치 |
 | 500 | `{"error":{"code":"internal_error",...}}` | 감사 쓰기 실패 등(fail-closed) |
 | 503 | `{"error":{"code":"memory_read_only",...}}` | 파일 손상·권한 이상, 복구 전까지 쓰기 거부 |
 
+- 404 본문 구분: `{"detail":"Not Found"}`는 **기능 꺼짐**(라우트 없음), `{"error_code":"not_found"}`는 **기능은 켜져 있고 대상이 없음**이다. UI는 전자를 "메모리 사용 불가", 후자를 "항목 없음"으로 보여준다.
+- `PATCH /v1/memory/items/{id}` 오류 전체 목록:
+  | HTTP | 본문 | 원인 |
+  |---|---|---|
+  | 400 | `invalid` | JSON 아님·객체 아님, 모르는 필드, 타입 오류(`text`·`pinned`·`expires_at`·`if_updated_at`), 빈 텍스트, 형식 오류 |
+  | 404 | `not_found` | 항목 없음(다른 사용자 항목 포함) |
+  | 404 | `{"detail":"Not Found"}` | 서버 메모리 off |
+  | 409 | `conflict` | `if_updated_at`이 현재 값과 다름 |
+  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터·민감 범주·메모리 블록 마커에 걸림 |
+  | 422 | `cap_exceeded` | 300자 초과, 파일 64KB 초과 |
+  | 403 | CSRF 오류(기존 형식) | Origin/CSRF 불일치 |
+  | 500 | `internal_error` | 감사 쓰기 실패(fail-closed, 파일 변경 없음) 등 |
+  | 503 | `memory_read_only` | 파일 손상·권한 이상 |
 - 500과 503은 기존 게이트웨이 오류 형식(`error` 객체)을 쓰고, `error_code` 단일 필드 형식이 아니다(현재 구현 그대로).
 - UI는 `error.code`를 읽어 고정 문구로 보여준다.
 
