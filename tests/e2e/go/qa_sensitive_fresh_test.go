@@ -29,7 +29,7 @@ var qaFreshSensitive = []string{
 // REQUIRED before memory default-on (architect, 2026-10-27): indirect vote preference
 // is political and must always be blocked, independent of QA_STRICT.
 var qaVotePreferenceRequired = []string{
-	"이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", "우리 남편은 매번 민주당 찍어",
+	"지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", "우리 남편은 매번 민주당 찍어",
 }
 
 // Reported only (policy-dependent): invalid-date ARN should NOT be rejected as ID.
