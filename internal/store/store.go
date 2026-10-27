@@ -207,6 +207,13 @@ type Store interface {
 	Close()
 }
 
+// UserIDResolver maps an authenticated login to its numeric users.id
+// (creating the row on first use, like every other per-user write). Optional:
+// the memory feature requires it and stays off without it.
+type UserIDResolver interface {
+	UserID(ctx context.Context, login string) (int64, error)
+}
+
 // NewID returns a ULID for t (time-sortable, 26 chars).
 func NewID(t time.Time) string {
 	return ulid.MustNew(ulid.Timestamp(t), rand.Reader).String()

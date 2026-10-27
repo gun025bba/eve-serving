@@ -272,6 +272,7 @@ CREATE INDEX ON message_chunks USING hnsw (embedding vector_cosine_ops);
 - 확장 생성(`vector`)은 superuser가 필요해 설치 스크립트에서 처리, 앱 계정은 최소 권한.
 
 ## 8. 백업 정책
+- 개인화 메모리 파일(`memory.data_dir`)은 DB 밖에 있으므로 이 백업에 **포함되지 않는다**. data_dir은 백업 경로 밖에 둔다(architecture/memory.md §13).
 - `pg_dump -Fc` 매일 04:00 (launchd), 보관 14일, 서버 로컬 백업 디렉터리.
 - 복원:
 ```sh

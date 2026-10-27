@@ -42,6 +42,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 func (s *Store) Close()                         { s.pool.Close() }
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
+// UserID implements store.UserIDResolver.
+func (s *Store) UserID(ctx context.Context, login string) (int64, error) { return s.uid(ctx, login) }
+
 func (s *Store) uid(ctx context.Context, login string) (int64, error) {
 	if v, ok := s.users.Load(login); ok {
 		return v.(int64), nil

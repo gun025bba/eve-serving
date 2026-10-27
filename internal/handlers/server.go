@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"mime"
 	"net/http"
 	"os"
@@ -66,6 +67,11 @@ type Server struct {
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool
+	// Memory is the personalization store (nil or memory.enabled=false =
+	// feature off: no routes, no prompt block). MemoryAuditKey keys the
+	// HMAC of item text in audit rows.
+	Memory         memory.Store
+	MemoryAuditKey []byte
 
 	genOnce sync.Once
 	gens    *genHub // detached generations (genhub.go)
@@ -255,6 +261,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/push/vapid-public-key", s.pushed(s.vapidKey))
 	mux.HandleFunc("POST /v1/push/subscriptions", s.pushed(s.subscribePush))
 	mux.HandleFunc("DELETE /v1/push/subscriptions", s.pushed(s.unsubscribePush))
+	s.memoryRoutes(mux)
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ready", s.ready)
 	mux.HandleFunc("GET /metrics", s.metrics)

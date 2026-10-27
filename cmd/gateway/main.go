@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"net"
 	"net/http"
 	"os"
@@ -153,6 +154,27 @@ func main() {
 		log.Error("audit_breaker_open", "msg", "web tools disabled: repeated audit failures; restart after fixing the audit store")
 	}
 	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
+
+	if cfg.Memory.Enabled {
+		if _, ok := st.(store.UserIDResolver); !ok {
+			log.Error("memory_disabled", "err", "store cannot resolve users.id")
+			os.Exit(1)
+		}
+		// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것 (approve/propose: follow-up PR).
+		log.Warn("memory_enabled_preview", "msg", "memory P1 has no approve/propose wiring and no encrypted backup; keep data_dir outside backups (tmutil exclusion)")
+		ms, err := memory.Open(config.Expand(cfg.Memory.DataDir))
+		if err != nil {
+			log.Error("memory_disabled", "err", err.Error())
+			os.Exit(1)
+		}
+		k, err := memory.ReadKeyFile(config.Expand(cfg.Memory.AuditKeyFile))
+		if err != nil {
+			log.Error("memory_disabled", "err", err.Error())
+			os.Exit(1)
+		}
+		srv.Memory, srv.MemoryAuditKey = ms, k
+		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
+	}
 
 	if srv.WebAuditBlocked {
 		m.WebAuditDisabled.WithLabelValues("memory_ledger").Set(1)
