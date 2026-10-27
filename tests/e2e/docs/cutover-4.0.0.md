@@ -5,7 +5,7 @@ Scope of change: auth boundary only — new unix-socket listener (`GW_UNIX_SOCKE
 TCP = API key only, optional `GW_TCP_DISABLED`, e2e-only identity injection (`-tags e2e`), LaunchDaemon as `_evegw`,
 `tailscale serve` → `unix:`. **No DB migration in the PR. No API/contract change for API-key clients. CSRF/Origin logic unchanged.**
 
-## Open blockers (QA, 2026-10-27)
+## Open blockers (QA, 2026-10-27) — 1–4 resolved, see results below
 1. **Base is 84 commits behind main** (memory P1, `internal/apierr`, migration `00007_user_settings`, …). Merge with main
    conflicts in `cmd/gateway/main.go`, `internal/config/config.go`, `internal/handlers/server.go`. The reviewed/tested
    binary ≠ whatever `v4.0.0` will be tagged from after merge. Decide which commit is tagged, rebase, re-run tests on it.
@@ -51,3 +51,42 @@ TCP = API key only, optional `GW_TCP_DISABLED`, e2e-only identity injection (`-t
 
 ## D. Phase 2 (GW_TCP_DISABLED) — separate change, not tonight
 - [ ] 7 days of no TCP traffic incl. denied-auth metric and `lsof` sampling; health via `sudo curl --unix-socket`.
+
+## Results on 8002/8003 (QA, 2026-10-27 16:40–16:50 KST) — **GO**
+Build `98be55f1c13f` (no local changes). 8002 default build `4.0.0-qa.98be55f`, 8003 `-tags e2e` `4.0.0-qa.98be55f-e2e`. UI 1.2.0.
+Blocker 1/2 closed by PM: tag exactly 98be55f, no rebase; migrations 00001–00006 only, prod stays at goose 6.
+
+**Auth boundary (8002), 4/4 spec + 9/9 manual:**
+| check | result |
+|---|---|
+| spec `EVE_EXPECT_AUTH_BOUNDARY=1 EVE_TS_LOGIN=qa-ts@test.invalid` | 4 passed |
+| TCP Bearer `/whoami` | 200 api-key |
+| TCP `Tailscale-User-Login` only | 401 unauthenticated |
+| TCP key + Tailscale header | 200, provider api-key (header ignored) |
+| socket qa-ts | 200 tailscale-identity |
+| socket non-allowlisted login | 401 identity_not_allowed |
+| socket no header | 401 |
+| socket non-allowlisted + key | 200 api-key (fall-through, same as 8003 finding) |
+| socket qa-ts POST without X-Eve-Request / foreign Origin | 403 (CSRF holds on socket) |
+| default binary contains `X-Eve-Test-Identity` | no (0 matches) |
+Socket `srw-rw----`, run dir 0700; 8002/8003 listen on 127.0.0.1 only.
+
+**API regression** (smoke, chat, stream, replay, cancel, retry, web search, /v1/search, 선톡 actions, VAPID, CSRF key-bypass):
+8002 13/13 pass, 8003 13/13 pass; 6 CSRF browser-identity cases skipped (injection pending security review).
+First 8002 run had 1 fail: smoke expected UI `v1.1.3`, server serves `v1.2.0` → stale test default, fixed in `env.js`. Not a product bug.
+
+**8003 fall-through finding — severity Low (test-integrity, not a security hole).**
+Key + `X-Eve-Test-Identity: qa-mallory@e2e.invalid` (not allowlisted) → 200 as **api-key** user; wrong key + alice → 401; no key → 401.
+No escalation: caller must already hold the key and lands on the key's own identity, never on the injected one. Same behaviour on the
+default build's socket (non-allowlisted + key → api-key). Risk: an e2e test with a typo'd identity silently runs as api-key and may pass
+falsely. Suggest: an injected/socket identity that is present but rejected should be a hard 401/403, not fall through. Not a cutover blocker.
+
+**Rollback rehearsal (8002):** backed up 4.0.0 as `bin/gateway-test.v4.0.0-qa.98be55f.bak-202610271646` + plist in `backups/`.
+bootout e2e+test → `cp -p` 3.1.1 bak → plist `bak-202610271635` → bootstrap → `/health` = `3.1.1-79-g64a4c4c` in <1 s; smoke+chat 5/5.
+Restore reversed → 8002 `4.0.0-qa.98be55f`, 8003 `-e2e` healthy; auth spec + smoke 7/7 again.
+llmchat_test goose = 7 before, during, after; schema column hash unchanged → no DB change. 98be55f (knows ≤6) starts on goose 7 without warning.
+
+**PR #55 (737c147) review vs this doc:** covers cp -RP + symlink check, `pg_restore -l` (incl. goose table), no-migration note with
+`git ls-tree` check and prod goose=6 pre-check, rollback to v3.1.1. Consistent. Notes: (a) the prod goose=6 check must run before downtime
+(read-only); (b) rollback health check must read the running prod version rather than assume; (c) C-section items for `/var/root/eve-rollback`
+are not rehearsable on 8002 (LaunchAgent, not LaunchDaemon) — do them on paper tonight.
