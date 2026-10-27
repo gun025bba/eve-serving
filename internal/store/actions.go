@@ -249,4 +249,7 @@ type ActionApprover interface {
 	// pending (token stays cleared, so a fresh reissue is needed). Zero rows
 	// -> ErrConflict.
 	ReleaseAction(ctx context.Context, user, id string) error
+	// ActionStatus returns the status of the user's own action;
+	// ErrNotFound for unknown or foreign ids.
+	ActionStatus(ctx context.Context, user, id string) (string, error)
 }

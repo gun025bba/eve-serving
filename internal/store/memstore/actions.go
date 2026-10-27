@@ -65,6 +65,16 @@ func (s *Store) ListPendingActions(_ context.Context, user string) ([]store.Acti
 	return out, nil
 }
 
+func (s *Store) ActionStatus(_ context.Context, user, id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return "", err
+	}
+	return a.Status, nil
+}
+
 func (s *Store) owned(user, id string) (*action, error) {
 	a, ok := s.actions[id]
 	if !ok || a.user != user {

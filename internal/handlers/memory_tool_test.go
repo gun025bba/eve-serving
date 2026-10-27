@@ -167,7 +167,7 @@ func TestMemoryTool_AddApproveExecutesOnce(t *testing.T) {
 		t.Fatal(d.Items)
 	}
 	// replay: no longer pending
-	if r, _ := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`); r.StatusCode != 404 {
+	if r, _ := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`); r.StatusCode != 409 {
 		t.Fatal("replay", r.StatusCode)
 	}
 	d, _ = fs.Load(uidOf(t, &e.env, "alice@example"))
@@ -272,5 +272,26 @@ func TestStripServerKeys(t *testing.T) {
 	got := string(stripServerKeys([]byte(`{"web_search":"auto","memory_tainted":true}`)))
 	if got != `{"web_search":"auto"}` {
 		t.Fatal(got)
+	}
+}
+
+func TestMemoryApprove_NonPending409(t *testing.T) {
+	e, _ := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	body := `{"confirm_token":"` + tok + `","payload_hash":"` + ph + `"}`
+	if r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body)
+	if r.StatusCode != 409 || !strings.Contains(string(b), `"conflict"`) {
+		t.Fatalf("re-approve: %d %s", r.StatusCode, b)
+	}
+	// unknown id stays 404 not_found
+	if r, b := e.call(t, "alice@example", "POST", "/v1/actions/nope/approve", body); r.StatusCode != 404 {
+		t.Fatalf("unknown: %d %s", r.StatusCode, b)
+	}
+	// another user's (decided) card is 404, not 409
+	if r, b := e.call(t, "bob@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 404 {
+		t.Fatalf("foreign: %d %s", r.StatusCode, b)
 	}
 }

@@ -321,3 +321,16 @@ func (s *Store) ReleaseAction(ctx context.Context, user, id string) error {
 	}
 	return nil
 }
+
+func (s *Store) ActionStatus(ctx context.Context, user, id string) (string, error) {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return "", err
+	}
+	var st string
+	err = s.pool.QueryRow(ctx, `SELECT status FROM pending_actions WHERE id=$1 AND user_id=$2`, id, u).Scan(&st)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", store.ErrNotFound
+	}
+	return st, err
+}

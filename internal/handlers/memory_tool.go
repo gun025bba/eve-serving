@@ -231,8 +231,17 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if a == nil {
-		// Unknown, foreign, or no longer pending: same body for all (§3.7).
-		s.writeCode(w, r, "not_found")
+		// Unknown or foreign: same 404 body (§3.7). Own but already
+		// decided (approved/rejected/voided): 409 conflict (§3.9.5).
+		st, err := ap.ActionStatus(r.Context(), user(r), id)
+		switch {
+		case err == nil && st == "expired":
+			s.writeCode(w, r, "expired")
+		case err == nil:
+			s.writeCode(w, r, "conflict")
+		default:
+			s.writeCode(w, r, "not_found")
+		}
 		return
 	}
 	if !now.Before(a.ExpiresAt) || a.TokenSHA256 == nil || a.TokenExpiresAt == nil || !now.Before(*a.TokenExpiresAt) ||
