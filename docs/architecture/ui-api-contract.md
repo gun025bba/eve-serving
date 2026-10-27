@@ -20,7 +20,7 @@
 | Q5 | 별도 "job 전용 스레드" 종류는 없다. `scheduled_jobs.thread_id`는 nullable: follow-up은 원 스레드, 원 스레드가 없는 job(브리핑·watch)은 **첫 실행 때 서버가 스레드를 하나 만들고**(제목 = `job_name`) 그 id를 `thread_id`에 저장, 이후 실행은 재사용. 보통 Thread라 새 필드 없음(PM §3 갱신, 컬럼 추가만 = MINOR). | MINOR |
 | Q6 | `POST /v1/threads/{id}/read` → 해당 스레드의 미읽음 proactive 메시지를 모두 `read_at=now()`, 응답 `{unread_count:0}`. 다른 사용자 스레드는 **404**. 기존 `POST /v1/messages/{id}/read`도 유지. CSRF·Origin 동일. | MINOR |
 | Q7 | `GET /v1/settings`, `PATCH /v1/settings`(부분 갱신, merge). 키는 §2. 알 수 없는 키·타입·범위 오류는 400(PM S4-4). | MINOR |
-| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
+| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
 | Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
 | Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
@@ -31,7 +31,7 @@
 | Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `payload_mismatch` \| `kill_switch` \| `invalid`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
 | Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400 `invalid`). 새 제안·새 `payload_hash`·새 토큰, 원 제안 `voided`. approve 본문은 그대로(TP). 규칙은 §3.1. | MINOR |
 | Q16 | 매칭 없음 = **카드 없음**, 모델이 답한다. 별도 신호 필드 없음(P1). UI의 "메모리 관리 열기" 링크는 붙이지 않거나 고정 도움말로. (청사진 §3) | — |
-| Q17 | 메모리 읽기 전용(MEM S5-R6)은 `GET /v1/settings`의 `system.memory_read_only`. `GET /v1/memory`에는 추가 필드 없음. | MINOR |
+| Q17 | 메모리 읽기 전용(MEM S5-R6)은 설정 필드로 노출하지 않는다. 쓰기 시 503 `memory_read_only`로만 드러난다(아키텍트 결정). `GET /v1/memory`에는 추가 필드 없음. | MINOR |
 | Q18 | 스레드별 "메모리 없이"는 **P1 범위 밖**. (청사진 §3) | — |
 
 ## 2. 설정 (`users.settings`)
@@ -43,7 +43,7 @@ GET /v1/settings
                  "quiet_hours": {"start": "22:00", "end": "08:00"},
                  "memory_read": false },
   "memory":    { "enabled": false },
-  "system":    { "proactive_available": false, "tools_available": true, "memory_read_only": false, "memory_available": true }
+  "system":    { "proactive_available": false, "tools_available": true, "memory_available": false }
 }
 ```
 
@@ -311,7 +311,12 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 
 - 사용자 `memory.enabled`의 기본값은 **off(false)**다. 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 off로 읽는다. 사용자가 직접 켜야 한다.
 - `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
-- 실제 적용 = `system.memory_available` AND `memory.enabled`. 둘 중 하나라도 false면 주입·`memory.propose`·approve가 모두 꺼진다(approve는 403 `kill_switch`).
+- 실제 적용 = `system.memory_available` AND `memory.enabled`.
+- 사용자 `memory.enabled=false`(서버는 on)일 때:
+  - 허용: `GET /v1/memory`, `GET /v1/memory/export`, `PATCH`·`DELETE /v1/memory/items/{id}`, `DELETE /v1/memory`(읽기·편집·삭제·내보내기).
+  - 거부(HTTP 403 `kill_switch`): `POST /v1/memory/items`, `POST /v1/actions/{id}/approve`, 메모리 카드의 `POST /v1/proposals/{id}/revise`.
+  - 주입 없음. `memory.propose` 도구 정의를 모델에 보내지 않는다. 그래도 모델이 `memory.propose`를 호출하면 도구 결과로 `{"status":"denied","error":"kill_switch"}`를 돌려주고 아무것도 저장하지 않으며 카드도 만들지 않는다.
+- 서버 `GW_MEMORY_ENABLED=false`이면 위 라우트가 모두 없고(404 `{"detail":"Not Found"}`), 도구 정의·주입도 없으며 API 응답은 메모리 도입 전과 같다.
 - 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고, 모르는 기존 키는 보존한다.
 - 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
@@ -336,7 +341,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 | HTTP | 본문 | 메모리 상황 |
 |---|---|---|
 | 400 | `{"error_code":"invalid"}` | strict decode 실패, kind·길이·형식 오류 |
-| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 approve, taint, scheduler |
+| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 항목 추가·approve·revise, taint, scheduler·Bearer |
 | 404 | `{"error_code":"not_found"}` | 항목·제안 없음, 다른 사용자 소유(본문 동일) |
 | 404 | `{"detail":"Not Found"}` | 서버 메모리 off(`GW_MEMORY_ENABLED=false`): `/v1/memory*`·approve 라우트가 등록되지 않아 게이트웨이 기본 404 |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
