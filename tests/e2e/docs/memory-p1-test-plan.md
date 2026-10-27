@@ -223,3 +223,9 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Committed R11 holdout (now public, report-only): core 19/19, recall 11/12, allow FP 0/34.
 - Gate now uses a PRIVATE holdout kept outside the repo (never committed or shared; sentence-level failures only may be shared).
   R12 private set: 30 core / 40 allow → core blocked 25/30, allow FP 0/40 — gate FAIL (core misses).
+
+### R13 — PR #53 @ 59169ef (merged onto main 1edcf6a), private holdout
+- Public suite (2e9da67 + latest qa/memory-p1, QA_STRICT=1): all TestQA_* pass; holdout report core 19/19, FP 0/34, recall 9/12.
+- Private r12 (gate per architect R1, 초성/English-mixed reclassified recall): core 26/27, FP 0/40, recall 0/3.
+- Private r13 (new): core 17/20, FP 0/40, recall 2/10.
+- Gate: FAIL (core 43/47 blocked, FP 0/80).
