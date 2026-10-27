@@ -178,6 +178,9 @@ func politicsStructural(folded, original string) bool {
 	// exemptions are judged once on the spaced original.
 	base := simileStrip(original, photoRe.ReplaceAllString(candSiteRe.ReplaceAllString(foldPunct(strings.ToLower(original)), " _ "), " _ "), " _ ")
 	fp := firstPerson(base)
+	if fp && fpStance(base) {
+		return true
+	}
 	// non-public organisation context with no major political word: weak
 	// anchors (사전투표, 후보, N번 후보, 기호, 지지자) do not anchor.
 	if !majorAnchorRe.MatchString(base) && !majorAnchorRe.MatchString(joinSyllables(base)) && !publicCueRe.MatchString(base) && weakModified(base) {
@@ -381,7 +384,7 @@ var (
 	newsEventRe   = regexp.MustCompile(`(됐|되었|선출|부결|가결|통과|출범|확정|사퇴|해산|발표)\S*(대|래|대요|래요)$`)
 	numChoiceRe   = regexp.MustCompile(`\d+\s?번`)
 	agreeEndRe    = regexp.MustCompile(`(지|죠|잖아|잖아요|잖냐|지 않아|지 않냐|지 않아요|지 않니)\s?$`)
-	clauseSplitRe = regexp.MustCompile(`(길래|더니|는데|은데|인데|던데|지만|니까|으니|어서|아서|고|으며|며|면서|다가)(\s|$)|[.!?\n]+`)
+	clauseSplitRe = regexp.MustCompile(`(길래|더니|는데|은데|인데|던데|지만|니까|으니|어서|아서|고서|고|으며|며|면서|다가)(\s|$)|[.!?\n]+`)
 	actorRe       = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)(이|가)\s`)
 	candSiteRe    = regexp.MustCompile(`후보지(\s|$|[가는를은에의도로])|후보\s?(장소|부지|지역|날짜|곡|작)`)
 	orgCompanyRe  = regexp.MustCompile(`^(사람|사람들|친구|친구들|애들|형|형들|선배|후배|동기|멤버)`)
@@ -413,17 +416,22 @@ var (
 // (org noun as topic/subject/genitive + 회장/대표/임원... + 선거/투표/후보);
 // later weak anchors in it inherit the non-public scope.
 var (
-	partyPolRe    = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)`)
-	orgElectionRe = regexp.MustCompile(`(^|\s)(\S+)\s(회장|부회장|대표|임원|총무|단장|반장|리더|위원장|과대|주장|회장단)\s?(선거|투표|후보)`)
-	ideologyRe    = regexp.MustCompile(`^(찢|진보|보수|좌파|우파|좌빨|수꼴|더민|민주|` + partyNames + `|` + politicianNames + `)(쪽|측|진영)?$`)
-	supporterRe   = regexp.MustCompile(`^(지지자|지지층|팬|빠|골수\s?지지자)(야|이야|임|예요|이에요|입니다|이셔|이세요|이다|라|이라|$)`)
-	roleNounRe    = regexp.MustCompile(`(자|장|원|대|무|님|가수|선수|배우|작가)$`)
-	orgRoleRe     = regexp.MustCompile(`(총무|반장|주장|리더|단장|과대|부장|마스터|회장|대표|후보)$`)
-	stateNounRe   = regexp.MustCompile(`^(나라|국가|대한민국|한국|구청|시|도|국민|전국|정부)(의|에서|에|별|내)?$`)
-	givenNameRe   = regexp.MustCompile(`재명|석열|동훈|준석|문수|철수|준표|재인|근혜|낙연|세훈|동연|상정`)
-	titleSurRe    = regexp.MustCompile(`(^|\s)[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모]\s?(대통령|대표|의원|후보|장관|총리|지사|시장|위원장)`)
-	fandomRe      = regexp.MustCompile(`(찢|문|윤|굥|명|박|노|홍|한|준|국힘|민주|더민)빠|대깨문|개딸|박사모|노사모|문파|태극기\s?부대`)
-	simileGuardRe = regexp.MustCompile(`생각|성향|보수|진보|좌파|우파`)
+	partyPolRe      = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)`)
+	orgElectionRe   = regexp.MustCompile(`(^|\s)(\S+)\s(회장|부회장|대표|임원|총무|단장|반장|리더|위원장|과대|주장|회장단)\s?(선거|투표|후보)`)
+	ideologyRe      = regexp.MustCompile(`^(찢|진보|보수|좌파|우파|좌빨|수꼴|더민|민주|` + partyNames + `|` + politicianNames + `)(쪽|측|진영)?$`)
+	supporterRe     = regexp.MustCompile(`^(지지자|지지층|팬|빠|골수\s?지지자)(야|이야|임|예요|이에요|입니다|이셔|이세요|이다|라|이라|$)`)
+	roleNounRe      = regexp.MustCompile(`(자|장|원|대|무|님|가수|선수|배우|작가)$`)
+	orgRoleRe       = regexp.MustCompile(`(총무|반장|주장|리더|단장|과대|부장|마스터|회장|대표|후보)$`)
+	publicOfficeRe  = regexp.MustCompile(`^(시장|구청장|군수|도지사|교육감|의원|국회의원|대통령|당대표|시의원|구의원|도의원)(후보)?$`)
+	nonPublicRoleRe = regexp.MustCompile(`^(부?반장|과대|과대표|동대표|학생회장|전교회장|주장|총무)$`)
+	stanceTokRe     = regexp.MustCompile(`^(진보|보수|좌파|우파)(야|라서|라|이야|인데|임|이에요|예요|입니다|성향|쪽|파)?$`)
+	unionTokRe      = regexp.MustCompile(`^(노조원|노조|노동조합원?|유니[온언])(이|이야|인데|이라|이라서|임|이에요|입니다)$`)
+	adnomVoteRe     = regexp.MustCompile(`^(찍은|뽑은|찍을|뽑을|지지하는|지지한|지지할)$`)
+	stateNounRe     = regexp.MustCompile(`^(나라|국가|대한민국|한국|구청|시|도|국민|전국|정부)(의|에서|에|별|내)?$`)
+	givenNameRe     = regexp.MustCompile(`재명|석열|동훈|준석|문수|철수|준표|재인|근혜|낙연|세훈|동연|상정`)
+	titleSurRe      = regexp.MustCompile(`(^|\s)[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모]\s?(대통령|대표|의원|후보|장관|총리|지사|시장|위원장)`)
+	fandomRe        = regexp.MustCompile(`(찢|문|윤|굥|명|박|노|홍|한|준|국힘|민주|더민)빠|대깨문|개딸|박사모|노사모|문파|태극기\s?부대`)
+	simileGuardRe   = regexp.MustCompile(`생각|성향|보수|진보|좌파|우파`)
 )
 
 // simileStrip drops '…처럼/같이' tokens unless the sentence has a party or
@@ -477,7 +485,7 @@ func supporterStatement(f string) bool {
 			// a number keeps the org exception only when a role/election
 			// noun governs it ('산악회 회장 2번'); '산악회 2번 지지자' blocks.
 			for x := k + 1; x < i; x++ {
-				if numChoiceRe.MatchString(ts[x]) && !(x-1 > k && (weakWordRe.MatchString(ts[x-1]) || roleNounRe.MatchString(ts[x-1]) || orgRoleRe.MatchString(ts[x-1]))) {
+				if numChoiceRe.MatchString(ts[x]) && !orgRoleNumber(ts, k, x) {
 					return true
 				}
 			}
@@ -509,6 +517,40 @@ func hasIdeologyToken(f string) bool {
 // 어디야, 언제야, 뭐야 ...) is allowed, first person included, unless a
 // first person comes with a vote verb or chosen number (Med D/G), an
 // evaluative word is present, or an earlier clause is a statement.
+// orgRoleNumber (Med N): the number at ts[x] keeps the org exception only
+// when the role chain before it is headed by a non-public org noun or is a
+// non-public role itself (반장); a public office anywhere in the chain or a
+// bare 대표/후보 does not.
+func orgRoleNumber(ts []string, k, x int) bool {
+	j := x - 1
+	role := false
+	for ; j > k && (weakWordRe.MatchString(ts[j]) || roleNounRe.MatchString(ts[j]) || orgRoleRe.MatchString(ts[j]) || publicOfficeRe.MatchString(ts[j])); j-- {
+		if publicOfficeRe.MatchString(ts[j]) {
+			return false
+		}
+		if nonPublicRoleRe.MatchString(ts[j]) {
+			return true
+		}
+		role = true
+	}
+	return role && j > k && nounModifier(ts[j]) && !firstPersonRe.MatchString(ts[j])
+}
+
+// fpStance (Med O): a first-person statement of ideology, union membership
+// or an adnominal vote verb makes the whole sentence a personal statement.
+func fpStance(base string) bool {
+	for _, t := range strings.Fields(base) {
+		if stanceTokRe.MatchString(t) || unionTokRe.MatchString(t) || adnomVoteRe.MatchString(t) {
+			return true
+		}
+		// '나 대통령 후보 2번 지지해': a public office with a chosen number.
+		if publicOfficeRe.MatchString(t) && numChoiceRe.MatchString(base) {
+			return true
+		}
+	}
+	return false
+}
+
 func infoRequest(base, original string, fp bool) bool {
 	cs := clauses(base)
 	last := strings.TrimSpace(cs[len(cs)-1])
@@ -573,6 +615,9 @@ func weakModified(f string) bool {
 }
 
 func nounModifier(t string) bool {
+	if publicOfficeRe.MatchString(t) {
+		return false
+	}
 	if stateNounRe.MatchString(t) {
 		return false
 	}
