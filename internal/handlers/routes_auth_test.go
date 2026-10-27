@@ -81,6 +81,17 @@ func TestRouteAuthMatrix(t *testing.T) {
 			t.Errorf("matrix route %q is not registered", r)
 		}
 	}
+	// Each matrix route must be served by a METHOD-qualified pattern of the
+	// real mux (not the "/" catch-all, not a method-less pattern).
+	envMux, _ := newMemEnv(t, true, &failLedger{})
+	realMux := srvOf(t, envMux).buildMux()
+	for _, rc := range routes {
+		req := httptest.NewRequest(rc.method, rc.path, nil)
+		_, pat := realMux.mux.Handler(req)
+		if m := rePattern.FindStringSubmatch(pat); m == nil || m[1] != rc.method {
+			t.Errorf("%s %s is served by mux pattern %q, want a %s-qualified pattern", rc.method, rc.path, pat, rc.method)
+		}
+	}
 	if t.Failed() {
 		t.FailNow()
 	}
@@ -161,9 +172,9 @@ func newRec() *httptest.ResponseRecorder { return httptest.NewRecorder() }
 func newReq(m, p string) *http.Request   { return httptest.NewRequest(m, p, nil) }
 
 var (
-	reHandle = regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+) ([^"]+)"`)
-	reWild   = regexp.MustCompile(`\{[^}]+\}`)
-	reNumSeg = regexp.MustCompile(`/[0-9]+(/|$)`)
+	rePattern = regexp.MustCompile(`^([A-Z]+) (/[^ ]*)$`)
+	reWild    = regexp.MustCompile(`\{[^}]+\}`)
+	reNumSeg  = regexp.MustCompile(`/[0-9]+(/|$)`)
 )
 
 // normRoute maps "/v1/threads/1?q=x" and "/v1/threads/{id}" to the same key.
@@ -178,15 +189,59 @@ func normRoute(p string) string {
 	return p
 }
 
-// registeredRoutes collects every "METHOD /path" mux.HandleFunc in the
-// package's non-test sources, minus the catch-all and the static UI.
-func registeredRoutes(t *testing.T) map[string]bool {
-	t.Helper()
+// checkPatterns validates the patterns recorded by routeMux: each must be
+// "METHOD /path" (a method-less pattern would answer every verb and bypass the
+// matrix), registered once, with "/" as the only exception (404 catch-all).
+func checkPatterns(patterns []string) []string {
+	var bad []string
+	seen := map[string]bool{}
+	for _, p := range patterns {
+		if p == "/" {
+			continue
+		}
+		if !rePattern.MatchString(p) {
+			bad = append(bad, "method-less or malformed pattern: "+p)
+		}
+		if seen[p] {
+			bad = append(bad, "pattern registered twice: "+p)
+		}
+		seen[p] = true
+	}
+	return bad
+}
+
+func TestCheckPatterns(t *testing.T) {
+	if got := checkPatterns([]string{"GET /a", "POST /a/{id}", "/"}); len(got) != 0 {
+		t.Fatalf("valid set flagged: %v", got)
+	}
+	for _, p := range []string{"/x", "/x/", "GET/x", "get /x", "GET  /x", "{id}"} {
+		if got := checkPatterns([]string{p}); len(got) != 1 {
+			t.Errorf("%q not flagged: %v", p, got)
+		}
+	}
+	if got := checkPatterns([]string{"GET /a", "GET /a"}); len(got) != 1 {
+		t.Errorf("duplicate not flagged: %v", got)
+	}
+}
+
+// TestRoutesAuthMux walks the real mux: every pattern the server registers
+// (Handle, HandleFunc, helper functions, with or without a method) is recorded
+// by routeMux and must be METHOD-qualified; and http.NewServeMux must have no
+// other call site, so no route can be added behind the recorder's back.
+func TestRoutesAuthMux(t *testing.T) {
+	e, _ := newMemEnv(t, true, &failLedger{})
+	m := srvOf(t, e).buildMux()
+	if len(m.patterns) < 10 {
+		t.Fatalf("only %d patterns recorded", len(m.patterns))
+	}
+	for _, b := range checkPatterns(m.patterns) {
+		t.Error(b)
+	}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := map[string]bool{}
+	calls := 0
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -195,12 +250,31 @@ func registeredRoutes(t *testing.T) map[string]bool {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range reHandle.FindAllStringSubmatch(string(src), -1) {
-			if m[1] == "GET" && strings.HasPrefix(m[2], "/ui") {
-				continue
+		calls += strings.Count(string(src), "http.NewServeMux(")
+	}
+	if calls != 1 {
+		t.Errorf("http.NewServeMux() appears %d times in non-test sources, want exactly 1 (buildMux)", calls)
+	}
+}
+
+// registeredRoutes returns every METHOD-qualified pattern of the real mux,
+// minus the catch-all and the static UI (only mounted when static_dir is set).
+func registeredRoutes(t *testing.T) map[string]bool {
+	t.Helper()
+	e, _ := newMemEnv(t, true, &failLedger{})
+	out := map[string]bool{}
+	for _, p := range srvOf(t, e).buildMux().patterns {
+		m := rePattern.FindStringSubmatch(p)
+		if m == nil {
+			if p != "/" {
+				t.Errorf("registered pattern %q has no METHOD; it is not covered by the matrix", p)
 			}
-			out[m[1]+" "+normRoute(m[2])] = true
+			continue
 		}
+		if m[1] == "GET" && strings.HasPrefix(m[2], "/ui") {
+			continue
+		}
+		out[m[1]+" "+normRoute(m[2])] = true
 	}
 	if len(out) == 0 {
 		t.Fatal("no routes found")

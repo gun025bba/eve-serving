@@ -61,7 +61,7 @@ func noStore(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) memoryRoutes(mux *http.ServeMux) {
+func (s *Server) memoryRoutes(mux *routeMux) {
 	if !s.memoryOn() {
 		// Approve is also needed for Jarvis write cards (#70), and only then.
 		if s.Cfg.Pim.WritesOn() {
