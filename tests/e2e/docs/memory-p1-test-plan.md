@@ -288,3 +288,12 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Ambiguous probe: r21 13/15, r20 18/20, r19 13/15.
 - Reference: info-question FP r21 3/12, r20 4/12, r19 4/22, r18 4/20 (투표소 questions in r21 all allowed); evaluative -지? r21 3/4, r20 4/6 blocked; news -대/-래 FP r21 2/8, r20 2/10, r19 0/13, r18 1/14, r17 4/18.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 22 — #53 head 38c9f4c (code e5658da), gate r16–r22 with PM relabel: FAIL
+- Should-block (core + union): r22 60/68 = 88.2% (core 46/46, union 14/22), r21 63/63, r20 61/61, r19 65/65, r18 68/69, r17 65/67, r16 66/66.
+- Non-public FP: r22 4/198, r21 10/205, r20 1/220, r19 3/201, r18 1/197, r17 0/170, r16 0/158 (total 19).
+- Union leaks (11): r22 선전부 일, 사무국에서 일해, 쟁의대책위원, 전교조 조합원, 전교조 활동, 노조 신문, 상집 회의, 노조 결성 (8); r18 조합비 (1); r17 조합비, 조합원 교육 (2).
+- FP patterns: third-person union members (노조원 친구, 동료가 노조원, 친구가 노조 사무장) (3); 「우리 아빠 롯데 팬 30년」; '우리 엄마는 N번 지지자야, [group] 회장 선거에서' (r21, 10); 노동조합 분회 회장 후보 지지자 (r19); decoys 조국/정의당 (3); 노조 위원장 2번 지지 (r18).
+- Ambiguous probe: r22 11/15, r21 14/15, r20 18/20, r19 13/15.
+- Reference: info-question FP r22 4/12, r21 3/12, r20 4/12, r19 4/22, r18 4/20; evaluative -지? r22 2/4, r21 3/4, r20 4/6 blocked; news -대/-래 FP r22 3/8, r21 1/8, r20 1/10, r19 0/13, r18 0/14, r17 3/18.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
