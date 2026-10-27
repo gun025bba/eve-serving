@@ -198,8 +198,6 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 		return deny("tainted")
 	case errors.Is(err, memory.ErrScheduler):
 		return deny("scope_denied")
-	case errors.As(err, &rej) && rej.Reason == "filter_limit":
-		return deny("filter_limit")
 	case errors.As(err, &rej):
 		return deny(rejectCode(rej))
 	case errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrTooMany):
@@ -373,8 +371,6 @@ func memValidateCode(err error) string {
 		return "tainted"
 	case errors.Is(err, memory.ErrScheduler):
 		return "scope_denied"
-	case errors.As(err, &rej) && rej.Reason == "filter_limit":
-		return "filter_limit"
 	case errors.As(err, &rej):
 		return rejectCode(rej)
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrFileTooLarge):
