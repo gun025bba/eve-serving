@@ -243,6 +243,16 @@
 - **조정 상수**: 엔트로피 임계값(`secret.go`)과 토큰 추정(`inject.go`)은 이름 있는 상수다. ROC 실행(§8.5) 뒤 설정으로 옮긴다.
 - **users.id 타입**: `BIGSERIAL`(int64). 파일 키는 `^[0-9]+$` 정규형만 허용하고, 파싱한 뒤 다시 문자열로 만들어 같은지 확인한다. 파일 안의 `user_id`도 요청자 id와 교차 확인한다.
 - **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키가 끝 개행·공백을 포함하거나 서로 다른 바이트가 16개 미만이면 거부한다.
+- **백업 제외 강제 (fail-closed)**: 메모리가 켜져 있으면 기동 시 `CheckBackupPolicy`를 통과해야 한다. 실패하면 `memory_backup_exclusion_refused`를 남기고 종료한다.
+  - macOS: 고정 경로 `/usr/bin/tmutil isexcluded <data_dir>`(PATH 무시)의 출력이 정확히 한 줄 `[Excluded] <data_dir>`이어야 한다. `[Included]`, 다른 경로, 여러 줄, 오류·tmutil 없음(`unknown`)은 모두 거부한다. opt-in으로도 우회할 수 없다.
+  - macOS가 아니면 확인할 수 없으므로 `memory.allow_unverified_backup: true`(`GW_MEMORY_ALLOW_UNVERIFIED_BACKUP=true`)를 명시해야 기동한다(경고 `memory_backup_exclusion_unverified`).
+  - data_dir이 iCloud(`~/Library/Mobile Documents`, `~/Library/CloudStorage`), Dropbox, OneDrive, Google Drive, Box 동기화 폴더 아래면 거부한다.
+  - 서버는 제외 설정을 바꾸지 않는다.
+  - 런북 확인 단계:
+    1. data_dir이 동기화 폴더 밖인지 확인: `realpath <data_dir>`가 위 경로를 포함하지 않아야 한다. 상위 폴더가 iCloud "데스크탑 및 문서" 동기화 대상(`~/Desktop`, `~/Documents`)이 아닌지도 확인한다.
+    2. `sudo tmutil addexclusion -p <data_dir>` 후 `/usr/bin/tmutil isexcluded <data_dir>`가 `[Excluded]`인지 확인한다.
+    3. 기동 로그에 `memory_backup_exclusion_refused`가 없어야 한다.
+- **감사 키 파일 크기 (#31)**: 1024바이트를 넘으면 잘라 읽지 않고 거부한다.
 - **로그 Redactor**: 메모리가 켜지면 로거에 `memory.RedactLog`를 연결한다.
   - `<user_memory` 블록이나 프리앰블이 든 값은 통째로 `[REDACTED:memory]`가 된다.
   - 등록된 시크릿 값과 공용 `SecretPatterns`는 `[REDACTED]`로 가린다.

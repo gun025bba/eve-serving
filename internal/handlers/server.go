@@ -254,6 +254,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
+	mux.HandleFunc("GET /v1/settings", s.authed(noStore(s.getSettings)))
+	mux.HandleFunc("PATCH /v1/settings", s.authed(noStore(s.patchSettings)))
 	mux.HandleFunc("POST /v1/chat/completions", s.authed(s.chat))
 	mux.HandleFunc("GET /v1/models", s.authed(s.models))
 	mux.HandleFunc("GET /v1/threads", s.persisted(s.listThreads))

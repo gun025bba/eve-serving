@@ -175,6 +175,15 @@ func main() {
 			os.Exit(1)
 		}
 		srv.Memory, srv.MemoryAuditKey = ms, k
+		// Fail-closed (memory.md §9.1): refuse to start unless the data_dir is
+		// confirmed excluded from backups (macOS) or the operator opted in.
+		if st, err := memory.CheckBackupPolicy(ms.Dir(), cfg.Memory.AllowUnverifiedBackup); err != nil {
+			log.Error("memory_backup_exclusion_refused", "status", st, "error", err.Error(),
+				"msg", "run: sudo tmutil addexclusion -p <data_dir> (see runbook)")
+			os.Exit(1)
+		} else if st != memory.BackupExcluded {
+			log.Warn("memory_backup_exclusion_unverified", "status", st, "msg", "non-macOS host; allow_unverified_backup opt-in in effect")
+		}
 		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
 	}
 
