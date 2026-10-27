@@ -155,6 +155,18 @@
 - 감사 기록 쓰기에 실패하면 메모리 쓰기를 거부한다(500, fail-closed). 읽기 전용 상태(§7 손상 복구)에서는 쓰기를 `memory_read_only` 503으로 거부한다(ui-api-contract §3.3).
 - 최종 판단은 보안 담당이 한다.
 
+#### Required before default-on (security decision 2026-10-27)
+기본값을 켜기(default-on) 전에 모두 충족해야 한다.
+- **백업 제외의 기계적 강제**: 저장 디렉터리에 tmutil 백업 제외 설정, 운영 런북의 확인 단계, 제외가 확인되지 않으면 기동 시 경고 로그.
+- **propose/approve 카드와 taint 연결**: 모델의 `memory.propose` → 확인 카드 → approve 경로와 taint 전파가 실제로 연결될 것.
+- **로그 Redactor 통합**: 메모리 내용이 로그에 남지 않도록 Redactor를 거칠 것.
+- **users.id 키**: `users.id`는 BIGSERIAL(int64)이고 파일명은 `<id>.json`이다. 검증 순서: 양의 정수 → `^[0-9]+$` 일치 → 파싱 후 문자열 재생성이 원본과 같음(round-trip) → 저장 디렉터리의 바로 아래(direct child)인지 → 파일 안의 `user_id`와 교차 확인.
+- **민감 범주 최소 거부 목록(deny list)**: 민감 범주는 저장하지 않는다.
+
+#### Can wait
+- 암호화와 crypto-shred는 후속 단계로 미룰 수 있다. 단, 메모리가 **어떤 백업에든 포함되는 순간 필수**가 된다.
+- 메모리 백업 자체는 삭제 보장을 위해 계속 제외한다.
+
 ## 10. SemVer·작업량
 
 - P1 (4.1.0) is MINOR: it ships with the feature off (server flag `GW_MEMORY_ENABLED` is the kill switch), adds only files in a dedicated directory, needs no DB migration and leaves existing responses unchanged. Turning it on (approve and `memory.propose` wired, per-user `memory.enabled`) gets a new SemVer call at that point.
