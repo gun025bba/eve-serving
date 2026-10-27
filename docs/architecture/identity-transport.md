@@ -15,6 +15,7 @@
 5. **Host/Origin**: `Host`는 allowlist(`<TS_HOST>`, `localhost`, `127.0.0.1`)만 허용하고 나머지는 421/400. CORS 와일드카드 금지(동일 출처만).
 6. **비인증 엔드포인트(전체 목록)**: `GET /health`(응답은 정확히 `{"status":"ok"}`, 버전·설정·DB 상태 없음)와 `POST /v1/pair`(위 잠금 규칙). 그 외는 전부 인증 필요.
 6-1. **쿠키 없는 API 클라이언트**: 반드시 `Authorization: Bearer <API 키>`. 쿠키도 Bearer도 없으면 401, Bearer로 브라우저 세션 전용 라우트(`/v1/memory*`, approve 등)를 부르면 403 `scope_denied`.
+6-1a. **401/403 응답 본문**: 이유 코드만 담는다(예: `{"error_code":"unauthenticated"}`, `{"error_code":"scope_denied"}`). 상세 사유·사용자·헤더 값은 넣지 않는다(서버 로그에만).
 6-2. **세션 수명(확정)**: 유휴 30일, 절대 180일. 만료 시 재페어링.
 7. **비밀 보관(확정)**: API 키 해시, 세션 페퍼 키, 감사 HMAC 키는 저장소 밖 `/opt/eve-gw/etc/` **0600 `_evegw`**. keychain은 선택. root·`_evegw`가 읽을 수 있는 위험은 수용(보안 합의). 로그에는 마스킹(앞 4자 + `…`). 필요한 키가 없거나 권한이 0600보다 넓으면 **기동 거부(fail-closed)**.
 8. **회전 절차**: (API 키) 새 키 추가 → 클라이언트 교체 → 옛 키 제거 → 재시작 로그 확인. (세션 페퍼) 교체 시 모든 세션이 무효화되므로 재페어링 안내 후 교체. (개별 세션) `eve-gw sessions revoke <id>` 또는 UI 설정에서 기기 로그아웃.
