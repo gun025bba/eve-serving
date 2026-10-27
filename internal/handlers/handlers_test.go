@@ -65,6 +65,10 @@ func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.
 	if mut != nil {
 		mut(&cfg)
 	}
+	if len(cfg.AllowedUsers) == 0 {
+		// tailscale-identity with an empty allowlist is a startup error.
+		cfg.Auth.Providers = []string{"api-key"}
+	}
 	logbuf := &strings.Builder{}
 	var lmu sync.Mutex
 	m := metrics.New(50)
@@ -379,17 +383,36 @@ func TestIdentityHeaderFromNonLoopback(t *testing.T) {
 			t.Fatal(remote, rec.Code, rec.Body.String())
 		}
 	}
-	// empty allowlist: header from loopback is not enough
-	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
-	req := httptest.NewRequest("GET", "/whoami", nil)
-	req.RemoteAddr = "127.0.0.1:1"
-	req.Header.Set("Tailscale-User-Login", "owner@github")
-	browserHeaders(req)
+	// Non-loopback + non-allowlisted login + valid key: header ignored, api-key 200.
+	req := httptest.NewRequest("GET", "/v1/me", nil)
+	req.RemoteAddr = "100.64.1.2:4444"
+	req.Header.Set("Tailscale-User-Login", "mallory@github")
+	req.Header.Set("Authorization", "Bearer "+key)
 	rec := httptest.NewRecorder()
-	s2.Handler().ServeHTTP(rec, req)
-	if rec.Code != 401 {
-		t.Fatal(rec.Code)
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"api-key"`) {
+		t.Fatal("non-loopback + forbidden login + key:", rec.Code, rec.Body.String())
 	}
+	// Comma-joined login from loopback: forbidden even with a valid key.
+	req = httptest.NewRequest("GET", "/v1/me", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Header.Set("Tailscale-User-Login", "owner@github, mallory@github")
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 403 || !strings.Contains(rec.Body.String(), "identity_not_allowed") {
+		t.Fatal("comma-joined login:", rec.Code, rec.Body.String())
+	}
+	// Empty allowlist with tailscale-identity configured: startup failure.
+	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("empty allowlist with tailscale-identity must fail at startup")
+			}
+		}()
+		s2.Handler()
+	}()
 }
 
 type denyAll struct{}
@@ -399,7 +422,7 @@ func (denyAll) Allow(context.Context, auth.Identity) bool { return false }
 func TestRateLimitHook(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	cfg := config.Default()
+	cfg := testDefaultCfg()
 	cfg.Upstream = up.URL
 	s := &Server{Cfg: cfg, Key: key, Limiter: denyAll{}, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
 		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
@@ -410,4 +433,13 @@ func TestRateLimitHook(t *testing.T) {
 	if rec.Code != 429 || !strings.Contains(rec.Body.String(), "rate_limited") {
 		t.Fatal(rec.Code, rec.Body.String())
 	}
+}
+
+// testDefaultCfg is config.Default() with API-key-only auth: tailscale-identity
+// with the default empty allowlist is a startup error. Tests that need identity
+// auth set AllowedUsers and Auth.Providers themselves.
+func testDefaultCfg() config.Config {
+	c := config.Default()
+	c.Auth.Providers = []string{"api-key"}
+	return c
 }
