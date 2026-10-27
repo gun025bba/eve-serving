@@ -5,12 +5,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/logging"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/queue"
 	"github.com/gun025bba/eve-serving/internal/session"
@@ -183,4 +185,33 @@ func TestHostAllowlist(t *testing.T) {
 			t.Errorf("host %q: %d want %d", host, w.Code, want)
 		}
 	}
+}
+
+// newPairEnvMemory is newPairEnv with memory on (memory + approve routes
+// registered) and an in-memory audit ledger, for the route auth matrix.
+func newPairEnvMemory(t *testing.T) *pairEnv {
+	t.Helper()
+	cfg := testDefault()
+	cfg.Auth.Providers = []string{auth.ProviderSession, auth.ProviderAPIKey}
+	cfg.AllowedOrigins = []string{testOrigin}
+	cfg.AllowedUsers = []string{"alice@example"}
+	cfg.AllowedHosts = []string{"gw.example.test"}
+	cfg.Memory.Enabled = true
+	mgr, err := session.New(session.NewMemory(), []byte(strings.Repeat("k", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := memory.Open(filepath.Join(t.TempDir(), "memory"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := memstore.New()
+	enableUserMemory(t, st, "alice@example")
+	e := &pairEnv{mgr: mgr, now: time.Now()}
+	mgr.Now = func() time.Time { return e.now }
+	s := &Server{Cfg: cfg, Key: key, Sessions: mgr, Store: st, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5),
+		Mem: &metrics.MemSampler{Needle: "none-xyz"}, Q: queue.New(1, 1, time.Second), Start: time.Now(),
+		Audit: &failLedger{}, Memory: fs, MemoryAuditKey: []byte(strings.Repeat("k", 32))}
+	e.h = s.Handler()
+	return e
 }

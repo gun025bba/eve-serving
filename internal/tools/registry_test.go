@@ -40,6 +40,7 @@ version: 1.0.0
 description: "d"
 scopes: [web.read]
 side_effect: read
+verbs: [run]
 taint_output: true
 egress: [public_web]
 secrets: []
@@ -66,6 +67,12 @@ func TestManifest_Validation(t *testing.T) {
 		"secrets":       strings.Replace(okManifest, "secrets: []", "secrets: [k]", 1),
 		"bad_mode":      strings.Replace(okManifest, "[auto]", "[always]", 1),
 		"name_mismatch": strings.Replace(okManifest, "name: t_ok", "name: t_other", 1),
+		"no_verb":       strings.Replace(okManifest, "verbs: [run]\n", "", 1),
+		"empty_verbs":   strings.Replace(okManifest, "verbs: [run]", "verbs: []", 1),
+		"bad_verb":      strings.Replace(okManifest, "verbs: [run]", "verbs: [approve]", 1),
+		"verb_case":     strings.Replace(okManifest, "verbs: [run]", "verbs: [Run]", 1),
+		"verb_dup":      strings.Replace(okManifest, "verbs: [run]", "verbs: [run, run]", 1),
+		"old_scalar":    strings.Replace(okManifest, "verbs: [run]", "verb: run", 1),
 	}
 	for k, m := range bad {
 		if _, err := LoadFS(manifestFS("t_ok", m, okSchema)); err == nil {
@@ -199,5 +206,39 @@ func TestRedactJSON_ParseFailureEmptyObject(t *testing.T) {
 	var r Redactor
 	if got := string(r.RedactJSON([]byte(`{not json`))); got != `{}` {
 		t.Fatal(got)
+	}
+}
+
+// Q19 (1): every builtin manifest declares a valid static verb.
+func TestBuiltinManifests_DeclareValidVerb(t *testing.T) {
+	reg := Default().Reg
+	for _, n := range reg.Names() {
+		m, _ := reg.Get(n)
+		if err := ValidateVerbs(m.Verbs); err != nil {
+			t.Errorf("%s: %v", n, err)
+		}
+	}
+}
+
+func TestVerbs_FixedEnum(t *testing.T) {
+	if got := strings.Join(Verbs, ","); got != "add,update,send,delete,run" {
+		t.Fatal(got)
+	}
+	for _, v := range []string{"", "Run", "approve", "label"} {
+		if ValidVerb(v) {
+			t.Errorf("%q accepted", v)
+		}
+	}
+}
+
+func TestManifest_MultipleVerbsAllowed(t *testing.T) {
+	m := strings.Replace(okManifest, "verbs: [run]", "verbs: [add, delete]", 1)
+	reg, err := LoadFS(manifestFS("t_ok", m, okSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := reg.Get("t_ok")
+	if strings.Join(got.Verbs, ",") != "add,delete" || !AllowsVerb(got.Verbs, "delete") || AllowsVerb(got.Verbs, "run") {
+		t.Fatal(got.Verbs)
 	}
 }

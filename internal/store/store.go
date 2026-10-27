@@ -13,6 +13,7 @@ import (
 	"errors"
 	"html"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -207,10 +208,34 @@ type Store interface {
 	Close()
 }
 
-// NewID returns a ULID for t (time-sortable, 26 chars).
-func NewID(t time.Time) string {
-	return ulid.MustNew(ulid.Timestamp(t), rand.Reader).String()
+// UserIDResolver maps an authenticated login to its numeric users.id
+// (creating the row on first use, like every other per-user write). Optional:
+// the memory feature requires it and stays off without it.
+type UserIDResolver interface {
+	UserID(ctx context.Context, login string) (int64, error)
 }
+
+// NewID returns a ULID for t. IDs minted in the same millisecond are
+// strictly increasing (monotonic entropy), so (created_at, id) ordering is
+// stable even when timestamps tie. Never use for secrets or tokens: the
+// monotonic entropy makes successive IDs predictable.
+func NewID(t time.Time) string {
+	idMu.Lock()
+	defer idMu.Unlock()
+	ms := ulid.Timestamp(t)
+	if ms < idLastMS {
+		// clock went back or caller passed an older time: fresh entropy
+		return ulid.MustNew(ms, rand.Reader).String()
+	}
+	idLastMS = ms
+	return ulid.MustNew(ms, idEntropy).String()
+}
+
+var (
+	idMu      sync.Mutex
+	idLastMS  uint64
+	idEntropy = ulid.Monotonic(rand.Reader, 0)
+)
 
 // Preview shortens s to n runes on one line.
 func Preview(s string, n int) string {
@@ -279,4 +304,13 @@ func Snippet(text, q string, width int) string {
 		b.WriteString("…")
 	}
 	return b.String()
+}
+
+// UserSettingsStore persists users.settings (namespaced JSONB keys). Optional.
+type UserSettingsStore interface {
+	// UserSettings returns the raw settings object ("{}" when unset).
+	UserSettings(ctx context.Context, login string) (json.RawMessage, error)
+	// MergeUserSettings shallow-merges patch into settings[ns] (other
+	// namespaces and unknown keys are preserved) and returns the result.
+	MergeUserSettings(ctx context.Context, login, ns string, patch json.RawMessage) (json.RawMessage, error)
 }

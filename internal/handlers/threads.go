@@ -192,7 +192,7 @@ func (s *Server) writeThread(w http.ResponseWriter, r *http.Request, t any) {
 	json.Unmarshal(b, &m)
 	if id, _ := m["id"].(string); id != "" {
 		if raw, err := ts.ThreadSettings(r.Context(), user(r), id); err == nil && len(raw) > 0 {
-			m["settings"] = json.RawMessage(raw)
+			m["settings"] = json.RawMessage(stripServerKeys(raw))
 		}
 	}
 	writeJSON(w, 200, m)
@@ -483,4 +483,19 @@ func (s *Server) importThreads(w http.ResponseWriter, r *http.Request) {
 		out = append(out, result{t.ClientID, id, st})
 	}
 	writeJSON(w, 200, map[string]any{"results": out})
+}
+
+// stripServerKeys removes server-only keys (memory taint flag) from
+// threads.settings before it is returned.
+func stripServerKeys(raw []byte) []byte {
+	if !bytes.Contains(raw, []byte(threadTaintKey)) {
+		return raw
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return raw
+	}
+	delete(m, threadTaintKey)
+	b, _ := json.Marshal(m)
+	return b
 }

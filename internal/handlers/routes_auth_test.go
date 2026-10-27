@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,15 @@ func TestRouteAuthMatrix(t *testing.T) {
 	routes := []rt{
 		{"GET", "/whoami", false, false},
 		{"GET", "/v1/me", false, false},
+		{"GET", "/v1/settings", false, false},
+		{"PATCH", "/v1/settings", false, true},
+		{"GET", "/v1/memory", false, true},
+		{"DELETE", "/v1/memory", false, true},
+		{"GET", "/v1/memory/export", false, true},
+		{"POST", "/v1/memory/items", false, true},
+		{"PATCH", "/v1/memory/items/1", false, true},
+		{"DELETE", "/v1/memory/items/1", false, true},
+		{"POST", "/v1/actions/1/approve", false, true},
 		{"POST", "/v1/chat/completions", false, false},
 		{"GET", "/v1/models", false, false},
 		{"GET", "/v1/threads", false, false},
@@ -53,18 +63,29 @@ func TestRouteAuthMatrix(t *testing.T) {
 		{"GET", "/openapi.json", false, false},
 		{"GET", "/docs", false, false},
 	}
-	// Guard: the table must cover every registered route in server.go.
-	src, err := os.ReadFile("server.go")
-	if err != nil {
-		t.Fatal(err)
+	// Guard: the table must equal, as a set, every route registered anywhere
+	// in the package (server.go, memory.go, ...), not just a count.
+	registered := registeredRoutes(t)
+	inTable := map[string]bool{}
+	for _, rc := range routes {
+		inTable[rc.method+" "+normRoute(rc.path)] = true
 	}
-	n := strings.Count(string(src), "mux.HandleFunc(\"") - strings.Count(string(src), "mux.HandleFunc(\"/\"") - strings.Count(string(src), "mux.HandleFunc(\"GET /ui\"")
-	if n != len(routes) {
-		t.Fatalf("server.go registers %d API routes, table has %d: update the table", n, len(routes))
+	for r := range registered {
+		if !inTable[r] {
+			t.Errorf("route %q registered but missing from the matrix", r)
+		}
+	}
+	for r := range inTable {
+		if !registered[r] {
+			t.Errorf("matrix route %q is not registered", r)
+		}
+	}
+	if t.Failed() {
+		t.FailNow()
 	}
 	bearer := func(r *httpReq) { r.Header.Set("Authorization", "Bearer "+key) }
 	for _, rc := range routes {
-		e := newPairEnv(t) // fresh env: DELETE /v1/session would revoke a shared cookie
+		e := newPairEnvMemory(t) // fresh env: DELETE /v1/session would revoke a shared cookie
 		w := e.do("POST", "/v1/pair", `{"code":"`+e.code(t)+`"}`, nil)
 		if w.Code != 204 {
 			t.Fatal("pair", w.Code)
@@ -137,3 +158,51 @@ type httpReq = http.Request
 
 func newRec() *httptest.ResponseRecorder { return httptest.NewRecorder() }
 func newReq(m, p string) *http.Request   { return httptest.NewRequest(m, p, nil) }
+
+var (
+	reHandle = regexp.MustCompile(`mux\.HandleFunc\("([A-Z]+) ([^"]+)"`)
+	reWild   = regexp.MustCompile(`\{[^}]+\}`)
+	reNumSeg = regexp.MustCompile(`/[0-9]+(/|$)`)
+)
+
+// normRoute maps "/v1/threads/1?q=x" and "/v1/threads/{id}" to the same key.
+func normRoute(p string) string {
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	p = reWild.ReplaceAllString(p, "*")
+	for reNumSeg.MatchString(p) {
+		p = reNumSeg.ReplaceAllString(p, "/*$1")
+	}
+	return p
+}
+
+// registeredRoutes collects every "METHOD /path" mux.HandleFunc in the
+// package's non-test sources, minus the catch-all and the static UI.
+func registeredRoutes(t *testing.T) map[string]bool {
+	t.Helper()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range reHandle.FindAllStringSubmatch(string(src), -1) {
+			if m[1] == "GET" && strings.HasPrefix(m[2], "/ui") {
+				continue
+			}
+			out[m[1]+" "+normRoute(m[2])] = true
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no routes found")
+	}
+	return out
+}

@@ -32,12 +32,29 @@ type Store struct {
 	settings map[string][]byte
 	actions  map[string]*action
 	pushSubs map[string]*pushSub // endpoint -> sub
+	userIDs  map[string]int64
+	users    map[string]map[string]any // users.settings by login
 }
 
 var _ store.Store = (*Store)(nil)
 
 func New() *Store {
 	return &Store{threads: map[string]*thread{}, msgs: map[string]*msg{}, feedback: map[string]*store.Feedback{}, calls: map[string][]store.ToolCall{}, sources: map[string][]store.WebSource{}, settings: map[string][]byte{}, actions: map[string]*action{}, pushSubs: map[string]*pushSub{}, clock: func() time.Time { return time.Now().UTC() }}
+}
+
+// UserID implements store.UserIDResolver (sequential ids from 1).
+func (s *Store) UserID(_ context.Context, login string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.userIDs == nil {
+		s.userIDs = map[string]int64{}
+	}
+	if id, ok := s.userIDs[login]; ok {
+		return id, nil
+	}
+	id := int64(len(s.userIDs) + 1)
+	s.userIDs[login] = id
+	return id, nil
 }
 
 func (s *Store) Ping(context.Context) error { return nil }

@@ -33,13 +33,14 @@ import (
 var errorStatus = map[string]int{
 	"invalid": 400, "scope_denied": 403, "tainted": 403, "kill_switch": 403,
 	"not_found": 404, "item_gone": 409, "conflict": 409, "expired": 410,
-	"secret_detected": 422, "cap_exceeded": 422, "payload_mismatch": 422,
+	"secret_detected": 422, "sensitive_category": 422, "cap_exceeded": 422, "payload_mismatch": 422,
+	"filter_limit": 422,
 }
 
 // ErrorCodes is the contract error_code enum (§3.3 / Q14).
 func ErrorCodes() []string {
-	return []string{"secret_detected", "cap_exceeded", "tainted", "scope_denied", "expired", "not_found",
-		"item_gone", "conflict", "payload_mismatch", "kill_switch", "invalid"}
+	return []string{"secret_detected", "sensitive_category", "cap_exceeded", "tainted", "scope_denied", "expired", "not_found",
+		"item_gone", "conflict", "payload_mismatch", "kill_switch", "invalid", "filter_limit"}
 }
 
 // writeCode writes {"error_code":code} with fixed headers.
@@ -138,8 +139,11 @@ func (s *Server) actionAudit(r *http.Request, ev string, a store.Action) {
 }
 
 func (s *Server) reissueAction(w http.ResponseWriter, r *http.Request) {
+	if s.denyAPIKey(w, r) {
+		return
+	}
 	io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10))
-	a, tok, err := s.Store.ReissueAction(r.Context(), user(r), r.PathValue("id"), time.Now().UTC())
+	a, tok, err := s.Store.ReissueAction(r.Context(), user(r), r.PathValue("id"), s.now())
 	if err != nil {
 		s.actionErr(w, r, err)
 		return
@@ -178,6 +182,9 @@ func parseRevise(raw []byte) ([]string, bool) {
 }
 
 func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
+	if s.denyAPIKey(w, r) {
+		return
+	}
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
 	if err != nil {
 		s.writeCode(w, r, "invalid")
@@ -188,7 +195,11 @@ func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
 		s.writeCode(w, r, "invalid")
 		return
 	}
-	a, tok, err := s.Store.ReviseAction(r.Context(), user(r), r.PathValue("id"), ids, time.Now().UTC())
+	if code := s.reviseMemoryCheck(r, r.PathValue("id"), ids); code != "" {
+		s.writeCode(w, r, code)
+		return
+	}
+	a, tok, err := s.Store.ReviseAction(r.Context(), user(r), r.PathValue("id"), ids, s.now())
 	if err != nil {
 		s.actionErr(w, r, err)
 		return

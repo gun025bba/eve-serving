@@ -9,6 +9,9 @@ type Error struct {
 	Code    string
 	Message string
 	Type    string
+	// Extra holds additional fields merged into the error object (e.g.
+	// message_id on 409 generation_in_progress, #30). Never secrets.
+	Extra map[string]any
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%d %s: %s", e.Status, e.Code, e.Message) }
@@ -36,6 +39,6 @@ func ScopeDenied() *Error {
 	return New(403, "scope_denied", "This route needs a paired browser session; API keys are not accepted.", "permission_error")
 }
 func ForbiddenIdentity() *Error {
-	return New(401, "identity_not_allowed", "This Tailscale login is not in the gateway allowlist.", "authentication_error")
+	return New(403, "identity_not_allowed", "This identity is not in the gateway allowlist.", "permission_error")
 }
 func Internal() *Error { return New(500, "internal_error", "Internal gateway error", "server_error") }

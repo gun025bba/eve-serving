@@ -431,6 +431,16 @@
               }
             }
           },
+          "409": {
+            "description": "generation_in_progress (same user message in the same thread already being answered, or regenerating a generating message). error adds thread_id, user_message_id and message_id (reply to reattach to; empty before the reply row exists)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "429": {
             "description": "queue_full | queue_timeout",
             "content": {
@@ -689,7 +699,7 @@
     },
     "/whoami": {
       "get": {
-        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key, identity_not_allowed",
+        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key; 403: identity_not_allowed",
         "responses": {
           "200": {
             "description": "{authenticated, user, provider}"
@@ -702,7 +712,7 @@
     },
     "/v1/me": {
       "get": {
-        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key, identity_not_allowed",
+        "summary": "Caller identity (provider + user). 401 codes: unauthenticated, invalid_api_key; 403: identity_not_allowed",
         "responses": {
           "200": {
             "description": "{authenticated, user, provider}"

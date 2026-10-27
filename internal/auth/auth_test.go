@@ -197,3 +197,44 @@ func TestLoadKeyRefusesSymlink(t *testing.T) {
 		t.Fatal(k, err)
 	}
 }
+
+type stubAuth struct {
+	err   error
+	calls *int
+}
+
+func (s stubAuth) Authenticate(*http.Request) (Identity, error) {
+	*s.calls++
+	if s.err == nil {
+		return Identity{User: "next", Provider: "stub"}, nil
+	}
+	return Identity{}, s.err
+}
+
+func TestChainStopsOnRejection(t *testing.T) {
+	for _, rej := range []error{ErrForbiddenIdentity, ErrInvalidKey} {
+		var a, b int
+		c := Chain{stubAuth{rej, &a}, stubAuth{nil, &b}}
+		if _, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); !errors.Is(err, rej) || b != 0 {
+			t.Fatalf("%v: err=%v next calls=%d", rej, err, b)
+		}
+		if RejectReason(rej) == "" {
+			t.Fatal("empty reason")
+		}
+	}
+	var a, b int
+	c := Chain{stubAuth{ErrNoCredentials, &a}, stubAuth{nil, &b}}
+	if id, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); err != nil || id.User != "next" {
+		t.Fatal(id, err)
+	}
+}
+
+func TestChainProviderError(t *testing.T) {
+	boom := errors.New("boom")
+	var a, b int
+	c := Chain{stubAuth{boom, &a}, stubAuth{nil, &b}}
+	_, err := c.Authenticate(httptest.NewRequest("GET", "/", nil))
+	if !errors.Is(err, boom) || b != 0 || RejectReason(err) != "provider_error" {
+		t.Fatalf("err=%v next=%d reason=%s", err, b, RejectReason(err))
+	}
+}

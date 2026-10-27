@@ -272,6 +272,7 @@ CREATE INDEX ON message_chunks USING hnsw (embedding vector_cosine_ops);
 - 확장 생성(`vector`)은 superuser가 필요해 설치 스크립트에서 처리, 앱 계정은 최소 권한.
 
 ## 8. 백업 정책
+- 개인화 메모리 파일(`memory.data_dir`)은 DB 밖에 있으므로 이 백업에 **포함되지 않는다**. data_dir은 백업 경로 밖에 둔다(architecture/memory.md §13).
 - `pg_dump -Fc` 매일 04:00 (launchd), 보관 14일, 서버 로컬 백업 디렉터리.
 - 복원:
 ```sh
@@ -292,3 +293,13 @@ pg_restore -h 127.0.0.1 -U <admin> -d <db>_restore --no-owner <backup>.dump
 8. **PII 처리**: 파인튜닝 추출 전 개인정보 마스킹, 백업 암호화 여부.
 9. **검색 인덱스 방식**: 표현식 인덱스 유지 vs generated tsvector 컬럼(랭킹·하이라이트 성능).
 10. **reasoning 보관**: 사고 과정 텍스트를 학습 데이터에 포함할지.
+
+## users.settings (migration 00007)
+
+- `ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'` — additive; existing rows get `{}`.
+- Down: `DROP COLUMN settings` (per-user settings are lost; memory falls back to off).
+- 런북: down 실행 **전에** 백업한다. `pg_dump --data-only -t users -f users_settings_backup.sql <DB>` 또는 `COPY (SELECT id, settings FROM users WHERE settings <> '{}') TO STDOUT` 결과를 보관하고, 행 수를 기록한다. 백업 파일은 `umask 077`로 만들어 **0600**(소유자만 읽기)으로 두고, 사용자 설정(메모리 on/off 등)이 들어 있으므로 공유 경로·동기화 폴더에 두지 않는다. 복구는 up 재적용 후 `UPDATE users SET settings = b.settings FROM backup b WHERE users.id = b.id`. 백업 없이 down을 실행하지 않는다. 복구를 확인한 뒤(또는 down이 필요 없어진 뒤) 백업 파일을 **바로 삭제**하고, 삭제했다는 사실만 기록한다.
+- One object with namespaced keys (`{"memory":{"enabled":true}}`). A missing key reads as its default (off).
+  PATCH merges only the named key into its namespace; other namespaces and unknown keys are preserved.
+- Blueprint: future per-user settings go in as new namespaced keys here; split into a table if they grow
+  (many keys, per-key history or indexing needs).

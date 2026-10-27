@@ -333,8 +333,21 @@ func TestIdentityAuth(t *testing.T) {
 	if c, _ := get("/v1/models", "owner@github", ""); c != 200 {
 		t.Fatal(c)
 	}
-	if c, m := get("/v1/models", "someone@github", ""); c != 401 || errCode(m) != "identity_not_allowed" {
+	if c, m := get("/v1/models", "someone@github", ""); c != 403 || errCode(m) != "identity_not_allowed" {
 		t.Fatal(c, m)
+	}
+	// Forbidden identity header + valid key must not fall through to api-key.
+	if c, m := get("/v1/models", "someone@github", key); c != 403 || errCode(m) != "identity_not_allowed" {
+		t.Fatal("forbidden identity + valid key:", c, m)
+	}
+	if c, m := get("/v1/models", "", ""); c != 401 || errCode(m) != "unauthenticated" {
+		t.Fatal(c, m)
+	}
+	if strings.Contains(logbuf.String(), `"reason":"no_credentials"`) {
+		t.Fatal("no_credentials must not be logged at INFO/WARN")
+	}
+	if !strings.Contains(logbuf.String(), `"auth_rejected"`) || !strings.Contains(logbuf.String(), `"reason":"forbidden_identity"`) || strings.Contains(logbuf.String(), "someone@github") {
+		t.Fatal("rejection log missing or leaks identity:", logbuf.String())
 	}
 	if c, m := get("/v1/me", "", key); c != 200 || m["provider"] != "api-key" {
 		t.Fatal(c, m)

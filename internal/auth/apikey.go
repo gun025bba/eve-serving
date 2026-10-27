@@ -23,10 +23,16 @@ func init() {
 type APIKey struct{ Key string }
 
 func (a APIKey) Authenticate(r *http.Request) (Identity, error) {
-	h := r.Header.Get("Authorization")
-	if h == "" {
+	vals, present := r.Header["Authorization"]
+	if !present {
 		return Identity{}, ErrNoCredentials
 	}
+	// Present but empty/whitespace, or sent more than once: reject, never
+	// treat as "no credentials" (that would fall through the chain).
+	if len(vals) != 1 || strings.TrimSpace(vals[0]) == "" {
+		return Identity{}, ErrInvalidKey
+	}
+	h := vals[0]
 	scheme, tok, ok := strings.Cut(h, " ")
 	if !ok || !strings.EqualFold(scheme, "bearer") {
 		return Identity{}, ErrInvalidKey

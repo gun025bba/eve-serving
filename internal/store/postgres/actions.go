@@ -288,3 +288,49 @@ func (s *Store) DeletePushSubscription(ctx context.Context, user, endpoint strin
 	_, err = s.pool.Exec(ctx, `DELETE FROM push_subscriptions WHERE endpoint=$1 AND user_id=$2`, endpoint, u)
 	return err
 }
+
+func (s *Store) ApproveAction(ctx context.Context, user, id, tokenSHA256 string, now time.Time) error {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE pending_actions SET status='approved', token_sha256=NULL, token_expires_at=NULL, updated_at=now()
+		WHERE id=$1 AND user_id=$2 AND status='pending' AND token_sha256 IS NOT NULL AND token_sha256=$3
+		AND token_expires_at > $4 AND expires_at > $4`, id, u, tokenSHA256, now)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return store.ErrConflict
+	}
+	return nil
+}
+
+func (s *Store) ReleaseAction(ctx context.Context, user, id string) error {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE pending_actions SET status='pending', updated_at=now()
+		WHERE id=$1 AND user_id=$2 AND status='approved'`, id, u)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return store.ErrConflict
+	}
+	return nil
+}
+
+func (s *Store) ActionStatus(ctx context.Context, user, id string) (string, error) {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return "", err
+	}
+	var st string
+	err = s.pool.QueryRow(ctx, `SELECT status FROM pending_actions WHERE id=$1 AND user_id=$2`, id, u).Scan(&st)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", store.ErrNotFound
+	}
+	return st, err
+}

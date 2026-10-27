@@ -17,6 +17,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/search"
 	_ "github.com/gun025bba/eve-serving/internal/search/brave"   // registers "brave" (stub, disabled)
@@ -348,6 +349,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 		out.event(res)
 	}
+	var memTaint []string
+	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
+	if memUser {
+		_, memTaint = s.historyTainted(r, clean, pr)
+	}
 	rounds := 0
 	var final upMsg
 	var lastResp map[string]any
@@ -415,7 +421,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = tools.ToolDefs()
+			b["tools"] = s.withMemoryTool(tools.ToolDefs(), memUser)
 			b["tool_choice"] = "auto"
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
 			if ferr != nil {
@@ -462,6 +468,26 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
+				if c.name == memory.ToolName && s.memoryOn() && !memUser {
+					// user memory off: tool is hidden, but a call that arrives
+					// anyway gets a kill_switch tool error; nothing is saved.
+					res := toolResult(map[string]any{"status": "denied", "error_code": "kill_switch"})
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
+				if c.name == memory.ToolName && memUser {
+					// Any web result already in this request taints the proposal.
+					reasons := append([]string(nil), memTaint...)
+					for _, wc := range sess.Calls {
+						reasons = append(reasons, "request:call:"+wc.Tool)
+					}
+					for _, src := range sess.Sources {
+						reasons = append(reasons, "request:source:"+src.URL)
+					}
+					res := s.runMemoryPropose(r, pr, c.args, reasons, out.event)
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
 				emitCall(rc)
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
@@ -641,8 +667,11 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 	}
 	c, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 	defer cancel()
+	if len(calls) > 0 || len(srcs) > 0 {
+		s.markThreadTainted(r.WithContext(c), pr.user, pr.threadID) // sticky, independent of memory state
+	}
 	if err := ws.SaveWebRun(c, pr.user, pr.msgID, calls, srcs); err != nil {
-		s.Log.Error("web_persist_failed", "request_id", rid(r), "message_id", pr.msgID, "error", trunc(err.Error(), 200))
+		s.Log.Error("web_persist_failed", "request_id", rid(r), "message_id", pr.msgID, "error", logTrunc(err.Error(), 200))
 	}
 }
 
@@ -659,7 +688,7 @@ func (s *Server) RunWebRetention(ctx context.Context, interval time.Duration) {
 		defer cancel()
 		n, err := ws.PurgeWebHistory(c, time.Now().Add(-time.Duration(days)*24*time.Hour))
 		if err != nil {
-			s.Log.Error("web_retention_failed", "error", trunc(err.Error(), 200))
+			s.Log.Error("web_retention_failed", "error", logTrunc(err.Error(), 200))
 			return
 		}
 		s.M.WebPurged.Add(float64(n))

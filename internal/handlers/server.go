@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"mime"
 	"net/http"
 	"os"
@@ -45,7 +46,14 @@ func init() {
 }
 
 type Server struct {
+	// testHookBeforeStart, if set, runs after the generating row is created
+	// and before the run is registered (#30 window). Tests only.
+	testHookBeforeStart func()
+	// Now is the clock seam (tests); nil = time.Now.
+	Now func() time.Time
+
 	threadLocks keyedLocks // per-thread persist serialization (retry dedup)
+	inflight    keyedSet   // user turns being answered (#30)
 
 	Cfg     config.Config
 	Key     string             // API key; used to build Auth when Auth is nil
@@ -70,6 +78,11 @@ type Server struct {
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool
+	// Memory is the personalization store (nil or memory.enabled=false =
+	// feature off: no routes, no prompt block). MemoryAuditKey keys the
+	// HMAC of item text in audit rows.
+	Memory         memory.Store
+	MemoryAuditKey []byte
 
 	genOnce sync.Once
 	gens    *genHub // detached generations (genhub.go)
@@ -116,15 +129,37 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var e *apierr.Error
 	if !errors.As(err, &e) {
 		s.M.Errs.WithLabelValues("internal_error").Inc()
-		s.Log.Error("internal_error", "request_id", rid(r), "path", r.URL.Path, "error", trunc(err.Error(), 300))
+		s.Log.Error("internal_error", "request_id", rid(r), "path", r.URL.Path, "error", logTrunc(err.Error(), 300))
 		writeJSON(w, 500, apierr.Body("internal_error", "Internal gateway error", "server_error", rid(r)))
 		return
 	}
 	s.M.Errs.WithLabelValues(e.Code).Inc()
 	s.M.Reqs.WithLabelValues(r.URL.Path, fmt.Sprint(e.Status)).Inc()
 	s.M.Recent.Add(metrics.Sample{OK: false, Code: e.Code})
-	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", e.Message)
-	writeJSON(w, e.Status, apierr.Body(e.Code, e.Message, e.Type, rid(r)))
+	detail := e.Message
+	// Upstream bodies (and anything relayed from them) may echo the injected
+	// block: omit the detail for every upstream-derived error, not only the
+	// "Upstream " prefix.
+	if s.memoryOn() && (e.Code == "upstream_error" || strings.Contains(detail, "Upstream") ||
+		strings.Contains(detail, "upstream") || strings.HasPrefix(r.URL.Path, "/v1/chat/")) {
+		detail = "[omitted:memory]" // upstream body may echo the injected block
+	}
+	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", detail)
+	body := apierr.Body(e.Code, e.Message, e.Type, rid(r))
+	if eo, ok := body["error"].(map[string]any); ok {
+		for k, v := range e.Extra {
+			if _, taken := eo[k]; !taken {
+				eo[k] = v
+			}
+		}
+	}
+	writeJSON(w, e.Status, body)
+}
+
+// logTrunc redacts BEFORE truncating, so a cut can never split a
+// registered memory text or a secret into an unmatched prefix.
+func logTrunc(s string, n int) string {
+	return trunc(memory.RedactLog(s), n)
 }
 
 func trunc(s string, n int) string {
@@ -181,6 +216,14 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		id, err := s.Auth.Authenticate(r)
 		if err != nil {
 			s.M.Auth.WithLabelValues("none", "denied").Inc()
+			// Never log header values or keys; reason + request metadata only.
+			reason := auth.RejectReason(err)
+			kv := []any{"request_id", rid(r), "method", r.Method, "path", r.URL.Path, "reason", reason}
+			if errors.Is(err, auth.ErrNoCredentials) {
+				s.Log.Debug("auth_rejected", kv...)
+			} else {
+				s.Log.Warn("auth_rejected", kv...)
+			}
 			s.fail(w, r, authErr(err))
 			return
 		}
@@ -245,6 +288,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
+	mux.HandleFunc("GET /v1/settings", s.authed(noStore(s.getSettings)))
+	mux.HandleFunc("PATCH /v1/settings", s.authed(s.browserOnly(noStore(s.patchSettings))))
 	mux.HandleFunc("POST /v1/chat/completions", s.authed(s.chat))
 	mux.HandleFunc("GET /v1/models", s.authed(s.models))
 	mux.HandleFunc("GET /v1/threads", s.persisted(s.listThreads))
@@ -268,6 +313,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/push/vapid-public-key", s.pushed(s.vapidKey))
 	mux.HandleFunc("POST /v1/push/subscriptions", s.pushed(s.subscribePush))
 	mux.HandleFunc("DELETE /v1/push/subscriptions", s.pushed(s.unsubscribePush))
+	s.memoryRoutes(mux)
 	mux.HandleFunc("GET /health", s.health)
 	// Only /health and POST /v1/pair are unauthenticated (identity-transport.md §6).
 	mux.HandleFunc("GET /ready", s.authed(s.ready))
@@ -452,4 +498,11 @@ func docs(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head>
 <body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',persistAuthorization:true});</script></body></html>`)
+}
+
+func (s *Server) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }

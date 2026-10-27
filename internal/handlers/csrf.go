@@ -101,7 +101,7 @@ func (s *Server) csrfStartup() {
 // CORS allow headers, including routes that don't exist yet.
 var corsDeniedSegments = map[string]bool{
 	"actions": true, "revise": true, "reissue": true, "token": true, "tokens": true,
-	"confirm": true, "confirmations": true,
+	"confirm": true, "confirmations": true, "memory": true,
 }
 
 func corsDenied(path string) bool {

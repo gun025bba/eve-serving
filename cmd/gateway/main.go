@@ -6,6 +6,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/prometheus/client_golang/prometheus"
+	stdlog "log"
 	"net"
 	"net/http"
 	"os"
@@ -109,8 +112,18 @@ func main() {
 		fatal("log_level: %v", err)
 	}
 	log := logging.New(lf, lv)
+	log.SetRedactor(memory.RedactLog) // always: secrets and memory text never reach logs
 
 	m := metrics.New(cfg.StatsWindow)
+	memory.OnRegistryCap = func(uid int64, level string) {
+		log.Warn("memory_redact_registry_over_cap", "user_id", uid, "level", level)
+	}
+	m.Reg.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_degraded_users", Help: "Users whose log-mask set uses the stride fallback (over per-user cap; includes fail-closed users)"},
+			func() float64 { d, _ := memory.RegistryStats(); return float64(d) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_fail_closed_users", Help: "Users over the cap even with the fallback (global fail-closed)"},
+			func() float64 { _, f := memory.RegistryStats(); return float64(f) }),
+	)
 	q := queue.New(cfg.MaxConc, cfg.MaxQueue, secs(cfg.QueueTimeoutS))
 	q.OnChange = func(w, i int64) { m.QDepth.Set(float64(w)); m.Inflight.Set(float64(i)) }
 	up := proxy.New(proxy.Options{BaseURL: cfg.Upstream, ConnectTimeout: secs(cfg.ConnectTimeoutS), ReadTimeout: secs(cfg.ReadTimeoutS),
@@ -197,6 +210,36 @@ func main() {
 	}
 	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Sessions: sessions, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
+	if cfg.Memory.Enabled {
+		if _, ok := st.(store.UserIDResolver); !ok {
+			log.Error("memory_disabled", "err", "store cannot resolve users.id")
+			os.Exit(1)
+		}
+		// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것 (approve/propose: follow-up PR).
+		log.Warn("memory_enabled_preview", "msg", "memory P1 has no approve/propose wiring and no encrypted backup; keep data_dir outside backups (tmutil exclusion)")
+		ms, err := memory.Open(config.Expand(cfg.Memory.DataDir))
+		if err != nil {
+			log.Error("memory_disabled", "err", err.Error())
+			os.Exit(1)
+		}
+		k, err := memory.ReadKeyFile(config.Expand(cfg.Memory.AuditKeyFile))
+		if err != nil {
+			log.Error("memory_disabled", "err", err.Error())
+			os.Exit(1)
+		}
+		srv.Memory, srv.MemoryAuditKey = ms, k
+		// Fail-closed (memory.md §9.1): refuse to start unless the data_dir is
+		// confirmed excluded from backups (macOS) or the operator opted in.
+		if st, err := memory.CheckBackupPolicy(ms.Dir(), cfg.Memory.AllowUnverifiedBackup); err != nil {
+			log.Error("memory_backup_exclusion_refused", "status", st, "error", err.Error(),
+				"msg", "run: sudo tmutil addexclusion -p <data_dir> (see runbook)")
+			os.Exit(1)
+		} else if st != memory.BackupExcluded {
+			log.Warn("memory_backup_exclusion_unverified", "status", st, "msg", "non-macOS host; allow_unverified_backup opt-in in effect")
+		}
+		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
+	}
+
 	if srv.WebAuditBlocked {
 		m.WebAuditDisabled.WithLabelValues("memory_ledger").Set(1)
 		log.Warn("web_tools_disabled", "reason", "in-memory audit ledger outside GW_ENV=dev")
@@ -208,7 +251,8 @@ func main() {
 	if err != nil {
 		fatal("listen: %v", err)
 	}
-	servers := []*http.Server{{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}}
+	servers := []*http.Server{{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		ErrorLog: stdlog.New(log.Writer(logging.WARN, "http_server_error"), "", 0)}} // through the redactor
 	listeners := []net.Listener{tl}
 	if len(cfg.AllowedHosts) == 0 {
 		log.Warn("allowed_hosts_empty", "detail", "only localhost/127.0.0.1/::1 Host headers accepted; set GW_ALLOWED_HOSTS to the serve name")

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/store"
@@ -44,41 +45,56 @@ func TestRetryDedup_ConcurrentIdenticalResendsInsertOnce(t *testing.T) {
 	ms.AddMessage(ctx, "alice@example", store.Message{ThreadID: th.ID, Role: "user", Content: "q"})
 	ms.AddMessage(ctx, "alice@example", store.Message{ThreadID: th.ID, Role: "assistant", Content: "a", Status: store.StatusComplete})
 
+	// #30: of n identical concurrent sends exactly one proceeds; the others
+	// get 409 generation_in_progress instead of a second answer.
 	const n = 4
-	ids := make([]string, n)
+	var mu sync.Mutex
+	var ok []*chatPersist
+	conflicts := 0
 	var wg sync.WaitGroup
-	for i := range n {
+	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			r := httptest.NewRequest("POST", "/v1/chat/completions", nil)
 			r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{User: "alice@example"}))
 			p, err := s.beginPersist(r, map[string]any{"thread_id": th.ID, "messages": []any{map[string]any{"role": "user", "content": "same"}}})
-			if err != nil || p == nil {
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if e, isAPI := err.(*apierr.Error); isAPI && e.Status == 409 && e.Code == "generation_in_progress" {
+					conflicts++
+					if e.Extra["user_message_id"] == nil {
+						t.Errorf("409 without user_message_id: %+v", e.Extra)
+					}
+					return
+				}
 				t.Errorf("beginPersist: %v", err)
 				return
 			}
-			ids[i] = p.userMsgID
+			ok = append(ok, p)
 		}()
 	}
 	wg.Wait()
-	got, _, _ := ms.ListMessages(ctx, "alice@example", th.ID, 100, "")
-	users := 0
-	for _, m := range got {
-		if m.Role == "user" && m.Content == "same" {
-			users++
-		}
+	if len(ok) != 1 || conflicts != n-1 {
+		t.Fatalf("want 1 ok + %d conflicts, got %d ok + %d", n-1, len(ok), conflicts)
 	}
 	if sl.adds != 1 {
 		t.Fatalf("want 1 AddMessage, got %d", sl.adds)
 	}
-	if users != 1 {
-		t.Fatalf("want 1 stored user message, got %d", users)
+	// Releasing the mark (completion, error or client cancel) lets a resend
+	// of the same turn through again and it reuses the saved user message.
+	ok[0].releaseInflight()
+	ok[0].releaseInflight() // idempotent
+	r := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{User: "alice@example"}))
+	p, err := s.beginPersist(r, map[string]any{"thread_id": th.ID, "messages": []any{map[string]any{"role": "user", "content": "same"}}})
+	if err != nil || p.userMsgID != ok[0].userMsgID {
+		t.Fatalf("resend after release: %v %+v", err, p)
 	}
-	for _, id := range ids {
-		if id != ids[0] {
-			t.Fatalf("requests got different user message ids: %v", ids)
-		}
+	p.releaseInflight()
+	if _, held := s.inflight.get("alice@example\x00" + th.ID + "\x00same"); held {
+		t.Fatal("in-flight mark leaked")
 	}
 }
 
