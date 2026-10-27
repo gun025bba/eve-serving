@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
@@ -150,12 +151,52 @@ func (s *Server) beginPersist(r *http.Request, body map[string]any) (*chatPersis
 	if !found {
 		return nil, apierr.BadRequest("A user message is required to save to a thread")
 	}
+	if tid != "new" {
+		// Serialize "check last turn, then insert" per thread so two identical
+		// resends arriving together cannot both miss the dedup and insert twice.
+		// The gateway is a single process, so an in-process lock is enough;
+		// a multi-instance deployment would need SELECT ... FOR UPDATE on the
+		// thread row instead.
+		unlock := s.threadLocks.lock(p.user + "\x00" + p.threadID)
+		defer unlock()
+		if uid, failedID, ok := s.retryTarget(ctx, p.user, p.threadID, lastUser); ok {
+			// Client resent the same turn without replace_message_id (e.g. after
+			// "Load failed"): reuse the saved user message instead of storing it
+			// twice, and overwrite the failed reply if there is one.
+			p.userMsgID, p.replaceID = uid, failedID
+			s.Log.Info("persist_retry_dedup", "request_id", rid(r), "thread_id", p.threadID, "user_message_id", uid, "replaced", failedID != "")
+			return p, nil
+		}
+	}
 	um, err := s.Store.AddMessage(ctx, p.user, store.Message{ThreadID: p.threadID, Role: "user", Content: lastUser})
 	if err != nil {
 		return nil, storeErr(err, "Thread")
 	}
 	p.userMsgID = um.ID
 	return p, nil
+}
+
+// retryTarget reports whether a new user turn is a resend of the thread's last
+// user message: the thread ends with a user message with identical content,
+// either with no reply after it or followed only by one failed/incomplete
+// (incl. cancelled) assistant reply. A generating or complete reply, or any
+// proactive/other row in between, means it is a genuinely new turn.
+func (s *Server) retryTarget(ctx context.Context, user, threadID, content string) (userID, failedID string, ok bool) {
+	ms, _, err := s.Store.ListMessages(ctx, user, threadID, 2, "")
+	if err != nil || len(ms) == 0 {
+		return "", "", false
+	}
+	isUser := func(m store.Message) bool {
+		return m.Role == "user" && m.Origin != store.OriginProactive && m.Content == content
+	}
+	last := ms[len(ms)-1]
+	if isUser(last) {
+		return last.ID, "", true
+	}
+	if len(ms) == 2 && last.Role == "assistant" && (last.Status == store.StatusFailed || last.Status == store.StatusIncomplete) && isUser(ms[0]) {
+		return ms[0].ID, last.ID, true
+	}
+	return "", "", false
 }
 
 func (p *chatPersist) setHeaders(h http.Header) {
@@ -246,4 +287,39 @@ func (p *chatPersist) apiStatus(status string) string {
 		return store.StatusFailed
 	}
 	return status
+}
+
+// keyedLocks is a set of mutexes keyed by string, created on demand and
+// dropped when the last holder/waiter releases (no unbounded growth).
+type keyedLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedLocks) lock(key string) (unlock func()) {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]*keyedLock{}
+	}
+	l := k.m[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.m[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
 }
