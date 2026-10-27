@@ -89,9 +89,14 @@ type MemoryConfig struct {
 	// Enabled (GW_MEMORY_ENABLED) is the server-wide kill switch. A later
 	// per-user /v1/settings memory.enabled is ANDed with it; this flag
 	// always wins when false.
-	// Default true since 5.0.0. Rollback: memory.enabled: false in
-	// config.yaml (or GW_MEMORY_ENABLED=false) and restart.
+	// Default true since 5.0.0. Resolution is "off wins": if either
+	// config.yaml memory.enabled or GW_MEMORY_ENABLED is false, memory is
+	// off; it is on only when neither is false (both unset -> on). Rollback:
+	// set either to false and restart.
 	Enabled bool `yaml:"enabled" json:"enabled"`
+	// EnabledSource records which input decided Enabled (config, env,
+	// config+env or default) for the startup log. Not loaded from YAML.
+	EnabledSource string `yaml:"-" json:"-"`
 	// DataDir holds one 0600 JSON file per user, named <users.id>.json
 	// (dir 0700; permissions are verified at startup). It must sit outside
 	// the backup path: it is not part of the pg backup.
@@ -183,9 +188,18 @@ func Default() Config {
 // Load reads path (if it exists) over the defaults, then applies env overrides via getenv.
 func Load(path string, getenv func(string) string) (Config, error) {
 	c := Default()
+	var cfgMemory *bool
 	if b, err := os.ReadFile(path); err == nil {
 		if err := yaml.Unmarshal(b, &c); err != nil {
 			return c, fmt.Errorf("parse %s: %w", path, err)
+		}
+		var probe struct {
+			Memory struct {
+				Enabled *bool `yaml:"enabled"`
+			} `yaml:"memory"`
+		}
+		if yaml.Unmarshal(b, &probe) == nil && probe.Memory.Enabled != nil {
+			cfgMemory = probe.Memory.Enabled
 		}
 	} else if !os.IsNotExist(err) {
 		return c, err
@@ -193,6 +207,12 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	var envMemory *bool
+	if v := getenv("GW_MEMORY_ENABLED"); v != "" {
+		b, _ := strconv.ParseBool(v) // already validated in applyEnv
+		envMemory = &b
+	}
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(cfgMemory, envMemory)
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
 		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
@@ -284,7 +304,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		if err != nil {
 			return fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
 		}
-		c.Memory.Enabled = b
+		_ = b // resolved "off wins" in Load via ResolveMemoryEnabled
 	}
 	if v := getenv("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP"); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -390,4 +410,28 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// ResolveMemoryEnabled applies the 5.0.0 "off wins" rule: any explicit false
+// (config or env) turns memory off; otherwise it is on. The returned source
+// names the input that decided the value: "config", "env", "config+env" or
+// "default".
+func ResolveMemoryEnabled(cfg, env *bool) (bool, string) {
+	cfgOff := cfg != nil && !*cfg
+	envOff := env != nil && !*env
+	switch {
+	case cfgOff && envOff:
+		return false, "config+env"
+	case cfgOff:
+		return false, "config"
+	case envOff:
+		return false, "env"
+	case cfg != nil && env != nil:
+		return true, "config+env"
+	case cfg != nil:
+		return true, "config"
+	case env != nil:
+		return true, "env"
+	}
+	return true, "default"
 }

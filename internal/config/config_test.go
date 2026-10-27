@@ -98,3 +98,32 @@ func TestLoad_PushRequiresKillswitch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMemoryEnabledOffWins(t *testing.T) {
+	cases := []struct {
+		name, yaml, env string
+		want            bool
+		src             string
+	}{
+		{"env true + config false", "memory:\n  enabled: false\n", "true", false, "config"},
+		{"env false + config true", "memory:\n  enabled: true\n", "false", false, "env"},
+		{"both unset", "max_conc: 1\n", "", true, "default"},
+		{"env unset + config true", "memory:\n  enabled: true\n", "", true, "config"},
+		{"env true + config unset", "max_conc: 1\n", "true", true, "env"},
+		{"both false", "memory:\n  enabled: false\n", "false", false, "config+env"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "config.yaml")
+			os.WriteFile(p, []byte(tc.yaml), 0o644)
+			env := map[string]string{"GW_MEMORY_ENABLED": tc.env}
+			c, err := Load(p, func(k string) string { return env[k] })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Memory.Enabled != tc.want || c.Memory.EnabledSource != tc.src {
+				t.Fatalf("got %v/%s want %v/%s", c.Memory.Enabled, c.Memory.EnabledSource, tc.want, tc.src)
+			}
+		})
+	}
+}
