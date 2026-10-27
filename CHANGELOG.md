@@ -34,7 +34,7 @@ Design: `docs/architecture/identity-transport.md`. Cutover: `docs/runbooks/4.0.0
 - `POST /v1/pair`, `DELETE /v1/session`.
 - Config: `allowed_hosts` (`GW_ALLOWED_HOSTS`), `session_pepper_file` (`GW_SESSION_PEPPER_FILE`, default
   `<base>/.session_pepper`).
-- Migration `00007_sessions` (reversible): tables `sessions` and `pairing_codes`. No existing table is changed.
+- Migration `00008_sessions` (reversible; renumbered from 00007 after main added `00007_user_settings`): tables `sessions` and `pairing_codes`. No existing table is changed.
 
 ### Removed (startup refuses these if set)
 - `unix_socket` / `GW_UNIX_SOCKET`, `tcp_disabled` / `GW_TCP_DISABLED`, provider `tailscale-identity`,

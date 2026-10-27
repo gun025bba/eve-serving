@@ -94,7 +94,7 @@ func TestSessionsMigrationReversible(t *testing.T) {
 	if _, err := s.uid(ctx, "keep@example"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.DownTo(ctx, 6); err != nil {
+	if _, err := p.DownTo(ctx, 7); err != nil {
 		t.Fatal(err)
 	}
 	var reg sql.NullString
