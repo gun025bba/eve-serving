@@ -52,7 +52,7 @@ func TestV5_IntroSeenPatch(t *testing.T) {
 		!strings.Contains(string(b), `"memory":{"enabled":false}`) || !strings.Contains(string(b), `"memory_intro_seen":false`) {
 		t.Fatal(r.StatusCode, string(b))
 	}
-	// Bearer cannot patch settings
+	// no interactive scope (API key): cannot patch settings
 	if r, _ := do(t, "PATCH", e.ts.URL+"/v1/settings", `{"ui":{"memory_intro_seen":true}}`, true); r.StatusCode != 403 {
 		t.Fatal("bearer patch", r.StatusCode)
 	}
@@ -85,7 +85,7 @@ func TestV5_ProposalHeldUntilIntroSeen(t *testing.T) {
 	}
 }
 
-func TestV5_BearerMemoryRoutes403(t *testing.T) {
+func TestV5_NoInteractiveScopeMemoryRoutes403(t *testing.T) {
 	e, fs := newMemEnv(t, true, &failLedger{})
 	for _, c := range [][2]string{{"GET", "/v1/memory"}, {"GET", "/v1/memory/export"}, {"DELETE", "/v1/memory"},
 		{"POST", "/v1/memory/items"}, {"PATCH", "/v1/memory/items/x"}, {"DELETE", "/v1/memory/items/x"}} {
@@ -95,14 +95,14 @@ func TestV5_BearerMemoryRoutes403(t *testing.T) {
 		}
 	}
 	if d, _ := fs.Load(uidOf(t, e, "api-key")); len(d.Items) != 0 {
-		t.Fatal("api key stored memory")
+		t.Fatal("principal without interactive scope stored memory")
 	}
 }
 
-func TestV5_BearerChatNoInjection(t *testing.T) {
+func TestV5_NoInteractiveScopeChatNoInjection(t *testing.T) {
 	e, _ := newMemEnv(t, true, &failLedger{})
 	do(t, "POST", e.ts.URL+"/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`, true)
 	if up := fmt.Sprint(e.lastUpstream()); strings.Contains(up, "user_memory") || strings.Contains(up, memory.ToolName) {
-		t.Fatal("api-key virtual user got memory")
+		t.Fatal("principal without interactive scope got memory")
 	}
 }

@@ -45,9 +45,9 @@ func (s *Server) loadUserSettings(r *http.Request) (userSettings, error) {
 
 // memoryFor is the effective switch for this request:
 // system.memory_available AND users.settings memory.enabled. Fail-closed.
-// The api-key virtual user (Bearer) has memory fixed off (5.0.0).
+// A principal without the interactive scope has memory fixed off (5.0.0).
 func (s *Server) memoryFor(r *http.Request) bool {
-	if !s.memoryOn() || !isBrowserSession(r) {
+	if !s.memoryOn() || !hasScope(r, auth.ScopeInteractive) {
 		return false
 	}
 	u, err := s.loadUserSettings(r)
