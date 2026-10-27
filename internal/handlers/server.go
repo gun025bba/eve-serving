@@ -125,7 +125,11 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	s.M.Errs.WithLabelValues(e.Code).Inc()
 	s.M.Reqs.WithLabelValues(r.URL.Path, fmt.Sprint(e.Status)).Inc()
 	s.M.Recent.Add(metrics.Sample{OK: false, Code: e.Code})
-	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", e.Message)
+	detail := e.Message
+	if s.memoryOn() && strings.HasPrefix(detail, "Upstream ") {
+		detail = "[omitted:memory]" // upstream body may echo the injected block
+	}
+	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", detail)
 	writeJSON(w, e.Status, apierr.Body(e.Code, e.Message, e.Type, rid(r)))
 }
 

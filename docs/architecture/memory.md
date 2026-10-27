@@ -246,7 +246,12 @@
 - **로그 Redactor**: 메모리가 켜지면 로거에 `memory.RedactLog`를 연결한다.
   - `<user_memory` 블록이나 프리앰블이 든 값은 통째로 `[REDACTED:memory]`가 된다.
   - 등록된 시크릿 값과 공용 `SecretPatterns`는 `[REDACTED]`로 가린다.
-  - 메시지와 모든 필드 값(문자열이 아닌 값은 문자열로 만든 뒤)에 적용한다. 꺼져 있으면 로그는 바뀌지 않는다.
+  - 메시지, 키 이름, 모든 필드 값에 적용한다. `[]byte`는 텍스트로, error는 `Error()`, Stringer는 `String()`, map·slice·struct는 JSON으로 만든 뒤 가린다.
+  - Redactor는 메모리 설정과 관계없이 항상 설치한다. 메모리 데이터가 없으면 메모리 마스크는 걸리지 않는다.
+  - 매칭 전에 `\u003c`·`&lt;`·`\"` 같은 이스케이프를 푼다. 블록 없이 항목 줄 형태(`{"kind":..,"text":..}`)만 있어도 블록으로 취급한다.
+  - 메모리 항목 텍스트(Load·Update·Clean 후보)는 프로세스 메모리에 등록되고(최대 5만 개, 2자 이상), 블록 밖(오류 문자열, `text` 필드)에 나와도 `[REDACTED:memory]`로 가린다. 짧은 항목은 일반 로그 단어까지 가릴 수 있다(과잉 마스킹 허용).
+  - 값마다 4096바이트로 자른다. `http.Server.ErrorLog`도 로거(Redactor)를 거친다. 복구되지 않은 고루틴 패닉의 런타임 stderr 출력은 막을 수 없다.
+  - 메모리가 켜지면 업스트림 오류 본문(`Upstream NNN: ...`)은 로그에 `[omitted:memory]`로 남긴다. 클라이언트 응답은 그대로다.
 - **TODO**: 호모글리프(UTS#39 skeleton) 정규화와 다단 인코딩 디코딩(현재 1단계만).
 - **감사 HMAC 키 생성**: `umask 077; openssl rand -hex 32 > <audit_key_file>`
   - hex만 받는다. 끝의 개행은 하나까지만 제거하고, 그 밖의 공백·개행·hex가 아닌 문자·원시 바이너리는 거부한다.
