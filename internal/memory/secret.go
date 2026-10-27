@@ -140,27 +140,73 @@ func squash(s string) string {
 
 // variants returns the strings every rule is applied to: the original, the
 // NFKC copy, the squashed copy, and one level of URL/base64/hex decoding.
+// confusables folds common Cyrillic/Greek look-alikes to Latin so that
+// "ѕk-…" or "АKIA…" still hit the ASCII secret patterns.
+var confusables = strings.NewReplacer(
+	"а", "a", "е", "e", "о", "o", "р", "p", "с", "c", "х", "x", "у", "y", "к", "k", "ѕ", "s", "і", "i", "ј", "j", "ԁ", "d", "һ", "h", "ӏ", "l", "м", "m", "т", "t", "в", "b", "н", "h",
+	"А", "A", "В", "B", "Е", "E", "К", "K", "М", "M", "Н", "H", "О", "O", "Р", "P", "С", "C", "Т", "T", "Х", "X", "У", "Y", "Ѕ", "S", "І", "I", "Ј", "J",
+	"α", "a", "ο", "o", "ρ", "p", "ν", "v", "τ", "t", "κ", "k", "ι", "i", "Α", "A", "Β", "B", "Ε", "E", "Η", "H", "Ι", "I", "Κ", "K", "Μ", "M", "Ν", "N", "Ο", "O", "Ρ", "P", "Τ", "T", "Χ", "X", "Υ", "Y", "Ζ", "Z",
+)
+
+const (
+	maxDecodeDepth = 3
+	maxVariants    = 64
+)
+
+// variants returns the forms CheckSecret matches against: raw, NFKC,
+// confusable-folded, squashed, and up to maxDecodeDepth levels of URL /
+// base64 / hex decoding of each (bounded by maxVariants).
 func variants(s string) []string {
 	n := norm.NFKC.String(s)
-	sq := squash(s)
-	out := []string{s, n, sq}
-	for _, base := range []string{n, sq} {
-		if pctRe.MatchString(base) {
-			if d, err := url.QueryUnescape(base); err == nil {
-				out = append(out, d)
+	f := confusables.Replace(n)
+	seen := map[string]bool{}
+	var out []string
+	add := func(v string) bool {
+		if seen[v] || len(out) >= maxVariants {
+			return false
+		}
+		seen[v] = true
+		out = append(out, v)
+		return true
+	}
+	for _, v := range []string{s, n, f, squash(s), squash(f)} {
+		add(v)
+	}
+	level := []string{n, f, squash(f)}
+	for depth := 0; depth < maxDecodeDepth && len(level) > 0; depth++ {
+		var next []string
+		for _, base := range level {
+			for _, d := range decodeOnce(base) {
+				d = confusables.Replace(norm.NFKC.String(d))
+				if add(d) {
+					next = append(next, d)
+				}
 			}
 		}
-		for _, c := range b64Cand.FindAllString(base, 20) {
-			for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
-				if d, err := enc.DecodeString(c); err == nil && printable(d) {
-					out = append(out, string(d))
-					break
-				}
+		level = next
+	}
+	return out
+}
+
+func decodeOnce(base string) []string {
+	var out []string
+	if pctRe.MatchString(base) {
+		if d, err := url.QueryUnescape(base); err == nil && d != base {
+			out = append(out, d)
+		} else if d, err := url.PathUnescape(base); err == nil && d != base {
+			out = append(out, d)
+		}
+	}
+	for _, c := range b64Cand.FindAllString(base, 20) {
+		for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+			if d, err := enc.DecodeString(c); err == nil && printable(d) {
+				out = append(out, string(d))
+				break
 			}
-			if len(c)%2 == 0 && hexRe.MatchString(c) {
-				if d, err := hex.DecodeString(c); err == nil && printable(d) {
-					out = append(out, string(d))
-				}
+		}
+		if len(c)%2 == 0 && hexRe.MatchString(c) {
+			if d, err := hex.DecodeString(c); err == nil && printable(d) {
+				out = append(out, string(d))
 			}
 		}
 	}
