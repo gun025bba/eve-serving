@@ -82,3 +82,15 @@ func httptestReq(login string) *http.Request {
 	r := httptest.NewRequest("GET", "/", nil)
 	return r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{User: login}))
 }
+
+func TestSettings_PatchBearer403(t *testing.T) {
+	e, _ := newMemEnv(t, true, &failLedger{})
+	r, b := e.call(t, "", "PATCH", "/v1/settings", `{"memory":{"enabled":true}}`)
+	if r.StatusCode != 403 || strings.TrimSpace(string(b)) != `{"error_code":"scope_denied"}` {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	// GET stays available to Bearer
+	if r, _ := e.call(t, "", "GET", "/v1/settings", ""); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode)
+	}
+}

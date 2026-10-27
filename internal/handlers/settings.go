@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"net/http"
 	"strconv"
 	"time"
@@ -62,6 +63,12 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
+	// Settings changes are browser-session only (security Low #40): an API
+	// key (Bearer) cannot turn memory on or off. CSRF is checked by authed.
+	if id, _ := auth.FromContext(r.Context()); id.Provider != auth.ProviderTailscale {
+		s.writeCode(w, r, "scope_denied")
+		return
+	}
 	var b struct {
 		Memory *struct {
 			Enabled *bool `json:"enabled"`
