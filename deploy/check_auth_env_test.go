@@ -8,67 +8,69 @@ import (
 	"testing"
 )
 
-// writePlist writes a minimal launchd plist with the given env (nil = no key).
-func writePlist(t *testing.T, dir, name string, env map[string]string) string {
-	var b strings.Builder
-	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>x</string><key>EnvironmentVariables</key><dict>`)
-	for k, v := range env {
-		b.WriteString("<key>" + k + "</key><string>" + v + "</string>")
-	}
-	b.WriteString(`</dict></dict></plist>`)
+func writeFile(t *testing.T, dir, name, body string) string {
 	p := filepath.Join(dir, name)
-	if err := os.WriteFile(p, []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
+func plist(env string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Label</key><string>x</string>` +
+		env + `</dict></plist>`
+}
+
+// TestCheckAuthEnv runs deploy/check-auth-env.sh against a freshly built
+// gateway, so the guard is exercised end to end with the real loader.
 func TestCheckAuthEnv(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
 	}
-	if _, err := exec.LookPath("plutil"); err != nil {
-		if _, err := exec.LookPath("python3"); err != nil {
-			t.Skip("neither plutil nor python3 available")
-		}
-	}
 	d := t.TempDir()
-	cfg := func(name, body string) string {
-		p := filepath.Join(d, name)
-		os.WriteFile(p, []byte(body), 0o600)
-		return p
+	gw := filepath.Join(d, "gateway")
+	if out, err := exec.Command("go", "build", "-o", gw, "../cmd/gateway").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
 	}
 	repoCfg, _ := filepath.Abs("../config.yaml")
+	blockCfg := writeFile(t, d, "block.yaml", "allowed_users:\n  - a@x\nauth:\n  providers:\n    - tailscale-identity\n    - api-key\n")
+	apiCfg := writeFile(t, d, "api.yaml", "auth:\n  providers:\n    - api-key\n")
+	env := func(kv string) string { return "<key>EnvironmentVariables</key><dict>" + kv + "</dict>" }
 	cases := []struct {
-		name   string
-		env    map[string]string
-		config string
-		ok     bool
+		name, plist, cfg string
+		ok               bool
 	}{
-		{"empty users, default providers", map[string]string{"GW_ALLOWED_USERS": ""}, "", false},
-		{"blank users", map[string]string{"GW_ALLOWED_USERS": " , "}, "", false},
-		{"no env at all", nil, "", false},
-		{"users set", map[string]string{"GW_ALLOWED_USERS": "a@x"}, "", true},
-		{"api-key only", map[string]string{"GW_AUTH_PROVIDERS": "api-key"}, "", true},
-		{"repo config.yaml, empty users", nil, repoCfg, false},
-		{"config allowlist", nil, cfg("c2.yaml", "allowed_users: [a@x]\n"), true},
-		{"config api-key only", nil, cfg("c3.yaml", "allowed_users: []\nauth:\n  providers: [api-key]\n"), true},
+		{"empty users, default providers", plist(env("<key>GW_ALLOWED_USERS</key><string></string>")), repoCfg, false},
+		{"Med B: ' , '", plist(env("<key>GW_ALLOWED_USERS</key><string> , </string>")), repoCfg, false},
+		{"no env", plist(""), repoCfg, false},
+		{"users set", plist(env("<key>GW_ALLOWED_USERS</key><string>a@x</string>")), repoCfg, true},
+		{"env ' , ' overrides config list", plist(env("<key>GW_ALLOWED_USERS</key><string> , </string>")), blockCfg, false},
+		{"Med A: block-style config", plist(""), blockCfg, true},
+		{"api-key only via config", plist(""), apiCfg, true},
+		{"duplicate plist env key", plist(env("<key>GW_ALLOWED_USERS</key><string>a@x</string><key>GW_ALLOWED_USERS</key><string>a@x</string>")), repoCfg, false},
+		{"duplicate YAML key", plist(env("<key>GW_ALLOWED_USERS</key><string>a@x</string>")), writeFile(t, d, "dup.yaml", "allowed_users: [a@x]\nallowed_users: [a@x]\n"), false},
 	}
 	for i, tc := range cases {
-		p := writePlist(t, d, tc.name[:3]+string(rune('a'+i))+".plist", tc.env)
-		args := []string{"check-auth-env.sh", p}
-		if tc.config != "" {
-			args = append(args, tc.config)
-		}
-		out, err := exec.Command("bash", args...).CombinedOutput()
+		p := writeFile(t, d, "p"+string(rune('a'+i))+".plist", tc.plist)
+		cmd := exec.Command("bash", "-x", "check-auth-env.sh", gw, p, tc.cfg) // -x: prove nothing sensitive is traced
+		cmd.Env = append(os.Environ(), "GW_ALLOWED_USERS=a@x")                // caller env must be ignored
+		out, err := cmd.CombinedOutput()
 		if (err == nil) != tc.ok {
 			t.Errorf("%s: ok=%v want %v: %s", tc.name, err == nil, tc.ok, out)
 		}
-		if strings.Contains(string(out), "a@x") {
-			t.Errorf("%s: printed a login value: %s", tc.name, out)
+		// the plist path appears in the trace; login values must not
+		trace := strings.ReplaceAll(string(out), p, "")
+		if strings.Contains(trace, "a@x") {
+			t.Errorf("%s: output leaks a login value: %s", tc.name, out)
 		}
 	}
-	if err := exec.Command("bash", "check-auth-env.sh", filepath.Join(d, "missing.plist")).Run(); err == nil {
-		t.Error("missing plist must fail")
+	for _, args := range [][]string{
+		{gw, filepath.Join(d, "missing.plist"), repoCfg},
+		{gw, writeFile(t, d, "ok.plist", plist("")), filepath.Join(d, "missing.yaml")},
+		{filepath.Join(d, "nogw"), writeFile(t, d, "ok2.plist", plist("")), repoCfg},
+	} {
+		if err := exec.Command("bash", append([]string{"check-auth-env.sh"}, args...)...).Run(); err == nil {
+			t.Errorf("%v: must fail", args)
+		}
 	}
 }

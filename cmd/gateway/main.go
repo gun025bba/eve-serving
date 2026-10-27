@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/preflight"
+	"io"
 	stdlog "log"
 	"net"
 	"net/http"
@@ -52,10 +54,15 @@ func main() {
 	port := flag.Int("port", func() int { p, _ := strconv.Atoi(envOr("GW_PORT", "8000")); return p }(), "bind port")
 	showVer := flag.Bool("version", false, "print version")
 	migrateOnly := flag.Bool("migrate", false, "apply database migrations (GW_DATABASE_URL) and exit")
+	checkAuth := flag.Bool("check-auth-config", false, "pre-bootstrap: load -config with the env from -env-plist only (not this process's env), build the auth chain, print counts only, exit 1 on ABORT")
+	envPlist := flag.String("env-plist", "", "with -check-auth-config: launchd plist (XML) whose EnvironmentVariables are the env; - = stdin")
 	flag.Parse()
 	if *showVer {
 		fmt.Println(version)
 		return
+	}
+	if *checkAuth {
+		os.Exit(runCheckAuth(*cfgPath, *base, *envPlist))
 	}
 	b := config.Expand(*base)
 	if *cfgPath == "" {
@@ -301,4 +308,42 @@ func runAuditVerify(ctx context.Context, pg *postgres.Store, log *logging.Logger
 func fatal(f string, a ...any) {
 	fmt.Fprintf(os.Stderr, "gateway: "+f+"\n", a...)
 	os.Exit(1)
+}
+
+// runCheckAuth implements -check-auth-config. It prints provider names and
+// counts only, never login values or config contents.
+func runCheckAuth(cfgPath, base, envPlist string) int {
+	abort := func(f string, a ...any) int {
+		fmt.Fprintf(os.Stderr, "auth preflight ABORT: "+f+"\n", a...)
+		return 1
+	}
+	if cfgPath == "" {
+		cfgPath = filepath.Join(config.Expand(base), "config.yaml")
+	}
+	cfgPath = config.Expand(cfgPath)
+	if _, err := os.Stat(cfgPath); err != nil {
+		return abort("config file %s is missing or unreadable", cfgPath)
+	}
+	if envPlist == "" {
+		return abort("-env-plist is required (the daemon plist, or - for stdin)")
+	}
+	var r io.Reader = os.Stdin
+	if envPlist != "-" {
+		f, err := os.Open(envPlist)
+		if err != nil {
+			return abort("plist %s is missing or unreadable", envPlist)
+		}
+		defer f.Close()
+		r = f
+	}
+	env, err := preflight.ParsePlistEnv(r)
+	if err != nil {
+		return abort("%v", err)
+	}
+	res, err := preflight.CheckAuth(cfgPath, env)
+	if err != nil {
+		return abort("%v", strings.TrimPrefix(err.Error(), preflight.ErrAbort.Error()+": "))
+	}
+	fmt.Printf("auth preflight ok: providers=%s allowed_logins=%d env_keys=%d\n", strings.Join(res.Providers, ","), res.AllowedLogins, res.EnvKeys)
+	return 0
 }

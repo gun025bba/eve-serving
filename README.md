@@ -30,7 +30,7 @@ make run             # 로컬 실행 (기본 127.0.0.1:8001)
 게이트웨이가 **기동을 거부**합니다(#58). 둘 중 하나를 지정하세요.
 
 ```bash
-GW_AUTH_PROVIDERS=api-key make run                 # API 키만 (로컬 개발 권장)
+GW_AUTH_PROVIDERS=api-key make run                 # API 키만 (로컬 개발 권장; 배포에서는 config.yaml auth.providers: [api-key])
 GW_ALLOWED_USERS=<login>@github make run           # Tailscale 신원 인증까지 테스트할 때
 ```
 
@@ -38,7 +38,7 @@ GW_ALLOWED_USERS=<login>@github make run           # Tailscale 신원 인증까�
 
 ```bash
 git pull --ff-only && make build
-deploy/check-auth-env.sh <path-to-gateway.plist> [<config.yaml>] || exit 1   # 빈 허용 목록 → 크래시 루프 방지
+deploy/check-auth-env.sh bin/gateway <path-to-gateway.plist> <config.yaml> || exit 1   # 빈 허용 목록 → 크래시 루프 방지 (게이트웨이 로더로 검사, 개수만 출력)
 launchctl bootout   gui/$(id -u)/<gateway-label>
 launchctl bootstrap gui/$(id -u) <path-to-gateway.plist>
 curl -s http://127.0.0.1:<port>/health     # "version" 확인
