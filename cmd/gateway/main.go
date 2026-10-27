@@ -178,6 +178,7 @@ func main() {
 			log.Warn("memory_backup_exclusion_unverified", "status", st,
 				"msg", "memory data_dir is not confirmed excluded from Time Machine; run: sudo tmutil addexclusion -p <data_dir>")
 		}
+		log.SetRedactor(memory.RedactLog) // memory text and secrets never reach logs
 		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
 	}
 

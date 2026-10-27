@@ -246,6 +246,10 @@
 - **백업 제외 강제 (후속 PR)**: 기동 시 `tmutil isexcluded <data_dir>`로 확인하고, 제외가 확인되지 않으면(`not_excluded`, 또는 macOS가 아니거나 tmutil 오류인 `unknown`) `memory_backup_exclusion_unverified` 경고를 남긴다. 기동은 막지 않으며 자동으로 바꾸지 않는다.
   - 런북 확인 단계: `sudo tmutil addexclusion -p <data_dir>` 후 `tmutil isexcluded <data_dir>`가 `[Excluded]`인지 확인한다. 기동 로그에 위 경고가 없어야 한다.
 - **감사 키 파일 크기 (#31)**: 1024바이트를 넘으면 잘라 읽지 않고 거부한다.
+- **로그 Redactor**: 메모리가 켜지면 로거에 `memory.RedactLog`를 연결한다.
+  - `<user_memory` 블록이나 프리앰블이 든 값은 통째로 `[REDACTED:memory]`가 된다.
+  - 등록된 시크릿 값과 공용 `SecretPatterns`는 `[REDACTED]`로 가린다.
+  - 메시지와 모든 필드 값(문자열이 아닌 값은 문자열로 만든 뒤)에 적용한다. 꺼져 있으면 로그는 바뀌지 않는다.
 - **TODO**: 호모글리프(UTS#39 skeleton) 정규화와 다단 인코딩 디코딩(현재 1단계만).
 - **감사 HMAC 키 생성**: `umask 077; openssl rand -hex 32 > <audit_key_file>`
   - hex만 받는다. 끝의 개행은 하나까지만 제거하고, 그 밖의 공백·개행·hex가 아닌 문자·원시 바이너리는 거부한다.
