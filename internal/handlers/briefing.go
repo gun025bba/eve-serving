@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,8 @@ import (
 // anything. There is no proactive scheduler in the gateway yet, so nothing
 // runs briefing.Run on a schedule; when one lands it uses briefingDeps with
 // Save set to the in-app proactive message store.
+
+var errBriefingTruncated = errors.New("briefing model output hit max_tokens")
 
 // briefingDeps builds the per-user dependencies. Data access is decided by
 // users.id and settings only (pimToolsFor), never by the auth method.
@@ -51,10 +54,21 @@ func (s *Server) briefingDeps(r *http.Request, u userSettings) briefing.Deps {
 		for i, m := range msgs {
 			ms[i] = m
 		}
-		// no "tools" key: the briefing model call cannot call anything
-		v, _, err := s.upstreamJSON(ctx, map[string]any{"model": s.Cfg.Model, "messages": ms})
+		// no "tools" key: the briefing model call cannot call anything.
+		// max_tokens/temperature bound the output; the user message ends
+		// with /no_think (briefing.messages).
+		v, _, err := s.upstreamJSON(ctx, map[string]any{"model": s.Cfg.Model, "messages": ms,
+			"max_tokens": briefing.MaxTokens, "temperature": briefing.Temperature})
 		if err != nil {
 			return "", err
+		}
+		// a cut-off answer would be stored as a partial briefing: fail it
+		if cs, _ := v["choices"].([]any); len(cs) > 0 {
+			if c, _ := cs[0].(map[string]any); c != nil {
+				if fr, _ := c["finish_reason"].(string); fr == "length" {
+					return "", errBriefingTruncated
+				}
+			}
 		}
 		return strings.TrimSpace(firstMessage(v).Content), nil
 	}
@@ -79,7 +93,7 @@ func (s *Server) previewBriefing(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	res := briefing.Preview(ctx, s.briefingDeps(r.WithContext(ctx), u), u.Briefing)
-	s.Log.Info("briefing_preview", "request_id", rid(r), "status", res.Status, "sections", res.Sections)
+	s.Log.Info("briefing_preview", "request_id", rid(r), "status", res.Status, "sections", res.Sections, "fixed", res.Fixed, "fallback", res.Fallback)
 	if res.Status != briefing.StatusOK {
 		writeNoStore(w, 502, map[string]any{"status": res.Status, "sections": res.Sections})
 		return

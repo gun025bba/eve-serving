@@ -351,7 +351,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(res)
 	}
 	var memTaint []string
-	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
+	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
 	pimTools := append(s.pimToolsFor(r.Context(), user(r)), s.pimWriteToolsFor(r.Context(), user(r))...)
 	var pimCalls []string // pim results are untrusted: they taint memory proposals
 	if memUser {

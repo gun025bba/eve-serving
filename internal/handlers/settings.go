@@ -22,7 +22,9 @@ import (
 
 type userSettings struct {
 	Memory struct {
-		Enabled bool `json:"enabled"`
+		// Enabled is a pointer so a missing key reads as the 5.0.0 default
+		// (on, opt-out); an explicit false stays off.
+		Enabled *bool `json:"enabled"`
 	} `json:"memory"`
 	Briefing briefing.Settings `json:"briefing"`
 	Pim      struct {
@@ -37,6 +39,9 @@ type userSettings struct {
 		MemoryIntroSeen bool `json:"memory_intro_seen"`
 	} `json:"ui"`
 }
+
+// memoryEnabled is the per-user switch: missing key = true (5.0.0, opt-out).
+func (u userSettings) memoryEnabled() bool { return u.Memory.Enabled == nil || *u.Memory.Enabled }
 
 func (s *Server) loadUserSettings(r *http.Request) (userSettings, error) {
 	return s.userSettingsFor(r.Context(), user(r))
@@ -62,18 +67,31 @@ func (s *Server) userSettingsFor(ctx context.Context, login string) (userSetting
 
 // memoryFor is the effective switch for this request:
 // system.memory_available AND users.settings memory.enabled. Fail-closed.
+// A principal without the interactive scope has memory fixed off (5.0.0).
 func (s *Server) memoryFor(r *http.Request) bool {
-	if !s.memoryOn() {
+	if !s.memoryOn() || !hasScope(r, auth.ScopeInteractive) {
 		return false
 	}
 	u, err := s.loadUserSettings(r)
-	return err == nil && u.Memory.Enabled
+	return err == nil && u.memoryEnabled()
+}
+
+// memoryActive additionally requires the first-use intro to have been seen
+// (ui.memory_intro_seen): until then nothing is injected into prompts and
+// the propose tool is not offered (5.0.0, held until the user is informed).
+func (s *Server) memoryActive(r *http.Request) bool {
+	if !s.memoryFor(r) {
+		return false
+	}
+	u, err := s.loadUserSettings(r)
+	return err == nil && u.UI.MemoryIntroSeen
 }
 
 func (s *Server) settingsView(u userSettings) map[string]any {
-	out := map[string]any{"system": map[string]any{"memory_available": s.memoryOn()}}
+	out := map[string]any{"system": map[string]any{"memory_available": s.memoryOn()},
+		"ui": map[string]any{"memory_intro_seen": u.UI.MemoryIntroSeen}}
 	if s.memoryOn() {
-		out["memory"] = map[string]any{"enabled": u.Memory.Enabled}
+		out["memory"] = map[string]any{"enabled": u.memoryEnabled()}
 	}
 	if s.Cfg.Briefing.Enabled {
 		out["briefing"] = u.Briefing
@@ -143,13 +161,19 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		Pim      *struct {
 			Enabled *bool `json:"enabled"`
 		} `json:"pim"`
+		UI *struct {
+			MemoryIntroSeen *bool `json:"memory_intro_seen"`
+		} `json:"ui"`
 	}
 	// strict: unknown keys (incl. system.*, proactive.*), null and type
 	// errors → 400. A namespace whose server switch is off is unknown.
-	if !decodeStrict(w, r, &b) || (b.Memory == nil && b.Briefing == nil && b.Pim == nil) ||
+	// Allowlist: memory.enabled (needs memory_available), briefing.*, pim.enabled,
+	// ui.memory_intro_seen.
+	if !decodeStrict(w, r, &b) || (b.Memory == nil && b.Briefing == nil && b.Pim == nil && b.UI == nil) ||
 		(b.Memory != nil && (b.Memory.Enabled == nil || !s.memoryOn())) ||
 		(b.Briefing != nil && !s.Cfg.Briefing.Enabled) ||
-		(b.Pim != nil && (b.Pim.Enabled == nil || !s.Cfg.Pim.Enabled)) {
+		(b.Pim != nil && (b.Pim.Enabled == nil || !s.Cfg.Pim.Enabled)) ||
+		(b.UI != nil && b.UI.MemoryIntroSeen == nil) {
 		s.writeCode(w, r, "invalid")
 		return
 	}
@@ -189,6 +213,9 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	if b.Pim != nil {
 		writes = append(writes, write{"pim", map[string]bool{"enabled": *b.Pim.Enabled}})
 	}
+	if b.UI != nil {
+		writes = append(writes, write{"ui", map[string]bool{"memory_intro_seen": *b.UI.MemoryIntroSeen}})
+	}
 	var raw json.RawMessage
 	for _, wr := range writes {
 		patch, _ := json.Marshal(wr.patch)
@@ -202,7 +229,7 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(raw, &after)
 	now := time.Now().UTC()
 	if b.Memory != nil {
-		changes = withChange(changes, "memory.enabled", before.Memory.Enabled, after.Memory.Enabled)
+		changes = withChange(changes, "memory.enabled", before.memoryEnabled(), after.memoryEnabled())
 	}
 	if b.Pim != nil {
 		changes = withChange(changes, "pim.enabled", before.Pim.Enabled, after.Pim.Enabled)

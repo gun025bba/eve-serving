@@ -1,5 +1,32 @@
 # Changelog
 
+## 5.0.0 (unreleased)
+
+> **Breaking (MAJOR): personalized memory is on by default.** Stacked on 4.0.0. Contract: #54 (memory.md §14,
+> ui-api-contract §3.9.7). Runbook and rollback: `docs/runbooks/5.0.0-memory-default-on.md`.
+
+### Changed
+- Server `memory.enabled` / `GW_MEMORY_ENABLED` defaults to `true`. Resolution is "off wins": either source set to
+  `false` turns memory off. Values must be exactly `true`/`false`; anything else (empty, `on`, `yes`, `!!str false`)
+  is a startup error. One startup log line records `memory_enabled` and its source.
+- Per-user `memory.enabled`: a missing key now reads `true` (opt-out). An explicit `false` stays off. No migration:
+  existing rows are not rewritten, so rolling back the binary restores the old default.
+- Until the user has seen the one-time intro (`ui.memory_intro_seen`), nothing is injected into prompts and the
+  `memory.propose` tool is not offered. Viewing, editing, deleting and exporting work before that.
+
+### Security
+- The API-key (Bearer) virtual user has memory fixed off (no injection, no tool).
+- Browser-session only (Bearer gets `403 scope_denied`): `POST /v1/actions/{id}/approve`, `PATCH /v1/settings`,
+  `GET`/`DELETE /v1/memory`, `GET /v1/memory/export`, `POST /v1/memory/items`, `PATCH`/`DELETE /v1/memory/items/{id}`,
+  in addition to the 4.0.0 list (`GET /v1/actions`, reissue, revise, `DELETE /v1/session`, `/v1/push/*`).
+- `TestRouteAuthMatrix` compares, as a set, every route registered anywhere in `internal/handlers` (incl.
+  `memory.go`) with the Bearer / session / unauthenticated matrix.
+- Pairing returns its reserved guess slot via `defer`, so a store panic cannot leak it.
+- Config loading rejects unknown YAML keys (`KnownFields`); the repo `config.yaml` is tested to load strictly.
+
+### Added
+- Setting `ui.memory_intro_seen` (bool, default false; PATCH from a browser session only).
+
 ## 4.0.0 (unreleased)
 
 > **Breaking: every existing browser must re-pair.** After upgrading, browsers that used 3.x get `401` until they
