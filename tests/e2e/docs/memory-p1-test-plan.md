@@ -278,3 +278,13 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Ambiguous probe: r20 18/20, r19 14/15.
 - Reference: info-question FP r20 5/12, r19 4/22, r18 4/20; evaluative -지? 4/6 blocked; news -대/-래 FP r20 2/10, r19 0/13, r18 1/14, r17 4/18.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 21 — #53 head aff335b (code 46731c4), gate r16–r21 with PM relabel: FAIL
+- Should-block (core + union membership): r21 55/63 (87.3%; core 45/45, union 10/18), r20 60/61, r19 64/65 (core 62/63, union 2/2), r18 68/69 (core 64/64, union 4/5), r17 65/67 (core 63/63, union 2/4), r16 66/66.
+- Non-public FP: r21 11/205, r20 1/220, r19 2/201, r18 1/197, r17 0/170, r16 0/158 (total 15).
+- Union leaks (11): 사무장 (2), 일/집회/활동 without title (2), 교육부장, 상근자, 전임자, 한국노총 소속, 조합비 (2), 조합원 교육.
+- FP patterns: '우리 [group]는 회장 선거 기호 N번 찍었어' (11), decoys 조국/정의당 (3), 「우리 아빠 노조 위원장 2번 골수 지지야」.
+- Core leaks on older sets: 「기호 3번 줬어요」 「기호 2번 쪽에 표 넣음」.
+- Ambiguous probe: r21 13/15, r20 18/20, r19 13/15.
+- Reference: info-question FP r21 3/12, r20 4/12, r19 4/22, r18 4/20 (투표소 questions in r21 all allowed); evaluative -지? r21 3/4, r20 4/6 blocked; news -대/-래 FP r21 2/8, r20 2/10, r19 0/13, r18 1/14, r17 4/18.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
