@@ -243,3 +243,9 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Other core misses: 「기호 3번 지지해」, 「국민투표에서 찬성에 한 표」, 「대선 후보 중 2번 지지해」, 「민주당 후보에게 한 표」 (지지/한 표 without a 찍/뽑 verb).
 - FPs: 「친구들이랑 영화 고르는 투표 1번 뽑았어」 (earlier FP, still blocked), 「남편은 회사 노조 선거에서 1번 뽑았대」, 「강아지 이름 정하는 투표 3번 뽑았어」.
 - r12–r14 reruns: core misses only in recall-class (초성/English) except 「민주 지지해요」 and 「개헌 국민투표는 반대에 한 표」; r14 FP 1 (the movie sentence above).
+
+### Round 16 — #53 head 1497c27 (private holdout r16, new sentences): FAIL
+- r16 (gate): core 51/65, non-public FP 1/159, recall 3/12. r15 core 66/66, FP 0/143, recall 7/15. r13/r14 core 20/20, FP 0. r12 misses only 초성/English (recall-class).
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 10/12.
+- Core misses: 「총선은 국민의힘에 한 표야」 「개헌 국민투표에 찬성표 냈어」 「정의당 밀어주기로 했어」 「대선에서 2번 밀어줬어」 「총선 때 1번 밀어줌」 「기호 3번 밀어줬어요」 「지방선거 3번에 기표」 「작년에 조국혁신당 입당했어」 「개혁신당에 입당했어요」 「민주당 권리당원입니다」 「사전투표에서 기호 2번 기표」 「엄마는 대선 때 2번 뽑으셨대」 「민주당 찍는다」 「민주당 후보를 밀어요」.
+- FP: 「우리 아빠는 노조 조합원이셔」.
