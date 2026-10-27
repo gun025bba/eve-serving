@@ -143,3 +143,23 @@ func TestContextAndNoop(t *testing.T) {
 		t.Fatal("noop denied")
 	}
 }
+
+// Scopes are decided here, in the auth layer: a browser identity gets
+// interactive, an API key never does. Features only call HasScope.
+func TestProviderScopes(t *testing.T) {
+	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k", AllowedUsers: []string{"a@x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := c.Authenticate(newReq("127.0.0.1:1", "a@x", ""))
+	if err != nil || !id.HasScope(ScopeInteractive) {
+		t.Fatal("browser identity lacks interactive", id, err)
+	}
+	id, err = c.Authenticate(newReq("127.0.0.1:1", "", "k"))
+	if err != nil || id.Provider != ProviderAPIKey || id.HasScope(ScopeInteractive) || len(id.Scopes) != 0 {
+		t.Fatal("api key must have no scopes", id, err)
+	}
+	if (Identity{}).HasScope(ScopeInteractive) {
+		t.Fatal("zero identity has scope")
+	}
+}

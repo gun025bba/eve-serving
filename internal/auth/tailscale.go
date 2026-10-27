@@ -42,7 +42,7 @@ func (t *Tailscale) Authenticate(r *http.Request) (Identity, error) {
 	if _, ok := t.allowed[strings.ToLower(login)]; !ok {
 		return Identity{}, ErrForbiddenIdentity
 	}
-	return Identity{User: login, Provider: ProviderTailscale}, nil
+	return Identity{User: login, Provider: ProviderTailscale, Scopes: []string{ScopeInteractive}}, nil
 }
 
 // IsLoopback reports whether a RemoteAddr ("ip:port") is loopback.

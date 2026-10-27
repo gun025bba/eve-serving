@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/store"
 )
 
@@ -44,9 +45,9 @@ func (s *Server) loadUserSettings(r *http.Request) (userSettings, error) {
 
 // memoryFor is the effective switch for this request:
 // system.memory_available AND users.settings memory.enabled. Fail-closed.
-// The api-key virtual user (Bearer) has memory fixed off (5.0.0).
+// A principal without the interactive scope has memory fixed off (5.0.0).
 func (s *Server) memoryFor(r *http.Request) bool {
-	if !s.memoryOn() || !isBrowserSession(r) {
+	if !s.memoryOn() || !hasScope(r, auth.ScopeInteractive) {
 		return false
 	}
 	u, err := s.loadUserSettings(r)
@@ -83,10 +84,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
-	// Settings changes are browser-session only (security Low #40): an API
-	// key (Bearer) cannot turn memory on or off. CSRF is checked by authed.
-	if !isBrowserSession(r) {
-		s.writeCode(w, r, "scope_denied")
+	// Settings changes need the interactive scope (security Low #40): an API
+	// key cannot turn memory on or off. CSRF is checked by authed.
+	if !s.requireScope(w, r, auth.ScopeInteractive) {
 		return
 	}
 	var b struct {

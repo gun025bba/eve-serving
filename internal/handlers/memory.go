@@ -12,6 +12,7 @@ import (
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/store"
 )
@@ -75,12 +76,11 @@ func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(noStore(s.approveAction)))
 }
 
-// browserOnly refuses /v1/memory* to anything but a browser session: the
-// api-key virtual user (Bearer) has memory fixed off -> 403 scope_denied.
+// browserOnly refuses /v1/memory* to a principal without the interactive
+// scope (e.g. an API key) -> 403 scope_denied; memory is fixed off for it.
 func (s *Server) browserOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !isBrowserSession(r) {
-			s.writeCode(w, r, "scope_denied")
+		if !s.requireScope(w, r, auth.ScopeInteractive) {
 			return
 		}
 		h(w, r)

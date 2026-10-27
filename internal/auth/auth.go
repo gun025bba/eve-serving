@@ -21,6 +21,9 @@ import (
 type Identity struct {
 	User     string `json:"user"`     // e.g. tailnet login; "api-key" for key callers
 	Provider string `json:"provider"` // registered provider name
+	// Scopes are granted by the provider that authenticated the caller
+	// (see ScopeInteractive); features check these, never Provider.
+	Scopes []string `json:"-"`
 }
 
 var (
