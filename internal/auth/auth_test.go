@@ -238,3 +238,27 @@ func TestChainProviderError(t *testing.T) {
 		t.Fatalf("err=%v next=%d reason=%s", err, b, RejectReason(err))
 	}
 }
+
+// Scopes and the CSRF requirement are decided here, in the auth layer; the
+// handlers only call HasScope / NeedsCSRF and never compare providers.
+func TestProviderScopes(t *testing.T) {
+	m, toks := pairedManager(t, "alice@github")
+	c, err := Build([]string{ProviderSession, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"alice@github"}, Sessions: m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := c.Authenticate(newReq("", "", toks["alice@github"]))
+	if err != nil || !sess.HasScope(ScopeInteractive) || !sess.HasScope(ScopeAdmin) || !sess.NeedsCSRF() {
+		t.Fatal("session principal", sess, err)
+	}
+	key, err := c.Authenticate(newReq("", "k1", ""))
+	if err != nil || key.HasScope(ScopeInteractive) || !key.HasScope(ScopeAdmin) || key.NeedsCSRF() {
+		t.Fatal("api-key principal", key, err)
+	}
+	// Unknown/zero principals: no scopes, and CSRF stays required (fail-closed).
+	for _, id := range []Identity{{}, {User: "u", Provider: "cookie-session"}, {User: "u", Provider: ProviderTestIdentity}} {
+		if id.HasScope(ScopeInteractive) || id.HasScope(ScopeAdmin) || !id.NeedsCSRF() {
+			t.Fatal("unexpected grant", id)
+		}
+	}
+}

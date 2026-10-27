@@ -21,6 +21,9 @@ import (
 type Identity struct {
 	User     string `json:"user"`     // users.login of a paired session; "api-key" for key callers
 	Provider string `json:"provider"` // registered provider name
+	// Scopes are granted by the provider that authenticated the caller
+	// (see scope.go); features check these, never Provider.
+	Scopes []string `json:"-"`
 	// SessionID is the sessions.id for ProviderSession (0 otherwise).
 	SessionID int64 `json:"-"`
 }

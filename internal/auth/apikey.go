@@ -43,7 +43,7 @@ func (a APIKey) Authenticate(r *http.Request) (Identity, error) {
 	if a.Key == "" || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 		return Identity{}, ErrInvalidKey
 	}
-	return Identity{User: "api-key", Provider: ProviderAPIKey}, nil
+	return Identity{User: "api-key", Provider: ProviderAPIKey, Scopes: []string{ScopeAdmin}}, nil
 }
 
 // Check reports whether r carries "Authorization: Bearer <key>".

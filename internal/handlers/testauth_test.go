@@ -32,7 +32,7 @@ func (a testUserAuth) Authenticate(r *http.Request) (auth.Identity, error) {
 	if !auth.AllowedLogin(a.allowed, u) {
 		return auth.Identity{}, auth.ErrForbiddenIdentity
 	}
-	return auth.Identity{User: u, Provider: auth.ProviderSession}, nil
+	return auth.Identity{User: u, Provider: auth.ProviderSession, Scopes: []string{auth.ScopeInteractive, auth.ScopeAdmin}}, nil
 }
 
 // testDefault is testDefault() plus the test provider and the Host that
