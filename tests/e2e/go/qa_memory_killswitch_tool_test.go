@@ -1,9 +1,14 @@
 package handlers
 
-// QA (#38 + #40 together): user memory off -> propose and approve are 403 kill_switch.
+// QA (#38 + #40 together), final architect decision: user memory off -> memory_propose is
+// hidden from tool definitions; if the model calls it anyway the result is a kill_switch
+// error (not "unknown tool") and nothing is stored. approve -> 403 kill_switch.
 // Needs memToolEnv/proposeAndToken (PR #38) and settings (PR #40); compile on a tree with both.
 import (
+	"encoding/json"
 	"strings"
+
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"testing"
 )
 
@@ -22,8 +27,18 @@ func TestQA_KillSwitch_ProposeDenied(t *testing.T) {
 	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
 	setUserMemory(t, e, "alice@example", false)
 	chatAuto(t, e)
+	e.mu.Lock()
+	for i, q := range *e.seen {
+		if b, _ := json.Marshal(q["tools"]); strings.Contains(string(b), memory.ToolName) {
+			t.Errorf("upstream request %d: memory tool in definitions while user off", i)
+		}
+	}
+	e.mu.Unlock()
 	acts, _ := e.st.ListPendingActions(t.Context(), "alice@example")
 	res := lastToolResult(e)
+	if strings.Contains(res, "unknown tool") {
+		t.Errorf("called-anyway result is 'unknown tool'; want kill_switch")
+	}
 	if len(acts) != 0 || !strings.Contains(res, "kill_switch") {
 		t.Errorf("propose while off: res=%q cards=%d (want kill_switch, no card)", res, len(acts))
 	}
