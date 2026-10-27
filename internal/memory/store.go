@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/text/unicode/norm"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
@@ -37,6 +40,7 @@ var (
 	ErrConflict     = errors.New("memory: updated_at mismatch")
 	ErrTooMany      = errors.New("memory: item limit reached")
 	ErrTooLong      = errors.New("memory: text too long")
+	ErrMarkup       = errors.New("memory: memory-block marker in text")
 	ErrEmpty        = errors.New("memory: text empty")
 	ErrFileTooLarge = errors.New("memory: file size limit reached")
 	ErrInvalid      = errors.New("memory: invalid field")
@@ -312,6 +316,7 @@ func (s *FileStore) Load(uid int64) (Doc, error) {
 	if d.Tombstones == nil {
 		d.Tombstones = []Tombstone{}
 	}
+	registerDoc(uid, d)
 	return d, nil
 }
 
@@ -354,6 +359,7 @@ func (s *FileStore) Update(uid int64, fn func(*Doc) error) (Doc, error) {
 	if len(b) > MaxFileBytes {
 		return Doc{}, ErrFileTooLarge
 	}
+	registerDoc(uid, d)
 	if err := s.writeAtomic(s.path(uid), b); err != nil {
 		return Doc{}, err
 	}
@@ -416,6 +422,7 @@ func (s *FileStore) Purge(uid int64) error {
 		return err
 	}
 	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	ReleaseUser(uid) // release log-mask texts with the file
 	err = os.Remove(s.path(uid))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -448,7 +455,33 @@ func Clean(text string) (string, error) {
 	if err := CheckSecret(t); err != nil {
 		return "", err
 	}
+	if HasBlockMarker(t) {
+		return "", ErrMarkup
+	}
+	if err := CheckSensitive(t); err != nil {
+		return "", err
+	}
 	return t, nil
+}
+
+// blockMarkerRe matches memory-block delimiters in case, whitespace,
+// separator and escape variants: <user_memory>, </ USER-MEMORY >,
+// &lt;user_memory, \u003c/user_memory, %3Cuser_memory, user memory nonce.
+var blockMarkerRe = regexp.MustCompile(`(?i)(<|&lt;?|&#0*60;?|&#x0*3c;?|\\+u0*3c|\\+x3c|%3c|＜)\s*/?\s*user[\s_\-.]*memory|user[\s_\-.]*memory[\s_\-.]*(nonce|block)|</?\s*memory[\s_\-]*(nonce|block)`)
+
+// HasBlockMarker reports whether t contains anything that could open or
+// close the injected <user_memory> block. Checked by Clean (propose, add,
+// update) and again at approve via Revalidate.
+func HasBlockMarker(t string) bool {
+	// NFKC folds fullwidth/compat forms; strip every format (Cf) and
+	// control rune so zero-width joiners, bidi marks etc. cannot split a marker.
+	t = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cc, r) {
+			return -1
+		}
+		return r
+	}, norm.NFKC.String(t))
+	return blockMarkerRe.MatchString(t)
 }
 
 // NewItem is the input for Add.

@@ -65,6 +65,16 @@ func (s *Store) ListPendingActions(_ context.Context, user string) ([]store.Acti
 	return out, nil
 }
 
+func (s *Store) ActionStatus(_ context.Context, user, id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return "", err
+	}
+	return a.Status, nil
+}
+
 func (s *Store) owned(user, id string) (*action, error) {
 	a, ok := s.actions[id]
 	if !ok || a.user != user {
@@ -186,4 +196,34 @@ func (s *Store) PushSubscriptionOwner(endpoint string) string {
 		return p.user
 	}
 	return ""
+}
+
+func (s *Store) ApproveAction(_ context.Context, user, id, tokenSHA256 string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return err
+	}
+	if a.Status != "pending" || a.TokenSHA256 == nil || *a.TokenSHA256 != tokenSHA256 ||
+		a.TokenExpiresAt == nil || !now.Before(*a.TokenExpiresAt) || !now.Before(a.ExpiresAt) {
+		return store.ErrConflict
+	}
+	a.Status = "approved"
+	a.TokenSHA256, a.TokenExpiresAt = nil, nil
+	return nil
+}
+
+func (s *Store) ReleaseAction(_ context.Context, user, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return err
+	}
+	if a.Status != "approved" {
+		return store.ErrConflict
+	}
+	a.Status = "pending"
+	return nil
 }

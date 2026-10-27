@@ -237,3 +237,19 @@ func FilterItems(raw json.RawMessage, itemIDs []string) (json.RawMessage, error)
 	out, err := json.Marshal(obj)
 	return out, err
 }
+
+// ActionApprover marks a proposal approved (docs/tool-platform.md §3.2). It
+// is one conditional single-row UPDATE: status='pending', token hash equal,
+// neither the proposal nor the token expired. Zero rows -> ErrConflict, so
+// a concurrent approve/revise lets only one win. Uses the existing
+// 'approved' status value (no migration).
+type ActionApprover interface {
+	ApproveAction(ctx context.Context, user, id, tokenSHA256 string, now time.Time) error
+	// ReleaseAction undoes a claim whose execution failed: approved ->
+	// pending (token stays cleared, so a fresh reissue is needed). Zero rows
+	// -> ErrConflict.
+	ReleaseAction(ctx context.Context, user, id string) error
+	// ActionStatus returns the status of the user's own action;
+	// ErrNotFound for unknown or foreign ids.
+	ActionStatus(ctx context.Context, user, id string) (string, error)
+}

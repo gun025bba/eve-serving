@@ -1,8 +1,12 @@
 package memory
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/oklog/ulid/v2"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/store"
@@ -28,7 +32,7 @@ type viewItem struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
-type payloadItem struct {
+type PayloadItem struct {
 	ID   string `json:"id,omitempty"`
 	Text string `json:"text,omitempty"`
 	Kind string `json:"kind,omitempty"`
@@ -39,7 +43,7 @@ type payloadItem struct {
 // normalized text for add.
 type Payload struct {
 	Op    string        `json:"op"`
-	Items []payloadItem `json:"items"`
+	Items []PayloadItem `json:"items"`
 }
 
 // ProposalCtx is server-set provenance; never taken from model output.
@@ -47,9 +51,15 @@ type ProposalCtx struct {
 	ThreadID, MessageID string
 	Actor               string // "user" | "scheduler"
 	Tainted             bool
+	// ActionID/ActionCreated make Execute idempotent: item ids are derived
+	// from them, so a retry after a failed execution (card released back to
+	// pending) never adds duplicates.
+	ActionID      string
+	ActionCreated time.Time
 }
 
-func (c ProposalCtx) check() error {
+// Check enforces scheduler/taint denial.
+func (c ProposalCtx) Check() error {
 	if c.Actor == "scheduler" {
 		return ErrScheduler
 	}
@@ -93,7 +103,7 @@ func action(c ProposalCtx, summary string, payload, view any, now time.Time) (st
 // candidates as checkboxes (partial selection = revise with item_ids).
 // There is no path that deletes without a card.
 func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c ProposalCtx, now time.Time) (store.Action, error) {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return store.Action{}, err
 	}
 	ids = SortedIDs(ids)
@@ -117,7 +127,7 @@ func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c Proposa
 		}
 		it := d.Items[i]
 		u := it.UpdatedAt
-		p.Items = append(p.Items, payloadItem{ID: it.ID})
+		p.Items = append(p.Items, PayloadItem{ID: it.ID})
 		view.Items = append(view.Items, viewItem{ID: it.ID, Text: it.Text, Kind: it.Kind, UpdatedAt: &u})
 	}
 	return action(c, "메모리에서 삭제", p, view, now)
@@ -126,7 +136,7 @@ func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c Proposa
 // AddProposal builds a confirmation card for a model-suggested item; the
 // card shows the normalized text that will be stored (S5-M3).
 func AddProposal(text, kind string, c ProposalCtx, now time.Time) (store.Action, error) {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return store.Action{}, err
 	}
 	if !kinds[kind] {
@@ -136,7 +146,7 @@ func AddProposal(text, kind string, c ProposalCtx, now time.Time) (store.Action,
 	if err != nil {
 		return store.Action{}, err
 	}
-	p := Payload{Op: "add", Items: []payloadItem{{Text: t, Kind: kind}}}
+	p := Payload{Op: "add", Items: []PayloadItem{{Text: t, Kind: kind}}}
 	view := struct {
 		Op        string     `json:"op"`
 		Items     []viewItem `json:"items"`
@@ -158,7 +168,7 @@ func parsePayload(raw json.RawMessage) (Payload, error) {
 // still be owned (else ErrNotFound -> 409 item_gone), add text must still
 // pass normalization and the secret filter.
 func Revalidate(st Store, uid int64, raw json.RawMessage, c ProposalCtx) error {
-	if err := c.check(); err != nil {
+	if err := c.Check(); err != nil {
 		return err
 	}
 	p, err := parsePayload(raw)
@@ -204,12 +214,56 @@ func Execute(st Store, uid int64, raw json.RawMessage, c ProposalCtx, src *Sourc
 		}
 		return ids, Delete(st, uid, ids, now)
 	}
-	for _, it := range p.Items {
-		n, err := Add(st, uid, NewItem{Kind: it.Kind, Text: it.Text, Confidence: "confirmed", Source: src}, now)
+	// one atomic Update for all items (no partial adds); ids are derived
+	// from the action, so a repeated Execute is a no-op for items present.
+	var add []Item
+	for i, it := range p.Items {
+		t, err := Clean(it.Text)
 		if err != nil {
-			return ids, err
+			return nil, err
 		}
-		ids = append(ids, n.ID)
+		n := now.UTC()
+		item := Item{ID: actionItemID(c, i, n), Kind: it.Kind, Text: t, Pinned: it.Kind == "profile", Confidence: "confirmed",
+			Source: src, CreatedAt: n, UpdatedAt: n}
+		if it.Kind == "task" {
+			e := n.Add(TaskTTL)
+			item.ExpiresAt = &e
+		}
+		add = append(add, item)
+		ids = append(ids, item.ID)
+	}
+	_, err := st.Update(uid, func(d *Doc) error {
+		have := map[string]bool{}
+		for _, x := range d.Items {
+			have[x.ID] = true
+		}
+		for _, it := range add {
+			if have[it.ID] {
+				continue
+			}
+			if len(d.Items) >= MaxItems {
+				return ErrTooMany
+			}
+			d.Items = append(d.Items, it)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return ids, nil
+}
+
+// actionItemID is a ULID whose time is the action's creation and whose
+// entropy is sha256(action id, index); without an action id it is random.
+func actionItemID(c ProposalCtx, i int, now time.Time) string {
+	if c.ActionID == "" {
+		return ulid.Make().String()
+	}
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d", c.ActionID, i)))
+	at := c.ActionCreated
+	if at.IsZero() {
+		at = now
+	}
+	return ulid.MustNew(ulid.Timestamp(at), bytes.NewReader(h[:])).String()
 }

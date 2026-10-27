@@ -101,6 +101,7 @@ func TestMemoryQA_WebMultiRoundBlockLast(t *testing.T) {
 	}
 	e.srv.Memory, e.srv.MemoryAuditKey = fs, []byte(strings.Repeat("k", 32))
 	e.srv.Cfg.Memory.Enabled = true
+	enableUserMemory(t, e.st, "alice@example")
 	memory.Add(fs, uidOf(t, &e.env, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions",
 		`{"web_search":"auto","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 나왔어?"}]}`)

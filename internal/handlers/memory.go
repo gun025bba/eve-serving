@@ -71,6 +71,8 @@ func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.addMemoryItem)))
 	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.patchMemoryItem)))
 	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.deleteMemoryItem)))
+	// Approve exists only while memory is on (off: same 404 as before).
+	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(noStore(s.approveAction)))
 }
 
 func (s *Server) memHMAC(text string) string {
@@ -102,21 +104,21 @@ func (s *Server) memErr(w http.ResponseWriter, r *http.Request, err error) {
 	var rej *memory.RejectError
 	switch {
 	case errors.As(err, &rej):
-		s.writeCode(w, r, "secret_detected")
+		s.writeCode(w, r, rejectCode(rej))
 	case errors.Is(err, memory.ErrNotFound):
 		s.writeCode(w, r, "not_found")
 	case errors.Is(err, memory.ErrConflict):
 		s.writeCode(w, r, "conflict")
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrFileTooLarge), errors.Is(err, memory.ErrTooLong):
 		s.writeCode(w, r, "cap_exceeded")
-	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty):
+	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty), errors.Is(err, memory.ErrMarkup):
 		s.writeCode(w, r, "invalid")
 	case errors.Is(err, memory.ErrUnsafeFile):
 		w.Header().Set("Cache-Control", "no-store")
 		s.fail(w, r, apierr.New(503, "memory_read_only", "Memory is read-only until it is restored", "server_error"))
 	default:
 		w.Header().Set("Cache-Control", "no-store")
-		s.Log.Error("memory_error", "request_id", rid(r), "err", trunc(err.Error(), 200))
+		s.Log.Error("memory_error", "request_id", rid(r), "err", logTrunc(err.Error(), 200))
 		s.fail(w, r, apierr.New(500, "internal_error", "Memory operation failed", "server_error"))
 	}
 }
@@ -172,6 +174,12 @@ func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (s *Server) addMemoryItem(w http.ResponseWriter, r *http.Request) {
+	// user memory off: read/edit/delete/export stay available; new items
+	// are refused (same as propose/approve).
+	if !s.memoryFor(r) {
+		s.writeCode(w, r, "kill_switch")
+		return
+	}
 	var b struct {
 		Kind      string     `json:"kind"`
 		Text      string     `json:"text"`
@@ -299,7 +307,7 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 // prompt of the forwarded request. Any error injects nothing (fail-closed).
 // Proactive/scheduler runs do not come through here.
 func (s *Server) injectMemory(r *http.Request, body map[string]any) {
-	if !s.memoryOn() {
+	if !s.memoryFor(r) {
 		return
 	}
 	msgs, _ := body["messages"].([]any)
@@ -365,6 +373,9 @@ func (s *Server) reviseMemoryCheck(r *http.Request, id string, itemIDs []string)
 		if a.ID != id || a.Tool != memory.ToolPropose {
 			continue
 		}
+		if !s.memoryFor(r) {
+			return "kill_switch" // per-user memory.enabled off
+		}
 		p, err := store.FilterItems(a.Payload, itemIDs)
 		if err != nil {
 			return "invalid"
@@ -385,10 +396,20 @@ func (s *Server) reviseMemoryCheck(r *http.Request, id string, itemIDs []string)
 		case errors.Is(err, memory.ErrScheduler):
 			return "scope_denied"
 		case errors.As(err, &rej):
-			return "secret_detected"
+			return rejectCode(rej)
 		default:
 			return "invalid"
 		}
 	}
 	return ""
+}
+
+// rejectCode keeps sensitive-category refusals distinguishable from secret
+// refusals: 422 sensitive_category vs 422 secret_detected. Neither echoes
+// the matched text or the category name (§3.9.4).
+func rejectCode(rej *memory.RejectError) string {
+	if strings.HasPrefix(rej.Reason, "sensitive_") {
+		return "sensitive_category"
+	}
+	return "secret_detected"
 }

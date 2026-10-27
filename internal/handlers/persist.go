@@ -260,7 +260,7 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 			p.msgID = ""
 		}
 		if !errors.Is(err, context.Canceled) {
-			p.s.Log.Error("persist_failed", "request_id", rid(r), "thread_id", p.threadID, "error", trunc(err.Error(), 300))
+			p.s.Log.Error("persist_failed", "request_id", rid(r), "thread_id", p.threadID, "error", logTrunc(err.Error(), 300))
 		}
 		return
 	}

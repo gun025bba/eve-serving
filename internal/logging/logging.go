@@ -78,14 +78,12 @@ func (l *Logger) Log(lv Level, msg string, kv ...any) {
 		red := *rp
 		msg = red(msg)
 		kv = append([]any(nil), kv...)
-		for i := 1; i < len(kv); i += 2 {
-			switch v := kv[i].(type) {
-			case string:
-				kv[i] = red(v)
-			case nil, bool, int, int32, int64, uint, uint32, uint64, float32, float64, time.Duration, time.Time:
-			default:
-				kv[i] = red(fmt.Sprint(v))
+		for i := 0; i < len(kv); i++ {
+			if i%2 == 0 { // key names too (a secret must not ride in a key)
+				kv[i] = red(fmt.Sprint(kv[i]))
+				continue
 			}
+			kv[i] = redactValue(red, kv[i])
 		}
 	}
 	var b strings.Builder
@@ -105,6 +103,46 @@ func (l *Logger) Log(lv Level, msg string, kv ...any) {
 	l.mu.Lock()
 	io.WriteString(l.w, b.String())
 	l.mu.Unlock()
+}
+
+// redactValue renders any value to the string the redactor sees: []byte as
+// text, errors via Error(), Stringers via String(), maps/slices/structs as
+// JSON. Plain scalars pass through.
+func redactValue(red func(string) string, v any) any {
+	switch x := v.(type) {
+	case nil, bool, int, int32, int64, uint, uint32, uint64, float32, float64, time.Duration, time.Time:
+		return v
+	case string:
+		return red(x)
+	case []byte:
+		return red(string(x))
+	case error:
+		return red(x.Error())
+	case fmt.Stringer:
+		return red(x.String())
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(v) == nil {
+		return red(strings.TrimRight(buf.String(), "\n"))
+	}
+	return red(fmt.Sprint(v))
+}
+
+// Writer returns an io.Writer that logs each write as one line at lv (for
+// http.Server.ErrorLog and panic output), so it passes the redactor.
+func (l *Logger) Writer(lv Level, msg string) io.Writer { return lineWriter{l, lv, msg} }
+
+type lineWriter struct {
+	l   *Logger
+	lv  Level
+	msg string
+}
+
+func (w lineWriter) Write(p []byte) (int, error) {
+	w.l.Log(w.lv, w.msg, "detail", strings.TrimRight(string(p), "\n"))
+	return len(p), nil
 }
 
 func writeJSON(b *strings.Builder, v any) {
