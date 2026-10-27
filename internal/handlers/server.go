@@ -285,7 +285,7 @@ func (s *Server) Handler() http.Handler {
 			mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			})
-			mux.Handle("GET /ui/", withCSP(http.StripPrefix("/ui", http.FileServer(http.Dir(dir)))))
+			mux.Handle("GET /ui/", withCSP(http.StripPrefix("/ui", staticFiles(dir))))
 		}
 	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

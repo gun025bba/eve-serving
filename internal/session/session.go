@@ -75,6 +75,7 @@ type Manager struct {
 
 	mu       sync.Mutex
 	failures int
+	inflight int // attempts reserved but not yet resolved
 	lockedTo time.Time
 }
 
@@ -159,17 +160,22 @@ func (m *Manager) IssueCode(ctx context.Context, login string) (string, error) {
 // all outstanding codes are invalidated. The counter is per process.
 func (m *Manager) Pair(ctx context.Context, code string) (token string, s Session, err error) {
 	now := m.Now()
+	// Reserve a guess slot inside the mutex: in-flight attempts count against
+	// the budget, so concurrent requests can never evaluate more than
+	// MaxFailures guesses before the lock engages.
 	m.mu.Lock()
-	if now.Before(m.lockedTo) {
+	if now.Before(m.lockedTo) || m.failures+m.inflight >= MaxFailures {
 		m.mu.Unlock()
 		return "", Session{}, ErrPairFailed
 	}
+	m.inflight++
 	m.mu.Unlock()
 	n, ok := NormalizeCode(code)
 	var uid int64
 	if ok {
 		uid, ok, err = m.Store.TakePairCode(ctx, m.hash("code", n), now)
 		if err != nil {
+			m.release(false)
 			return "", Session{}, err
 		}
 	}
@@ -177,9 +183,7 @@ func (m *Manager) Pair(ctx context.Context, code string) (token string, s Sessio
 		m.fail(ctx, now)
 		return "", Session{}, ErrPairFailed
 	}
-	m.mu.Lock()
-	m.failures = 0
-	m.mu.Unlock()
+	m.release(true)
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", Session{}, err
@@ -192,8 +196,20 @@ func (m *Manager) Pair(ctx context.Context, code string) (token string, s Sessio
 	return token, Session{ID: id, UserID: uid, CreatedAt: now, LastSeen: now}, nil
 }
 
+// release returns a reserved slot; success also clears the failure count.
+func (m *Manager) release(success bool) {
+	m.mu.Lock()
+	m.inflight--
+	if success {
+		m.failures = 0
+	}
+	m.mu.Unlock()
+}
+
+// fail converts a reserved slot into a counted failure.
 func (m *Manager) fail(ctx context.Context, now time.Time) {
 	m.mu.Lock()
+	m.inflight--
 	m.failures++
 	lock := m.failures >= MaxFailures
 	if lock {
@@ -245,12 +261,15 @@ func (m *Manager) Revoke(ctx context.Context, token string) error {
 // file or one whose mode grants any group/other permission (must be 0600 or
 // stricter).
 func LoadSecret(path string) ([]byte, error) {
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
 	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s: not a regular file", path)
+		return nil, fmt.Errorf("%s: not a regular file (symlinks are refused)", path)
+	}
+	if err := OwnedBySelf(st); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if st.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%s: mode %#o is wider than 0600", path, st.Mode().Perm())

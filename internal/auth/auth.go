@@ -145,12 +145,15 @@ func FromContext(ctx context.Context) (Identity, bool) {
 // refused (fail-closed) unless the file is a regular file with mode 0600 or
 // stricter.
 func LoadKey(path string) (string, error) {
-	st, err := os.Stat(path)
+	st, err := os.Lstat(path)
 	if err != nil {
 		return "", err
 	}
 	if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("api key file %s must be a regular file with mode 0600 (got %#o)", path, st.Mode().Perm())
+		return "", fmt.Errorf("api key file %s must be a regular file (not a symlink) with mode 0600 (got %#o)", path, st.Mode().Perm())
+	}
+	if !ownedBySelf(st) {
+		return "", fmt.Errorf("api key file %s must be owned by the gateway's own uid", path)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {

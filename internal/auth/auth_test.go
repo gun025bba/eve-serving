@@ -179,3 +179,21 @@ func TestContextAndNoop(t *testing.T) {
 		t.Fatal("noop denied")
 	}
 }
+
+func TestLoadKeyRefusesSymlink(t *testing.T) {
+	d := t.TempDir()
+	real := filepath.Join(d, "k")
+	if err := os.WriteFile(real, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d, "l")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKey(link); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	if k, err := LoadKey(real); err != nil || k != "abc" {
+		t.Fatal(k, err)
+	}
+}

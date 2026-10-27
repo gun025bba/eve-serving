@@ -55,3 +55,21 @@ func TestLoadSecret(t *testing.T) {
 		t.Fatal(Mask("abcdefgh"))
 	}
 }
+
+func TestLoadSecretRefusesSymlink(t *testing.T) {
+	d := t.TempDir()
+	real := filepath.Join(d, "real")
+	if err := os.WriteFile(real, []byte("secret-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSecret(link); err == nil {
+		t.Fatal("symlink accepted")
+	}
+	if _, err := LoadSecret(real); err != nil {
+		t.Fatal(err)
+	}
+}

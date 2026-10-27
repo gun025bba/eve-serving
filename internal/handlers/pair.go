@@ -44,10 +44,11 @@ func (s *Server) withHost(next http.Handler) http.Handler {
 	})
 }
 
-// sessionOnly: browser-session routes refuse Bearer (API key) callers.
+// sessionOnly: browser-session routes allow only a paired session identity
+// (Provider == session); API key and any other provider get 403.
 func sessionOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if id, _ := auth.FromContext(r.Context()); id.Provider == auth.ProviderAPIKey {
+		if id, ok := auth.FromContext(r.Context()); !ok || id.Provider != auth.ProviderSession {
 			writeJSON(w, 403, apierr.Body("scope_denied", apierr.ScopeDenied().Message, "permission_error", rid(r)))
 			return
 		}

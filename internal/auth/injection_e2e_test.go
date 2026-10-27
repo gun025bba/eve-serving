@@ -23,7 +23,7 @@ func TestCheckInjectionRefusals(t *testing.T) {
 		"env unset":    func(c *InjectionCheck) { c.Env = "" },
 		"env prod":     func(c *InjectionCheck) { c.Env = "PROD" },
 		"non-loopback": func(c *InjectionCheck) { c.Host = "0.0.0.0" },
-		"wildcard v6": func(c *InjectionCheck) { c.Host = "::" },
+		"wildcard v6":  func(c *InjectionCheck) { c.Host = "::" },
 		"prod db":      func(c *InjectionCheck) { c.DBURL = "postgres://u@127.0.0.1:5432/llmchat?sslmode=disable" },
 		"overlap":      func(c *InjectionCheck) { c.Users = append(c.Users, "REAL@example.com") },
 
