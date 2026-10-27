@@ -45,10 +45,14 @@ func init() {
 }
 
 type Server struct {
+	// testHookBeforeStart, if set, runs after the generating row is created
+	// and before the run is registered (#30 window). Tests only.
+	testHookBeforeStart func()
 	// Now is the clock seam (tests); nil = time.Now.
 	Now func() time.Time
 
 	threadLocks keyedLocks // per-thread persist serialization (retry dedup)
+	inflight    keyedSet   // user turns being answered (#30)
 
 	Cfg     config.Config
 	Key     string             // API key; used to build Auth when Auth is nil
@@ -137,7 +141,15 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		detail = "[omitted:memory]" // upstream body may echo the injected block
 	}
 	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", detail)
-	writeJSON(w, e.Status, apierr.Body(e.Code, e.Message, e.Type, rid(r)))
+	body := apierr.Body(e.Code, e.Message, e.Type, rid(r))
+	if eo, ok := body["error"].(map[string]any); ok {
+		for k, v := range e.Extra {
+			if _, taken := eo[k]; !taken {
+				eo[k] = v
+			}
+		}
+	}
+	writeJSON(w, e.Status, body)
 }
 
 // logTrunc redacts BEFORE truncating, so a cut can never split a
