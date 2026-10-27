@@ -44,6 +44,8 @@ func init() {
 }
 
 type Server struct {
+	threadLocks keyedLocks // per-thread persist serialization (retry dedup)
+
 	Cfg     config.Config
 	Key     string             // API key; used to build Auth when Auth is nil
 	Auth    auth.Authenticator // provider chain (auth.Build); nil = build from Cfg.Auth.Providers

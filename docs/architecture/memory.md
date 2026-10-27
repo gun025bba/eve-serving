@@ -1,6 +1,6 @@
 # 개인화 메모리 설계 (제안, 구현 없음)
 
-상태: 설계안 · SemVer 1차 판단 **MAJOR** · 관련: PR #2(툴 플랫폼), PR #4(선톡)
+상태: 설계안 · SemVer 1차 판단: P1 (4.1.0) **MINOR** (§10) · 관련: PR #2(툴 플랫폼), PR #4(선톡)
 
 ![memory 구조도](diagrams/memory.svg)
 
@@ -16,7 +16,7 @@
 
 ## 1. 파일 형식·위치·스키마
 
-- 위치: `${EVE_DATA_DIR}/memory/<user_id>.json` (저장소 밖, `users.id` 숫자만 파일명에 사용 → 경로 조작 불가). 디렉터리 0700, 파일 0600, gateway 실행 계정 소유.
+- 위치: `${EVE_DATA_DIR}/memory/<user_id>.json` (저장소 밖). **파일 키는 로그인 해시가 아니라 `users.id`**이며 파일명에는 숫자 id만 쓴다. 구현은 id를 정수로 파싱해 다시 문자열로 만들고, 결과 경로가 메모리 디렉터리 바로 아래인지 확인한다(`..`·구분자·심볼릭 링크 거부 → 경로 조작 차단). 디렉터리 0700, 파일 0600, gateway 실행 계정 소유.
 - 형식: **단일 JSON**(JSONL 아님). 항목 수가 작고(상한 200개), 원자적 통째 교체가 단순하며, 사용자 편집 API가 문서 전체를 다루기 쉽다.
 
 ```json
@@ -149,9 +149,29 @@
 3. 일회성 import 명령: 파일을 읽어 upsert(id 유지, 멱등), 건수·해시 검증 후 파일은 읽기 전용 보관 → 다음 릴리스에서 삭제.
 4. 이후 pg_trgm 관련도 선택, 필요 시 pgvector.
 
+### 9.1 P1 범위와 활성화 청사진
+- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.** P1에는 서버 플래그만 있고(킬스위치), 사용자별 설정은 approve·`memory.propose` 연결과 함께 들어간다.
+- **P1 저장 정책**: 삭제는 파일 삭제(항목 삭제는 파일에서 제거). 저장 디렉터리는 **백업에서 제외**하고 권한은 **0700**(파일 0600). §7의 사용자별 암호화 백업·crypto-shred는 **후속 단계**이며, 그 전까지 백업이 없으므로 삭제가 곧 영구 삭제다.
+- 감사 기록 쓰기에 실패하면 메모리 쓰기를 거부한다(500, fail-closed). 읽기 전용 상태(§7 손상 복구)에서는 쓰기를 `memory_read_only` 503으로 거부한다(ui-api-contract §3.3).
+- 최종 판단은 보안 담당이 한다.
+
+#### Required before default-on (security decision 2026-10-27)
+기본값을 켜기(default-on) 전에 모두 충족해야 한다.
+- **백업 제외의 기계적 강제**: 저장 디렉터리에 tmutil 백업 제외 설정, 운영 런북의 확인 단계, 제외가 확인되지 않으면 기동 시 경고 로그.
+- **propose/approve 카드와 taint 연결**: 모델의 `memory.propose` → 확인 카드 → approve 경로와 taint 전파가 실제로 연결될 것.
+- **로그 Redactor 통합**: 메모리 내용이 로그에 남지 않도록 Redactor를 거칠 것.
+- **users.id 키**: `users.id`는 BIGSERIAL(int64)이고 파일명은 `<id>.json`이다. 검증 순서: 양의 정수 → `^[0-9]+$` 일치 → 파싱 후 문자열 재생성이 원본과 같음(round-trip) → 저장 디렉터리의 바로 아래(direct child)인지 → 파일 안의 `user_id`와 교차 확인.
+- **민감 범주 최소 거부 목록(deny list)**: 민감 범주는 저장하지 않는다.
+- **HMAC key validation (security final, 2026-10-27)**: hex only, raw binary not allowed. Strip at most one trailing newline; reject any other whitespace or non-hex character. At least 64 hex characters (32 bytes decoded). On the decoded bytes, require at least 12 distinct bytes and reject all-zero and repeating-pattern keys. Runbook: `umask 077; openssl rand -hex 32 > key`. The rejection error states the reason. Tests: a normal key with or without its trailing newline is accepted; 32 hex characters, raw binary, a key with internal whitespace and a low-distinct key are rejected.
+
+#### Can wait
+- 암호화와 crypto-shred는 후속 단계로 미룰 수 있다. 단, 메모리가 **어떤 백업에든 포함되는 순간 필수**가 된다.
+- 메모리 백업 자체는 삭제 보장을 위해 계속 제외한다.
+
 ## 10. SemVer·작업량
 
-- **MAJOR**(1차 판단): 새 영속 사용자 데이터, 모든 응답의 시스템 프롬프트 동작 변경, 새 쓰기 스코프. 불확실하면 major 원칙.
+- P1 (4.1.0) is MINOR: it ships with the feature off (server flag `GW_MEMORY_ENABLED` is the kill switch), adds only files in a dedicated directory, needs no DB migration and leaves existing responses unchanged. Turning it on (approve and `memory.propose` wired, per-user `memory.enabled`) gets a new SemVer call at that point.
+- 전체 기능(활성화 시점) 참고: 새 영속 사용자 데이터, 시스템 프롬프트 동작 변경, 새 쓰기 스코프 → 그때 다시 판단(불확실하면 major 원칙).
 - 작업량(대략): gateway `internal/memory`+API+필터 2–3일, 프롬프트 주입·툴 등록 1일, web UI 1.5일, 백업·배포 0.5일, 테스트·eval 2일 → 약 7–8일.
 
 ## 11. 머지 차단 테스트(제안)

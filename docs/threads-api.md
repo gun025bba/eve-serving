@@ -69,6 +69,18 @@ Behaviour
 4. Regenerate (`replace_message_id`): no new user message; the reply **overwrites the same message id**
    (content, reasoning, model, params, usage, latency, status, metadata), keeps `created_at`, sets `updated_at`,
    and **clears its feedback**. Response `message_id` = the replaced id, `user_message_id` = null.
+5. Resend without `replace_message_id` (3.1.1+): if the thread's last user message has the **same text** and has
+   no reply after it, or only one `failed` reply (incl. `error_code: cancelled`), no new user row is stored. The
+   response `user_message_id` is that existing message; if a failed reply existed it is overwritten in place like
+   a regenerate (`message_id` = `replaced_message_id` = the failed reply's id). A `complete` or `generating` reply,
+   or different text, always starts a new turn.
+   - **Intentional repeats are merged too**: sending the same sentence again on purpose, before the previous
+     one got a successful reply, is treated as the same turn (one user row). To ask the same thing again as a
+     new turn, wait for the reply to finish (or change the text).
+   - **Concurrent resends**: the check-then-insert is serialized per thread (in-process lock; the gateway runs as
+     a single process), so two identical resends arriving together store one user row and both responses carry
+     the same `user_message_id`. Each request still generates its own reply.
+   - Relies on `ListMessages(limit=2)` returning the two newest messages oldest→newest (fixed by test).
 
 Non-stream response: headers `X-Thread-Id`, `X-Message-Id`, `X-User-Message-Id` (absent on regenerate), and the
 JSON body gains `thread_id`, `message_id`, `user_message_id` (and `replaced_message_id` on regenerate).
