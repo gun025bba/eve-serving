@@ -174,6 +174,12 @@ func decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (s *Server) addMemoryItem(w http.ResponseWriter, r *http.Request) {
+	// user memory off: read/edit/delete/export stay available; new items
+	// are refused (same as propose/approve).
+	if !s.memoryFor(r) {
+		s.writeCode(w, r, "kill_switch")
+		return
+	}
 	var b struct {
 		Kind      string     `json:"kind"`
 		Text      string     `json:"text"`

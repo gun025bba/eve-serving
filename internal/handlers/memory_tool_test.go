@@ -324,3 +324,20 @@ func TestMemoryGating_UserOff(t *testing.T) {
 		t.Fatalf("user-off chat created a card: %d", len(acts))
 	}
 }
+
+func TestMemoryGating_UserOffAddItem403(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"x"}`, false)
+	if _, err := e.st.(store.UserSettingsStore).MergeUserSettings(t.Context(), "alice@example", "memory", []byte(`{"enabled":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	r, b := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"고양이를 키운다"}`)
+	if r.StatusCode != 403 || !strings.Contains(string(b), "kill_switch") {
+		t.Fatalf("add while user off: %d %s", r.StatusCode, b)
+	}
+	if r, _ := e.call(t, "alice@example", "GET", "/v1/memory", ""); r.StatusCode != 200 {
+		t.Fatal("read must stay available", r.StatusCode)
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("stored")
+	}
+}
