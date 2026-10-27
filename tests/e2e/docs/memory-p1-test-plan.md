@@ -92,16 +92,23 @@ First run failed 27 tests: on macOS `t.TempDir()` lives under `/var/folders` (sy
 | key leak | no key hex found in gateway-test logs for any fixture |
 End state: off, `/v1/memory` 404, GRANT INSERT verified (`has_table_privilege = t`).
 
-## M20 contract run (#40 cb233e6, 2026-10-27)
+## Round-4 run (2026-10-27 15:1x KST, qa/memory-p1 Go QA)
 
-Go QA in a temp worktree (#40 alone, and #40 merged with #38 locally for the tool tests):
+Heads verified: #38 3fa8aa1, #40 cb233e6, #34 aa843e1, #39 80f84cc, #41 c54065d.
 
-| Test | Result |
-|---|---|
-| TestQA_MemoryDefaultOff | PASS |
-| TestQA_SettingsFieldsContract (memory_available, no memory_read_only, PATCH system.* 400) | PASS |
-| TestQA_PerUserMemoryIsolation: injection isolation, GET/PATCH/DELETE/export while off | PASS |
-| TestQA_PerUserMemoryIsolation: POST /v1/memory/items while off → 403 kill_switch | **FAIL (known, handed to backend)**: 201, item stored |
-| TestQA_KillSwitch_ProposeDenied (#38+#40): tool not in definitions | PASS (hidden) |
-| TestQA_KillSwitch_ProposeDenied: called anyway → `kill_switch`, nothing stored | **FAIL (known, handed to backend)**: result is `unknown tool`; nothing stored |
-| TestQA_KillSwitch_ApproveDenied (#38+#40) | PASS (403 kill_switch, nothing written) |
+| Tree | Test | Result |
+|---|---|---|
+| #38 alone | approve QA (tagged, reissue, TTL, expiry via clock, API key 403, non-pending 409) + PR tests, go test ./internal/... | PASS |
+| #38+#40 merge | TestQA_PerUserMemoryIsolation incl. POST /v1/memory/items while off → 403 kill_switch | PASS (fixed; earlier FAIL row was stale) |
+| #38+#40 merge | TestQA_KillSwitch_ProposeDenied: tool hidden, called anyway → kill_switch, nothing stored | PASS |
+| #38+#40 merge | TestQA_KillSwitch_ApproveDenied → 403 kill_switch | PASS |
+| #38+#40 merge | TestQA_MemoryDefaultOff, TestQA_SettingsFieldsContract | PASS |
+| #38+#40 merge | TestQA_Approve_NonPending409 (replay 409 conflict, foreign 404) | PASS |
+| #34 | corpus V1 40/25, unseen 12/15, PR V2/DenyList | PASS (FP 0, FN 0) |
+| #34 | fresh (round-3 FP: HIV 기사, 성당 바자회; FN: 동료가 게이래, 여권 원거리 번호) | all fixed |
+| #34 | fresh round-4 politics/health: benign 6 FP 0; sensitive 6 FN 1 | FN "지난 선거에 2번 찍었어" |
+| #34 | TestQA_SensitiveCategory422 (422 sensitive_category, no echo, secret → secret_detected, nothing stored) | PASS |
+| #39 | go test ./internal/... | PASS |
+
+Known, not a failure: before #34 merges, #38 memory_propose with sensitive text is denied as secret_detected (sensitive_category arrives with #34).
+

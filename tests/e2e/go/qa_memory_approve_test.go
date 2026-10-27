@@ -104,3 +104,23 @@ func TestQA_ReissueReviseAPIKey403(t *testing.T) {
 		}
 	}
 }
+
+// Round 4 (PR #38 3fa8aa1): approving a no-longer-pending action is 409 conflict (contract order), not 404.
+func TestQA_Approve_NonPending409(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	body := `{"confirm_token":"` + tok + `","payload_hash":"` + ph + `"}`
+	if r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body)
+	if r.StatusCode != 409 || !strings.Contains(string(b), "conflict") {
+		t.Errorf("replay approve: %d %s (want 409 conflict)", r.StatusCode, b)
+	}
+	if r, _ := e.call(t, "bob@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 404 {
+		t.Errorf("foreign approve of non-pending: %d (want 404, no existence leak)", r.StatusCode)
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 1 {
+		t.Errorf("items=%d want 1", len(d.Items))
+	}
+}

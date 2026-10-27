@@ -17,3 +17,4 @@ Round 3:
 - qa_backup_policy_test.go (#42, `internal/memory/`): CheckBackupPolicy tmutil output / sync-dir edge cases
 - qa_memory_killswitch_tool_test.go (#38+#40, `internal/handlers/`): user off ⇒ propose / approve 403 kill_switch (needs both PRs)
 - qa_memory_peruser_test.go updated per architect decision (default off, memory_available only, POST 403 kill_switch while off)
+- Round 4: qa_memory_approve_test.go + TestQA_Approve_NonPending409; qa_sensitive_api_test.go (#34, `internal/handlers/`): 422 sensitive_category; fresh corpus + politics/health
