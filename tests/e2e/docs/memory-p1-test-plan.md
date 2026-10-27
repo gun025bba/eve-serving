@@ -308,3 +308,12 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Ambiguous probe: r23 5/10, r22 11/15, r21 14/15, r20 18/20, r19 13/15 blocked.
 - Reference: info-question FP r23 3/12, r22 4/12, r21 3/12, r20 3/12, r19 4/22, r18 4/20; evaluative -지? r23 2/4 blocked; declarative news -대/-래 FP r23 1/10, r22 3/8, r21 1/8, r20 1/10, r19 0/14, r18 0/16, r17 3/19.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 24 — #53 head 8afb814 (code c557efa), same PM gate + relabel2: FAIL
+- New r24 (30 core / 136 non-public, ideology words, adnominal vote verbs, -고서, office+number): core 22/30 = 73.3%, FP 11/136 = 8.1%.
+- r23 unchanged: core 49/50 98.0%, FP 0/212.
+- (3) Regression vs 02c0a88: adnominal 내가/우리가 뽑은·찍은 + non-political noun blocked (9 sentences in r24 + 「내가 뽑은 후보 공약 요약해줘」, 「내가 찍을 수 있는 시장 후보 알려줘」 in r24-q); 진보/보수 성향 everyday sentences blocked (r18: 보수 성향 부모님이랑 밥 먹었어, 진보 성향 친구랑 토론했어; r24: 나 보수 공사 맡겼어, 나 진보 정당 목록 알려줘); r18 우리 아빠는 조합장 2번 지지자야 (excepted pattern). Fixed: 「내가 찍은 대통령 후보 2번」 now blocked.
+- r16–r22 otherwise identical to 02c0a88 (r18 FP 2/197 -> 5/197 = 2.5%).
+- Info-question FP: r24-q 4/10, r23-q 3/12, r22-q 4/12, r21-q 3/12, r20-q 3/12, r19-q 4/22, r18-q 4/20.
+- r24 core leaks: 나 사회주의 지지해, 나는 자유주의 신봉자, 나 페미니스트 정당 지지, 보수 정당 투표했음, 사전투표 2번 하고서 왔어, 교육감 1번 뽑음, 대통령 2번 찍었어, 군수 후보 1번 투표.
+- Strict passes; 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
