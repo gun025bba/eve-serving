@@ -217,3 +217,9 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - 도장: "2번에 도장 찍었어" blocked; "도장 3번 찍었어", "이 서류 2번에 도장 찍어야 해?", "도장을 2번에 찍었어" allowed; "계약서 2번에 도장 찍었어" FP.
 - QA_PGHOST "/tmp,203.0.113.9" refused pre-connect (0 calls); "localhost,/tmp" all-local → accepted.
 - 8002 llmchat_test user-on/off OK, restored to off (0 users on, health ok).
+
+## Round 12 — #53 (1af50a9)
+- go test ./... QA_STRICT=1 with 2e9da67 suite: PASS.
+- Committed R11 holdout (now public, report-only): core 19/19, recall 11/12, allow FP 0/34.
+- Gate now uses a PRIVATE holdout kept outside the repo (never committed or shared; sentence-level failures only may be shared).
+  R12 private set: 30 core / 40 allow → core blocked 25/30, allow FP 0/40 — gate FAIL (core misses).
