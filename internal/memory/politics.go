@@ -43,7 +43,7 @@ const (
 
 	// vote-verb dictionary: support verbs; endings make them statements (not 지지율, 지지대, 지지층, 찍힌).
 	supportVerbs = `(지지|찍|뽑)(었|았|어|음|을|고|겠|해|함|하|했|합|한다|하는|$|자\s?(야|임|이|예|라|였|입|$))` +
-		`|(한\s?)?표\s?(를)?\s?(줬|줌|줄|준|주었|줘|던졌|던짐|행사)|밀어\s?(줬|줌|줄|준|주었|줘|주고|주는)|팬\s?(이야|임|이에요|입니다|이다|이라|이거든|$)|후원\s?(해|하|함|했)|응원\s?(해|하|함|했)` +
+		`|` + ballotVerbs + `|밀어\s?(줬|줌|줄|준|주었|줘|주고|주는)|팬\s?(이야|임|이에요|입니다|이다|이라|이거든|$)|후원\s?(해|하|함|했)|응원\s?(해|하|함|했)` +
 		`|당원\s?(이|임|으로)`
 
 	// explicit public-election keywords.
@@ -60,11 +60,15 @@ const (
 	// photo/video objects: '사진 찍었어' is not a vote.
 	photoObjects = `(사진|영상|동영상|포스터|셀카|화보|광고|프로필)\s?(을|를|도|만)?\s?(\d+\s?번\s?)?(찍|뽑)`
 	// vote-verb dictionary for the vote-number rule (beyond 찍/뽑 + ending).
-	ballotVerbs = `(한\s?)?표\s?(를)?\s?(던졌|던짐|던지고|줬|줌|주고|행사\s?(했|함))|기표\s?(했|함|하고)`
-	voteEndings = `(었|았|음|을|고|겠|다|어( |$|요)|는)`
+	// Single source for every rule family (party, vote number, 국민투표).
+	ballotVerbs   = `(한\s?)?표\s?(를)?\s?(던졌|던짐|던지고|던질|줬|줌|주고|준|줄|주었|행사\s?(했|함|하고))|기표\s?(했|함|하고|할)|투표\s?(했|함|하고|할)`
+	voteParticles = `(에|으로|로|한테|에게|을|를|에서)`
+	voteEndings   = `(었|았|음|을|고|겠|다|어( |$|요)|는)`
 )
 
 var (
+	voteVerbs = `(찍|뽑)` + voteEndings + `|` + ballotVerbs
+
 	partyStmtRe = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `|` + surnameCandidate + `)\S{0,5}( \S{1,8}){0,3}? ?(` + supportVerbs + `)`)
 
 	// stance statements without a vote number (moved from the old category
@@ -82,8 +86,13 @@ var (
 
 	// after a vote context: N번 (+ 에/으로/로) (+ 칸) + 찍/뽑 + ending, or
 	// N번에 했다, or 찬성/반대 + 찍/뽑/했.
-	voteTailRe = regexp.MustCompile(`^\S{0,3}( \S{1,6}){0,2}? ?(\d+ ?번 ?(에|으로|로|한테|에게)? ?((찍|뽑)` + voteEndings + `|` + ballotVerbs + `)` +
-		`|\d+ ?번 ?(에|으로|로) ?했|\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEndings + `|(\d+ ?번 ?)?후보\S{0,3} ?((찍|뽑)` + voteEndings + `|지지\s?(해|하|함|했))|(찬성|반대)\S{0,2} ?((찍|뽑)` + voteEndings + `|했|투표\s?했))`)
+	voteTailRe = regexp.MustCompile(`^\S{0,3}( \S{1,6}){0,2}? ?(` +
+		// N번 (+ 후보/정당/당) (+ particle) + vote verb
+		`\d+ ?번 ?(후보|정당|당)? ?` + voteParticles + `? ?(` + voteVerbs + `)` +
+		`|\d+ ?번 ?(에|으로|로) ?했|\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEndings +
+		`|후보 ?` + voteParticles + `? ?(` + voteVerbs + `|지지\s?(해|하|함|했))` +
+		// 찬성/반대 (+ particle) + vote verb
+		`|(찬성|반대) ?` + voteParticles + `? ?(` + voteVerbs + `|했))`)
 	// N번에 도장 찍었어 with nothing before it (a ballot stamp, not a document).
 	dojangRe = regexp.MustCompile(`^\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEndings)
 
