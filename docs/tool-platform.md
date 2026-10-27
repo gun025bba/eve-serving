@@ -36,7 +36,7 @@ digest: ""                    # mcp_stdio일 때 필수 (@sha256 / --require-has
 license: MIT
 scopes: [web.read]            # 선언된 스코프 밖 호출은 거부
 side_effect: read             # read | write | send | trade
-verb: run                     # 확인 카드 버튼 동사: add | update | send | delete | run (필수, 정적)
+verbs: [run]                  # 확인 카드 허용 동사 목록: add | update | send | delete | run (필수, 정적, 호출당 하나)
 taint_output: true            # 결과가 외부 데이터인가
 egress: [127.0.0.1:8888]      # 외부 접속 allowlist (SSRF guard와 결합)
 secrets: []                   # 이 툴에만 주입할 시크릿 이름
