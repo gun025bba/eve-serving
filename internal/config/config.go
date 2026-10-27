@@ -83,16 +83,14 @@ type Config struct {
 }
 
 // MemoryConfig enables personalization memory (docs/architecture/memory.md).
-// Off by default: when off, the /v1/memory endpoints answer 404 and no
+// On by default since 5.0.0 (MAJOR); when off, the /v1/memory endpoints answer 404 and no
 // memory block is added to prompts, exactly as before.
 type MemoryConfig struct {
 	// Enabled (GW_MEMORY_ENABLED) is the server-wide kill switch. A later
 	// per-user /v1/settings memory.enabled is ANDed with it; this flag
 	// always wins when false.
-	//
-	// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것: until the follow-up PR
-	// wires approve and the memory.propose tool, do not turn this on in any
-	// deployed environment.
+	// Default true since 5.0.0. Rollback: memory.enabled: false in
+	// config.yaml (or GW_MEMORY_ENABLED=false) and restart.
 	Enabled bool `yaml:"enabled" json:"enabled"`
 	// DataDir holds one 0600 JSON file per user, named <users.id>.json
 	// (dir 0700; permissions are verified at startup). It must sit outside
@@ -178,7 +176,7 @@ func Default() Config {
 		Database:   DBConfig{AutoMigrate: true},
 		Web:        defaultWeb(),
 		Generation: DefaultGen(),
-		Memory:     MemoryConfig{Enabled: false, DataDir: "~/llm-serving/data/memory", InjectCapTokens: 1000},
+		Memory:     MemoryConfig{Enabled: true, DataDir: "~/llm-serving/data/memory", AuditKeyFile: "~/llm-serving/etc/memory_audit.key", InjectCapTokens: 1000},
 	}
 }
 

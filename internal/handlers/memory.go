@@ -65,14 +65,26 @@ func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	if !s.memoryOn() {
 		return
 	}
-	mux.HandleFunc("GET /v1/memory", s.authed(noStore(s.getMemory)))
-	mux.HandleFunc("DELETE /v1/memory", s.authed(noStore(s.deleteAllMemory)))
-	mux.HandleFunc("GET /v1/memory/export", s.authed(noStore(s.exportMemory)))
-	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.addMemoryItem)))
-	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.patchMemoryItem)))
-	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.deleteMemoryItem)))
+	mux.HandleFunc("GET /v1/memory", s.authed(noStore(s.browserOnly(s.getMemory))))
+	mux.HandleFunc("DELETE /v1/memory", s.authed(noStore(s.browserOnly(s.deleteAllMemory))))
+	mux.HandleFunc("GET /v1/memory/export", s.authed(noStore(s.browserOnly(s.exportMemory))))
+	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.browserOnly(s.addMemoryItem))))
+	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.browserOnly(s.patchMemoryItem))))
+	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.browserOnly(s.deleteMemoryItem))))
 	// Approve exists only while memory is on (off: same 404 as before).
 	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(noStore(s.approveAction)))
+}
+
+// browserOnly refuses /v1/memory* to anything but a browser session: the
+// api-key virtual user (Bearer) has memory fixed off -> 403 scope_denied.
+func (s *Server) browserOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isBrowserSession(r) {
+			s.writeCode(w, r, "scope_denied")
+			return
+		}
+		h(w, r)
+	}
 }
 
 func (s *Server) memHMAC(text string) string {
@@ -307,7 +319,7 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 // prompt of the forwarded request. Any error injects nothing (fail-closed).
 // Proactive/scheduler runs do not come through here.
 func (s *Server) injectMemory(r *http.Request, body map[string]any) {
-	if !s.memoryFor(r) {
+	if !s.memoryActive(r) {
 		return
 	}
 	msgs, _ := body["messages"].([]any)

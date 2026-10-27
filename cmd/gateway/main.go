@@ -162,8 +162,6 @@ func main() {
 			log.Error("memory_disabled", "err", "store cannot resolve users.id")
 			os.Exit(1)
 		}
-		// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것 (approve/propose: follow-up PR).
-		log.Warn("memory_enabled_preview", "msg", "memory P1 has no approve/propose wiring and no encrypted backup; keep data_dir outside backups (tmutil exclusion)")
 		ms, err := memory.Open(config.Expand(cfg.Memory.DataDir))
 		if err != nil {
 			log.Error("memory_disabled", "err", err.Error())
