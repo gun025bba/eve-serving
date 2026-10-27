@@ -99,6 +99,8 @@ GET /v1/settings
 | 422 | `secret_detected` | 시크릿 필터 |
 | 422 | `cap_exceeded` | 토큰 재발급 3회 상한, follow-up 활성 10개(제안·approve 때 모두) |
 | 422 | `payload_mismatch` | approve의 `payload_hash`가 제안과 다름 (MINOR, 새 코드) |
+| 500 | `internal_error` | 메모리 쓰기 중 감사 기록 실패 → 쓰기 거부(fail-closed, 파일 변경 없음) |
+| 503 | `memory_read_only` | 메모리 파일 손상·복구 중으로 읽기 전용(memory.md §7) (MINOR, 새 코드) |
 
 SSE 거부 카드는 같은 `error_code`만 쓴다(HTTP 코드 없음). TP §10.3 approve 응답 코드도 이 이름을 쓴다(구 `action_already_decided`·`action_expired`·`not_owner`는 쓰지 않음). 테스트 `TestErrorCodes_StatusMapping`, `TestApprove_PayloadMismatch422`, `TestApprove_NonOwner404SameBody`.
 
