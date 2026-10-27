@@ -23,3 +23,4 @@ Round 3:
 - `qa_sensitive_fresh_test.go` also has `TestQA_VoteNonElectionAllowed` (strict, #45 6633c65): non-election number + 찍다/뽑다 must pass.
 - `qa_tombstone_test.go` (package memory, PR #52): a retried Execute of the same action must not re-add a tombstoned item; undeleted items stay.
 - `qa_sensitive_fresh_test.go` round 8: "기호 2번 찍었어" is in the strict must-block list (기호 = ballot number); `TestQA_PoliticalVariants` (strict) covers jamo/spacing/zero-width/full-width variants and benign controls.
+- `qa_memory_reapprove_test.go` (package handlers, PR #53): re-approve of an executed card → 409 `{"error_code":"conflict"}` (twice), reissue → 409 conflict, item written once.

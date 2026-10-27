@@ -88,12 +88,16 @@ func TestQA_VoteNonElectionAllowed(t *testing.T) {
 var qaPoliticalVariantsBlock = []string{
 	"민ㅈㅜ당 지지해", "민 주 당 지지해", "민\u200b주당 지지해", "국민의 힘 찍었어", "국민의힘 지지해",
 	"기호2번 찍었어", "기호 ２번 찍었어", "기호 2 번 찍었어요",
+	// round 9
+	"기호 3번 찍을게", "투표는 2번에 했어", "정의당 지지.", "개혁신당 지지!", "조국혁신당, 지지해", "진보당을 지지해요", "국민 의 힘 찍었다", "더불어 민주당 뽑았어", "녹색당…지지함",
 }
 
 // Benign controls next to the variants above (strict allow).
 var qaPoliticalBenign = []string{
 	"기호 1번 후보 토론 영상 찾아줘", "팀 대표 뽑았어", "기호 2번 후보 공약 비교해줘",
 	"국민의힘 대변인 발표 요약해줘", "민주당 지지율 기사 요약해줘", "가챠에서 2번 뽑았어",
+	// round 9
+	"정의당 새 대표 기사 요약해줘", "개혁신당 창당 과정 정리해줘", "이번 총선 후보가 누구야?", "기호 3번 후보 이름 알려줘", "투표 2번 해도 돼?", "조국혁신당 의석수 몇 석이야?",
 }
 
 func TestQA_PoliticalVariants(t *testing.T) {

@@ -177,3 +177,16 @@ Script: the 011acfc copy (#50 not merged). QA user login `api-key`. `api-memory.
 | `user-off` again (`useroff`) | 3/3 |
 | server `off` + user on | 6/6; POST items 404 (server switch wins) |
 | Restore | user-off → `off`; 0 users with memory on, GW_MEMORY_ENABLED=false, health OK. No data deleted except the spec's own items |
+
+## Round-9 run (2026-10-27, main 1edcf6a = #50/#52 merged; #53 902297a)
+
+main+#53, `go test ./...` + all QA Go tests, `QA_STRICT=1`: everything PASS except 3 new political variants.
+
+| Item | Result |
+|---|---|
+| R1 기호 variants (4) + earlier must-block list | PASS (blocked) |
+| New round-9 variants | **FAIL 3/9 not blocked**: "투표는 2번에 했어", "조국혁신당, 지지해" (comma), "녹색당…지지함" (ellipsis). Blocked: "기호 3번 찍을게", "정의당 지지.", "개혁신당 지지!", "진보당을 지지해요", "국민 의 힘 찍었다", "더불어 민주당 뽑았어" |
+| Benign controls (party news, who are the candidates, 기호 3번 후보 이름, 팀 대표 뽑았어 …) | PASS (all allowed) |
+| Re-approve executed card | `TestQA_ReapproveExecuted409` PASS: 409 `{"error_code":"conflict"}`; reissue also 409 conflict; written once |
+| qa-mem-mode.sh (#53) static | DB constant; unsets PGSERVICE/PGSERVICEFILE/PGDATABASE/PGHOSTADDR/PGOPTIONS; PGHOST/PGPORT only from QA_PGHOST/QA_PGPORT; post-connect check of db/local host/port; column check filtered by `table_schema=current_schema()`. Minor: PGUSER/PGPASSFILE still inherited; a non-local QA_PGHOST is rejected only after connecting |
+| qa-mem-mode.sh live (8002 llmchat_test, user `api-key`) | user-on rc 0 → user-off rc 0. PGDATABASE=llmchat, PGSERVICE, PGHOST=203.0.113.9, PGOPTIONS, DB=llmchat are ignored (still llmchat_test). Bad QA_PGPORT / QA_PGHOST → "cannot connect" rc 3. Restored: 0 users on, GW_MEMORY_ENABLED=false |
