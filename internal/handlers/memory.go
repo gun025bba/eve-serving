@@ -309,7 +309,7 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 // prompt of the forwarded request. Any error injects nothing (fail-closed).
 // Proactive/scheduler runs do not come through here.
 func (s *Server) injectMemory(r *http.Request, body map[string]any) {
-	if !s.memoryFor(r) {
+	if !s.memoryActive(r) {
 		return
 	}
 	msgs, _ := body["messages"].([]any)
