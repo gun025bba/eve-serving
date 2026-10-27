@@ -180,7 +180,7 @@ func politicsStructural(folded, original string) bool {
 	fp := firstPerson(base)
 	// non-public organisation context with no major political word: weak
 	// anchors (사전투표, 후보, N번 후보, 기호, 지지자) do not anchor.
-	if orgContext(base) && !majorAnchorRe.MatchString(base) && !majorAnchorRe.MatchString(folded) {
+	if !majorAnchorRe.MatchString(base) && !majorAnchorRe.MatchString(folded) && weakModified(base) {
 		return false
 	}
 	news := !fp && isNewsReport(base)
@@ -284,6 +284,9 @@ func isNewsReport(f string) bool {
 	if len(clauses(f)) > 1 || !newsEndingRe.MatchString(strings.TrimSpace(f)) || evaluativeRe.MatchString(f) {
 		return false
 	}
+	if newsEventRe.MatchString(strings.TrimSpace(f)) || statRe.MatchString(f) {
+		return true
+	}
 	for _, t := range strings.Fields(f) {
 		if newsSubjectRe.MatchString(t) {
 			return true
@@ -306,7 +309,7 @@ func clauses(f string) []string {
 }
 
 func statementClause(c string) bool {
-	return verbClassRe.MatchString(c) || evaluativeRe.MatchString(c) || pastStmtRe.MatchString(c)
+	return voteStemRe.MatchString(c) || verbClassRe.MatchString(c) || evaluativeRe.MatchString(c) || pastStmtRe.MatchString(c)
 }
 
 func defaultPolitical(f, base, original string, fp bool) bool {
@@ -332,7 +335,9 @@ func defaultPolitical(f, base, original string, fp bool) bool {
 	info := requestEndRe.MatchString(strings.TrimSpace(last)) || questionWordRe.MatchString(last)
 	// info request/question: allowed even with a first-person word when the
 	// clause has no vote/support/membership verb.
-	if info && (!fp || !verbClassRe.MatchString(last)) {
+	// Med D: a first person plus a vote/support verb anywhere removes the
+	// question exemption; a chosen number or evaluative word does too.
+	if info && !(fp && (verbClassRe.MatchString(base) || voteStemRe.MatchString(base) || numChoiceRe.MatchString(base))) {
 		return false
 	}
 	if fp {
@@ -351,9 +356,13 @@ func defaultPolitical(f, base, original string, fp bool) bool {
 }
 
 var (
-	evaluativeRe  = regexp.MustCompile(`최고|최악|좋다|좋아|좋지|좋네|좋음|좋은|좋겠|꼴좋|극혐|싫|별로|짱|멋지|멋있|괜찮|쓰레기|ㅋㅋ|ㅎㅎ|화이팅|파이팅|가즈아|사랑|훌륭|대단|잘했|잘한다|잘하|못했|못한다|망해|망했|망한|혐오|역겹|한심|속시원|통쾌|쌤통|꼬시|고소하|미워|미친|개념|답없|답이 없|믿음직|든든|실망|최애|호감|비호감`)
+	evaluativeRe  = regexp.MustCompile(`최고|최악|좋다|좋아|좋지|좋네|좋음|좋은|좋겠|꼴좋|극혐|싫|별로|짱|멋지|멋있|괜찮|쓰레기|ㅋㅋ|ㅎㅎ|화이팅|파이팅|가즈아|사랑|훌륭|대단|잘했|잘한다|잘하|못했|못한다|망해|망했|망한|혐오|역겹|한심|속시원|통쾌|쌤통|꼬시|고소하|미워|미친|개념|답없|답이 없|믿음직|든든|실망|최애|호감|비호감|맘에\s?(들|듦|든)|마음에\s?(들|듦|든)|낫|답\s?없|옳|틀리|틀렸|잘한|해야\s?한|돼야\s?한|되어야\s?한`)
+	statRe        = regexp.MustCompile(`(역대|사상|역사상)\s?(최고|최저)(치)?|(투표율|득표율|지지율|참여율|개표율|\d+\s?(%|퍼센트))\s?(이|가|은|는|도)?\s?(최고|최저)(치)?|최고치|최저치`)
+	voteStemRe    = regexp.MustCompile(`(찍|뽑)($|을|으|으려|으며|었|았|어|아|고|겠|는|음)|지지\s?(하|해|했|할)|밀어\s?(줄|주|줬)|기표`)
+	newsEventRe   = regexp.MustCompile(`(됐|되었|선출|부결|가결|통과|출범|확정|사퇴|해산|발표)\S*(대|래|대요|래요)$`)
+	numChoiceRe   = regexp.MustCompile(`\d+\s?번`)
 	agreeEndRe    = regexp.MustCompile(`(지|죠|잖아|잖아요|잖냐|지 않아|지 않냐|지 않아요|지 않니)\s?$`)
-	clauseSplitRe = regexp.MustCompile(`(는데|은데|인데|던데|지만|니까|으니|어서|아서|고)(\s|$)|[.!?\n]+`)
+	clauseSplitRe = regexp.MustCompile(`(는데|은데|인데|던데|지만|니까|으니|어서|아서|고|으며|며|면서|다가)(\s|$)|[.!?\n]+`)
 	actorRe       = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)(이|가)\s`)
 	candSiteRe    = regexp.MustCompile(`후보지(\s|$|[가는를은에의도로])|후보\s?(장소|부지|지역|날짜|곡|작)`)
 	orgCompanyRe  = regexp.MustCompile(`^(사람|사람들|친구|친구들|애들|형|형들|선배|후배|동기|멤버)`)
@@ -362,38 +371,66 @@ var (
 	orgWordRe     = regexp.MustCompile(`^(학생회|학생회장|동아리|오디션|경로당|노인회|반장|부반장|학급|전교|과대|과대표|아파트|입주자|입주자대표|동대표|관리단|동호회|회사|사내|부서|학교|학년|교회|성당|부녀회|반상회|팬클럽|아이돌|조합|협회|클럽|길드|커뮤니티|카페|모임)(의|별|내|끼리|회장|장|선거|투표|후보|대표|회의|에서의)?$`)
 )
 
-// orgContext: a non-public organisation named as the electorate (not as a
-// place: '학교에서 사전투표' keeps 학교에서 as a location).
-// actorTokens blanks third-person actor subjects (party/office + 이/가) so
-// statement rules do not read a news actor as the user's own stance.
-func actorTokens(f string) string {
+// weakModified (QA r19): with only weak anchors (사전투표, 투표소, 기호,
+// 후보, 지지자, N번, bare 투표/선거/회장/대표), the sentence is non-public
+// when every weak word is modified by a noun phrase: a glued noun prefix
+// ('산악회장', '팬카페투표'), or the nearest preceding non-number token is
+// a noun (bare, genitive ~의, event ~에서, org suffix). Person subjects,
+// time words, connectives and verb forms are not modifiers.
+var (
+	weakWordRe   = regexp.MustCompile(`사전\s?투표|투표소|투표|선거|회장|대표|후보|기호|지지자|당선`)
+	numTokRe     = regexp.MustCompile(`^(\d+\s?번|기호|사전|번)\S{0,4}$`)
+	verbFormRe   = regexp.MustCompile(`(다가|가지고|려고|러|데|고|서|면|는데|은데|었어|았어|했어|했고|어|아|요|다|지|게|며|니|자|던|는|은|을|ㄴ)$`)
+	nounParticle = regexp.MustCompile(`(의|에서|에서의|에|별|내|용|끼리|들|들의)$`)
+	locWordRe    = regexp.MustCompile(`^(근처|앞|옆|뒤|건너편|주변|부근|안|밖|쪽|가는|길|아침|점심|저녁|밤|새벽|오전|오후|주말|평일|출근|퇴근|출근길|퇴근길)(에|에서|의|때)?$`)
+	orgSuffixRe  = regexp.MustCompile(`(회|단|부|회사|조합|카페|모임|지부|연합|클럽|동호회|협회|위원회|센터|교회|학교|아파트)(의|에서|에|별|내)?$`)
+)
+
+func weakModified(f string) bool {
 	ts := strings.Fields(f)
+	found := false
 	for i, t := range ts {
-		if newsSubjectRe.MatchString(t) {
-			ts[i] = "_"
+		loc := weakWordRe.FindStringIndex(t)
+		if loc == nil {
+			continue
+		}
+		found = true
+		if loc[0] > 0 && !strings.HasPrefix(t, "사전") && !numTokRe.MatchString(t[:loc[0]]) {
+			continue // glued noun prefix
+		}
+		j := i - 1
+		for j >= 0 && numTokRe.MatchString(ts[j]) {
+			j--
+		}
+		if j < 0 || !nounModifier(ts[j]) {
+			return false
 		}
 	}
-	return strings.Join(ts, " ")
+	return found
 }
 
-func orgContext(f string) bool {
-	ts := strings.Fields(f)
-	for i, t := range ts {
-		if orgWordRe.MatchString(t) && !(i+1 < len(ts) && orgCompanyRe.MatchString(ts[i+1])) {
-			return true
-		}
+func nounModifier(t string) bool {
+	if len([]rune(t)) == 1 {
+		return false // a single syllable is a surname ('윤 후보'), not a group
 	}
-	return false
-}
-
-// evaluatesAnchor: an evaluative word is a stance on the anchor unless a
-// non-political object noun sits between them ('민주당 당사 앞 카페 괜찮아').
-func evaluatesAnchor(f string) bool {
-	loc := evaluativeRe.FindStringIndex(f)
-	if loc == nil {
+	if locWordRe.MatchString(t) || unqualRe.MatchString(t) || firstPersonRe.MatchString(t) {
 		return false
 	}
-	return !evalTargetRe.MatchString(f[:loc[0]])
+	if orgSuffixRe.MatchString(t) || qualRe.MatchString(t) {
+		return true
+	}
+	if nounParticle.MatchString(t) {
+		t = nounParticle.ReplaceAllString(t, "")
+		return t != "" && !unqualRe.MatchString(t) && !firstPersonRe.MatchString(t)
+	}
+	return !verbFormRe.MatchString(t)
+}
+
+// evaluatesAnchor: any evaluative word with an anchor is a stance (PM:
+// '민주당 포스터 최고' blocks). Statistic superlatives ('투표율 역대
+// 최고', '득표율 최저', '%') are facts and are stripped first.
+func evaluatesAnchor(f string) bool {
+	return evaluativeRe.MatchString(statRe.ReplaceAllString(f, " _ "))
 }
 
 func hasNonPublicQualifier(f string) bool {
@@ -441,4 +478,16 @@ func joinSyllables(f string) string {
 	}
 	flush()
 	return strings.Join(out, " ")
+}
+
+// actorTokens blanks third-person actor subjects (party/office + 이/가) so
+// statement rules do not read a news actor as the user's own stance.
+func actorTokens(f string) string {
+	ts := strings.Fields(f)
+	for i, t := range ts {
+		if newsSubjectRe.MatchString(t) {
+			ts[i] = "_"
+		}
+	}
+	return strings.Join(ts, " ")
 }
