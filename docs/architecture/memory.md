@@ -150,10 +150,11 @@
 4. 이후 pg_trgm 관련도 선택, 필요 시 pgvector.
 
 ### 9.1 P1 범위와 활성화 청사진
-- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.** P1에는 서버 플래그만 있고(킬스위치), 사용자별 설정은 approve·`memory.propose` 연결과 함께 들어간다.
+- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.**
 - **P1 저장 정책**: 삭제는 파일 삭제(항목 삭제는 파일에서 제거). 저장 디렉터리는 **백업에서 제외**하고 권한은 **0700**(파일 0600). §7의 사용자별 암호화 백업·crypto-shred는 **후속 단계**이며, 그 전까지 백업이 없으므로 삭제가 곧 영구 삭제다.
 - 감사 기록 쓰기에 실패하면 메모리 쓰기를 거부한다(500, fail-closed). 읽기 전용 상태(§7 손상 복구)에서는 쓰기를 `memory_read_only` 503으로 거부한다(ui-api-contract §3.3).
 - 최종 판단은 보안 담당이 한다.
+- 청사진: 500(`internal_error`)·503(`memory_read_only`)의 `{"error":{...}}` 형식과 메모리 API의 `{"error_code":...}` 형식 통일은 향후 MAJOR 후보다. 지금은 현행 유지.
 
 #### Required before default-on (security decision 2026-10-27)
 기본값을 켜기(default-on) 전에 모두 충족해야 한다.
@@ -234,15 +235,16 @@
 
 ## 13. P1 구현 상태 (4.1.0, PR #25)
 
-- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false. 서버 전역 킬스위치이며, 후속 사용자별 `/v1/settings` `memory.enabled`와 **AND**로 묶는다(서버가 false면 항상 off).
-- **이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것**: approve 엔드포인트와 `memory.propose` 툴 연결은 후속 PR이다.
+- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false. 서버 전역 킬스위치이며, 사용자별 `/v1/settings` `memory.enabled`(기본 false, #40)와 **AND**로 묶는다(서버가 false면 항상 off).
+- **연결 완료**: approve 엔드포인트와 `memory.propose` 툴 연결은 #38에서 들어갔다. 서버 기본값은 여전히 off이며, 기본 on 전환은 별도 결정이다.
 - **파일 키**: `users.id`(Postgres). 파일명은 `<users.id>.json`(락 `<users.id>.lock`)이고 숫자 id 외에는 들어가지 않는다. 양의 int64 정규 10진 표기만 허용하며, 결합한 경로가 data_dir 바로 아래인지 다시 확인한다.
 - **권한**: data_dir 0700, 파일 0600, 소유자는 게이트웨이 계정. 시작할 때 디렉터리와 모든 항목(정규 파일, 0600 이하, 소유자, 이름 형식)을 확인하고, 하나라도 어긋나면 기동을 거부한다(자동 수정하지 않음).
 - **백업 제외 (P1)**: 메모리 파일은 **pg 백업(`pg_dump`, db-model.md §8)에 포함되지 않는다**. data_dir은 **백업 경로 밖**에 둔다. §7의 암호화 백업은 아직 구현되지 않았다. 따라서 P1에서 삭제는 파일 삭제로 즉시 끝나고, 백업 사본이 남지 않는다.
+  - **fail-closed (#42)**: 메모리가 켜져 있을 때 data_dir의 백업 제외(macOS tmutil)를 확인할 수 없거나 data_dir이 동기화 폴더 안이면 기동을 거부한다.
 - **삭제**: 항목 삭제는 tombstone을 남기고, 전체 삭제는 파일을 삭제한다. 암호화와 crypto-shred는 백업과 함께 후속 작업이다(PR #25 본문 청사진).
 - **조정 상수**: 엔트로피 임계값(`secret.go`)과 토큰 추정(`inject.go`)은 이름 있는 상수다. ROC 실행(§8.5) 뒤 설정으로 옮긴다.
 - **users.id 타입**: `BIGSERIAL`(int64). 파일 키는 `^[0-9]+$` 정규형만 허용하고, 파싱한 뒤 다시 문자열로 만들어 같은지 확인한다. 파일 안의 `user_id`도 요청자 id와 교차 확인한다.
-- **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키가 끝 개행·공백을 포함하거나 서로 다른 바이트가 16개 미만이면 거부한다.
+- **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키 검증 규칙은 아래 **감사 HMAC 키 생성** 항목을 따른다(끝 개행 1개 허용, 서로 다른 바이트 12개 이상).
 - **민감 범주 거부 목록**: `internal/memory/sensitive.go`. 건강·질병, 성적 지향, 종교, 정치 성향, 범죄 기록, 노조 가입, 인종·민족, 생체·유전 정보는 사용자가 원해도 저장하지 않는다.
   - 한국어·영어 키워드 기반의 최소 목록이다(분류기가 아니라 하한선).
   - 걸리면 `sensitive_category`로 거부하고, 이유는 응답에 넣지 않는다. 항목을 추가·변경하면 보안 검토 대상이다.

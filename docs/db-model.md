@@ -298,7 +298,7 @@ pg_restore -h 127.0.0.1 -U <admin> -d <db>_restore --no-owner <backup>.dump
 
 - `ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'` — additive; existing rows get `{}`.
 - Down: `DROP COLUMN settings` (per-user settings are lost; memory falls back to off).
-- 런북: down 실행 **전에** 백업한다. `pg_dump --data-only -t users -f users_settings_backup.sql <DB>` 또는 `COPY (SELECT id, settings FROM users WHERE settings <> '{}') TO STDOUT` 결과를 보관하고, 행 수를 기록한다. 복구는 up 재적용 후 `UPDATE users SET settings = b.settings FROM backup b WHERE users.id = b.id`. 백업 없이 down을 실행하지 않는다.
+- 런북: down 실행 **전에** 백업한다. `pg_dump --data-only -t users -f users_settings_backup.sql <DB>` 또는 `COPY (SELECT id, settings FROM users WHERE settings <> '{}') TO STDOUT` 결과를 보관하고, 행 수를 기록한다. 백업 파일은 `umask 077`로 만들어 **0600**(소유자만 읽기)으로 두고, 사용자 설정(메모리 on/off 등)이 들어 있으므로 공유 경로·동기화 폴더에 두지 않는다. 복구는 up 재적용 후 `UPDATE users SET settings = b.settings FROM backup b WHERE users.id = b.id`. 백업 없이 down을 실행하지 않는다. 복구를 확인한 뒤(또는 down이 필요 없어진 뒤) 백업 파일을 **바로 삭제**하고, 삭제했다는 사실만 기록한다.
 - One object with namespaced keys (`{"memory":{"enabled":true}}`). A missing key reads as its default (off).
   PATCH merges only the named key into its namespace; other namespaces and unknown keys are preserved.
 - Blueprint: future per-user settings go in as new namespaced keys here; split into a table if they grow
