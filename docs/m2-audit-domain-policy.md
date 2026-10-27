@@ -121,12 +121,12 @@ and leaves out the top 1M sites; it is a supplement, not a guarantee.
 
 ### Signing key
 
-- **Location:** the private key lives only in the Mac Studio login
+- **Location:** the private key lives only in the host login
   keychain, generic password service `eve-malware-ed25519` (account `eve`),
   stored base64-encoded. It is no longer on the shared box. The gateway never
   needs it; it only verifies with the committed `keys/*.pub`. `*.key` is in
   `.gitignore`.
-- **Signing / renewal (on the Mac Studio):**
+- **Signing / renewal (on the host):**
 
       umask 077; k=$(mktemp)
       security find-generic-password -s eve-malware-ed25519 -w | base64 -d > "$k"
