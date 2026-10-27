@@ -164,6 +164,21 @@ func TestStrictYAML(t *testing.T) {
 		"null enabled":   "memory:\n  enabled: null\n",
 		"empty enabled":  "memory:\n  enabled:\n",
 		"tilde enabled":  "memory:\n  enabled: ~\n",
+		"on":             "memory:\n  enabled: on\n",
+		"yes":            "memory:\n  enabled: yes\n",
+		"Yes":            "memory:\n  enabled: Yes\n",
+		"off":            "memory:\n  enabled: off\n",
+		"TRUE":           "memory:\n  enabled: TRUE\n",
+		"False":          "memory:\n  enabled: False\n",
+		"one":            "memory:\n  enabled: 1\n",
+		"double quoted":  "memory:\n  enabled: \"false\"\n",
+		"single quoted":  "memory:\n  enabled: 'true'\n",
+		"str tag":        "memory:\n  enabled: !!str true\n",
+		"str tag false":  "memory:\n  enabled: !!str false\n",
+		"bool tag yes":   "memory:\n  enabled: !!bool yes\n",
+		"bool tag TRUE":  "memory:\n  enabled: !!bool TRUE\n",
+		"list":           "memory:\n  enabled: [false]\n",
+		"flow map list":  "memory: {enabled: [false]}\n",
 	}
 	for name, body := range cases {
 		if _, err := LoadEnv(writeCfg(t, body), noEnv); err == nil {
@@ -177,6 +192,10 @@ func TestStrictYAML(t *testing.T) {
 	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: !!bool false\n"), noEnv)
 	if err != nil || c.Memory.Enabled {
 		t.Fatalf("!!bool false: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "memory: {enabled: false}\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("flow style false: %v %+v", err, c.Memory)
 	}
 	c, err = LoadEnv(writeCfg(t, "web:\n  enabled: false\nmemory:\n  enabled: true\n"), noEnv)
 	if err != nil || !c.Memory.Enabled {
