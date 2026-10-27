@@ -69,6 +69,11 @@ func pimEnv(t *testing.T, enabled bool) (*webEnv, *fakePim) {
 	}
 	res.UserID(t.Context(), "bob@example")
 	e.srv.Cfg.Pim.OwnerUserID = owner
+	for _, who := range []string{"alice@example", "bob@example"} {
+		if _, err := e.st.(store.UserSettingsStore).MergeUserSettings(t.Context(), who, "pim", []byte(`{"enabled":true}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return e, fp
 }
 

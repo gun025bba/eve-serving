@@ -312,6 +312,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/actions", s.persisted(sessionOnly(s.listActions)))
 	mux.HandleFunc("POST /v1/actions/{id}/reissue", s.persisted(sessionOnly(s.reissueAction)))
 	mux.HandleFunc("POST /v1/proposals/{id}/revise", s.persisted(sessionOnly(s.reviseProposal)))
+	mux.HandleFunc("POST /v1/briefing/preview", s.authed(noStore(s.previewBriefing)))
 	mux.HandleFunc("POST /v1/pair", s.pair)
 	mux.HandleFunc("DELETE /v1/session", s.authed(sessionOnly(s.logout)))
 	mux.HandleFunc("GET /v1/push/vapid-public-key", s.pushed(s.vapidKey))

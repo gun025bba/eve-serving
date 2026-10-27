@@ -28,13 +28,17 @@ func (s *Server) pimUserID(ctx context.Context, login string) int64 {
 }
 
 // pimToolsFor lists the pim tools offered to this principal: none unless
-// pim.enabled, a helper client, and users.id == pim.owner_user_id. Tools
+// pim.enabled (server), a helper client, users.id == pim.owner_user_id and
+// the user's own pim.enabled setting (default false, #71). Tools
 // switched off by the kill switch are dropped. Fail-closed.
 func (s *Server) pimToolsFor(ctx context.Context, login string) []string {
 	if !s.Cfg.Pim.Enabled || s.Pim == nil || s.Cfg.Pim.OwnerUserID <= 0 {
 		return nil
 	}
 	if s.pimUserID(ctx, login) != s.Cfg.Pim.OwnerUserID {
+		return nil
+	}
+	if u, err := s.userSettingsFor(ctx, login); err != nil || !u.Pim.Enabled {
 		return nil
 	}
 	var out []string
