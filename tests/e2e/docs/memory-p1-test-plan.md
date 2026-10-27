@@ -77,3 +77,17 @@ First run failed 27 tests: on macOS `t.TempDir()` lives under `/var/folders` (sy
 - M13: single block in a system message and at end of the system prompt; ordering vs. later user/tool messages is checked only by the fixtures used (no fuzz/multi-turn tool-call history in web mode beyond fixtures).
 - M14: covered.
 - M17: read/patch/delete across identities covered; export, delete-all and injection into the other user's prompt not covered.
+
+## 8002 run (2026-10-27 14:20–14:26 KST, build 3.1.1-5-g1c2921b)
+| Mode | Result |
+|---|---|
+| off | api-memory: 5 pass / 12 skip. `/v1/memory*` 404 identical to unknown route; version pinned OK |
+| on | api-memory: 8 pass / 9 skip (CRUD, export, delete-all, no-store, 4× secret_detected 422, Korean sentence accepted; empty text accepted as 400/422 `invalid`). fs-check on `mem/`: dir 0700, `4.json`/`4.lock` 0600, numeric names |
+| readonly (runtime) | after creating 1 item: `chmod 644 4.json` → GET/POST 503 `memory_read_only` + no-store (spec 2 pass); internal `user_id` changed → 503; restored → 200 |
+| readonly (script restart) | **gateway refuses to start** (`data file has mode -rw-r--r--, want regular 0600`); script reports expect=start got=refuse, exit 1 |
+| auditfail (runtime) | `REVOKE INSERT ON tool_audit FROM llmchat_test` (llmchat_test DB): POST and DELETE → 500 `internal_error` + no-store, nothing persisted/deleted, log `audit_write_failed … permission denied`; GRANT restored → 201 |
+| auditfail (script restart) | gateway refuses to start (observed behavior) |
+| key-ok / key-ok-nl | start |
+| key-bad-short / binary / space / distinct / perm | refuse with "32 hex chars", "not hex", "contains whitespace", "only 11 distinct bytes", "must be a 0600 regular file" |
+| key leak | no key hex found in gateway-test logs for any fixture |
+End state: off, `/v1/memory` 404, GRANT INSERT verified (`has_table_privilege = t`).

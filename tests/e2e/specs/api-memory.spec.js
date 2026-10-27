@@ -82,6 +82,8 @@ test.describe('M18 잊어줘 card (on)', () => {
   });
 });
 
+// Read-only is reachable only at RUNTIME: start in 'on', create one item, then make <uid>.json 0644 or change its user_id.
+// Restarting with an unsafe file (qa-mem-mode.sh readonly) makes the gateway refuse to start instead.
 test('M10/M5 read-only: unsafe/mismatched file → 503 memory_read_only, no-store', async ({ request }) => {
   only('readonly');
   for (const [m, p, d] of [['GET', '/v1/memory'], ['POST', '/v1/memory/items', { kind: 'fact', text: `${TAG} x` }]]) {
@@ -91,6 +93,7 @@ test('M10/M5 read-only: unsafe/mismatched file → 503 memory_read_only, no-stor
   }
 });
 
+// Audit failure is reachable only at RUNTIME (REVOKE INSERT ON tool_audit in the test DB while 'on'); restarting in that state refuses startup.
 test('M8 audit write failure → 500 fail-closed, item not stored', async ({ request }) => {
   only('auditfail');
   const r = await request.post('/v1/memory/items', { headers: hdr(), data: { kind: 'fact', text: `${TAG} audit` } });
