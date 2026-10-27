@@ -45,7 +45,7 @@ func TestSensitive_VoteNumberR1(t *testing.T) {
 // QA round 9: 투표 + N번 + 에/로 + 했/찍; comma/ellipsis party boundary;
 // 찍/뽑 ending restricted (security Low).
 func TestSensitive_VoteRound9(t *testing.T) {
-	for _, s := range []string{"투표는 2번에 했어", "투표 3번으로 찍었어", "조국혁신당, 지지해", "녹색당…지지함", "녹색당...지지함", "기호 2번 뽑음"} {
+	for _, s := range []string{"투표는 2번에 했어", "투표 3번으로 찍었어", "조국혁신당, 지지해", "녹색당…지지함", "녹색당...지지함", "기호 2번 뽑음", "기호 3번 찍을게"} {
 		if CheckSensitive(s) == nil {
 			t.Errorf("not blocked: %q", s)
 		}
