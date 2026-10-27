@@ -9,6 +9,9 @@ type Error struct {
 	Code    string
 	Message string
 	Type    string
+	// Extra holds additional fields merged into the error object (e.g.
+	// message_id on 409 generation_in_progress, #30). Never secrets.
+	Extra map[string]any
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%d %s: %s", e.Status, e.Code, e.Message) }

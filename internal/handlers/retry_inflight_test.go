@@ -15,9 +15,22 @@ func TestRetryWhileGenerating409(t *testing.T) {
 	r1, evs := openStream(t, e, "alice@example", longChat, 1)
 	defer r1.Body.Close()
 	tid, _ := metaOf(t, evs)
+	_, mid := metaOf(t, evs)
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"stream":true,"messages":[{"role":"user","content":"x"}],"thread_id":"`+tid+`"}`)
 	if r.StatusCode != 409 || errCode(js(t, b)) != "generation_in_progress" {
 		t.Fatal(r.StatusCode, string(b))
+	}
+	// The 409 carries the reply being generated so the client can reattach.
+	eo, _ := js(t, b)["error"].(map[string]any)
+	if eo["message_id"] != mid || eo["thread_id"] != tid {
+		t.Fatalf("409 must carry message_id %s / thread_id %s: %s", mid, tid, b)
+	}
+	ms := threadMsgs(t, e, tid)
+	if uid, _ := eo["user_message_id"].(string); uid == "" || uid != ms[0].ID {
+		t.Fatalf("409 user_message_id: %s", b)
+	}
+	if r.Header.Get("Idempotency-Key") != "" {
+		t.Fatal("no Idempotency-Key expected")
 	}
 	if n := len(threadMsgs(t, e, tid)); n != 2 {
 		t.Fatalf("want 2 messages (1 user + 1 generating), got %d", n)

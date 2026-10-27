@@ -64,6 +64,9 @@ func TestRetryDedup_ConcurrentIdenticalResendsInsertOnce(t *testing.T) {
 			if err != nil {
 				if e, isAPI := err.(*apierr.Error); isAPI && e.Status == 409 && e.Code == "generation_in_progress" {
 					conflicts++
+					if e.Extra["user_message_id"] == nil {
+						t.Errorf("409 without user_message_id: %+v", e.Extra)
+					}
 					return
 				}
 				t.Errorf("beginPersist: %v", err)
@@ -90,7 +93,7 @@ func TestRetryDedup_ConcurrentIdenticalResendsInsertOnce(t *testing.T) {
 		t.Fatalf("resend after release: %v %+v", err, p)
 	}
 	p.releaseInflight()
-	if s.inflight.has("alice@example\x00" + th.ID + "\x00same") {
+	if _, held := s.inflight.get("alice@example\x00" + th.ID + "\x00same"); held {
 		t.Fatal("in-flight mark leaked")
 	}
 }
