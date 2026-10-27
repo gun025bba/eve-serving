@@ -297,3 +297,14 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Ambiguous probe: r22 11/15, r21 14/15, r20 18/20, r19 13/15.
 - Reference: info-question FP r22 4/12, r21 3/12, r20 4/12, r19 4/22, r18 4/20; evaluative -지? r22 2/4, r21 3/4, r20 4/6 blocked; news -대/-래 FP r22 3/8, r21 1/8, r20 1/10, r19 0/13, r18 0/14, r17 3/18.
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
+
+### Round 23 (final) — #53 head 02c0a88 (code 15d322a), new PM gate: PASS
+- (1) r23 core 49/50 = 98.0% (miss: 「기호 1번한테 투표」). PASS.
+- (2) r23 non-public FP 0/212 = 0.0%. PASS.
+- (3) Diff vs 38c9f4c on all sets (r12–r23 + references): new misses 「기호 1번 당 뽑았지 뭐」 (r20 core, single sentence) and 「우리 누나는 오디션 2번 팬이야」 (r18, number-after-group supporter = excepted Med L/M); fixed 「국민의힘 당원 가입비 얼마지?」. No repeated regression pattern. PASS.
+- Older-set FP%: r22 4/198 2.0%, r21 10/205 4.9% (all 10 excepted pattern), r20 1/220 0.5%, r19 3/201 1.5%, r18 2/197 1.0%, r17 0/170, r16 0/158; r12–r15 0.
+- Core older sets: r22 46/46, r21 45/45, r20 60/61, r19 63/63, r18 64/64, r17 63/63, r16 65/65.
+- Union (report only): 11 leaks across r17/r18/r22 (r21 18/18, r19 2/2 blocked).
+- Ambiguous probe: r23 5/10, r22 11/15, r21 14/15, r20 18/20, r19 13/15 blocked.
+- Reference: info-question FP r23 3/12, r22 4/12, r21 3/12, r20 3/12, r19 4/22, r18 4/20; evaluative -지? r23 2/4 blocked; declarative news -대/-래 FP r23 1/10, r22 3/8, r21 1/8, r20 1/10, r19 0/14, r18 0/16, r17 3/19.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 11/12.
