@@ -81,7 +81,7 @@ func main() {
 	if *keyPath == "" {
 		*keyPath = filepath.Join(b, ".api_key")
 	}
-	cfg, err := config.Load(config.Expand(*cfgPath), os.Getenv)
+	cfg, err := config.LoadEnv(config.Expand(*cfgPath), os.LookupEnv)
 	if err != nil {
 		fatal("config: %v", err)
 	}
@@ -220,13 +220,15 @@ func main() {
 		srv.Pim = pim.NewClient(cfg.Pim.SocketPath)
 		log.Info("pim_enabled", "msg", "calendar/reminders read tools offered to the configured owner only")
 	}
+	{
+		msg, args := config.MemoryResolvedLog(cfg)
+		log.Info(msg, args...)
+	}
 	if cfg.Memory.Enabled {
 		if _, ok := st.(store.UserIDResolver); !ok {
 			log.Error("memory_disabled", "err", "store cannot resolve users.id")
 			os.Exit(1)
 		}
-		// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것 (approve/propose: follow-up PR).
-		log.Warn("memory_enabled_preview", "msg", "memory P1 has no approve/propose wiring and no encrypted backup; keep data_dir outside backups (tmutil exclusion)")
 		ms, err := memory.Open(config.Expand(cfg.Memory.DataDir))
 		if err != nil {
 			log.Error("memory_disabled", "err", err.Error())
