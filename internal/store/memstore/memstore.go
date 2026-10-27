@@ -33,6 +33,7 @@ type Store struct {
 	actions  map[string]*action
 	pushSubs map[string]*pushSub // endpoint -> sub
 	userIDs  map[string]int64
+	users    map[string]map[string]any // users.settings by login
 }
 
 var _ store.Store = (*Store)(nil)
