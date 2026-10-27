@@ -239,3 +239,38 @@ func TestMemoryTool_ApproveBearer403(t *testing.T) {
 		t.Fatal("api key approved")
 	}
 }
+
+func TestMemoryApprove_TokenExpiry410(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	base := time.Now()
+	e.srv.Now = func() time.Time { return base.Add(121 * time.Second) }
+	r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`)
+	if r.StatusCode != 410 {
+		t.Fatalf("expired token: %d %s", r.StatusCode, b)
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("written with expired token")
+	}
+}
+
+func TestHasBlockMarker(t *testing.T) {
+	for _, s := range []string{"<user_memory>", "</user_memory>", "< / USER_MEMORY >", "&lt;user_memory&gt;",
+		`\u003c/user_memory`, `\x3cuser_memory`, "%3Cuser-memory", "user memory nonce=abc", "＜user_memory"} {
+		if !memory.HasBlockMarker(s) {
+			t.Errorf("not caught: %q", s)
+		}
+	}
+	for _, s := range []string{"고양이를 키운다", "user 메모리 앱을 쓴다", "a < b"} {
+		if memory.HasBlockMarker(s) {
+			t.Errorf("false positive: %q", s)
+		}
+	}
+}
+
+func TestStripServerKeys(t *testing.T) {
+	got := string(stripServerKeys([]byte(`{"web_search":"auto","memory_tainted":true}`)))
+	if got != `{"web_search":"auto"}` {
+		t.Fatal(got)
+	}
+}

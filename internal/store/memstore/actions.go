@@ -203,3 +203,17 @@ func (s *Store) ApproveAction(_ context.Context, user, id, tokenSHA256 string, n
 	a.TokenSHA256, a.TokenExpiresAt = nil, nil
 	return nil
 }
+
+func (s *Store) ReleaseAction(_ context.Context, user, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return err
+	}
+	if a.Status != "approved" {
+		return store.ErrConflict
+	}
+	a.Status = "pending"
+	return nil
+}

@@ -305,3 +305,19 @@ func (s *Store) ApproveAction(ctx context.Context, user, id, tokenSHA256 string,
 	}
 	return nil
 }
+
+func (s *Store) ReleaseAction(ctx context.Context, user, id string) error {
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE pending_actions SET status='pending', updated_at=now()
+		WHERE id=$1 AND user_id=$2 AND status='approved'`, id, u)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return store.ErrConflict
+	}
+	return nil
+}

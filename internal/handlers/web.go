@@ -349,7 +349,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 		out.event(res)
 	}
-	memTainted := s.memoryOn() && s.historyTainted(r, clean, pr)
+	var memTaint []string
+	if s.memoryOn() {
+		_, memTaint = s.historyTainted(r, clean, pr)
+	}
 	rounds := 0
 	var final upMsg
 	var lastResp map[string]any
@@ -466,7 +469,14 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			for _, c := range calls {
 				if c.name == memory.ToolName && s.memoryOn() {
 					// Any web result already in this request taints the proposal.
-					res := s.runMemoryPropose(r, pr, c.args, memTainted || len(sess.Calls) > 0, out.event)
+					reasons := append([]string(nil), memTaint...)
+					for _, wc := range sess.Calls {
+						reasons = append(reasons, "request:call:"+wc.Tool)
+					}
+					for _, src := range sess.Sources {
+						reasons = append(reasons, "request:source:"+src.URL)
+					}
+					res := s.runMemoryPropose(r, pr, c.args, reasons, out.event)
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue
 				}
@@ -649,6 +659,9 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 	}
 	c, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 	defer cancel()
+	if len(calls) > 0 || len(srcs) > 0 {
+		s.markThreadTainted(r.WithContext(c), pr.user, pr.threadID) // sticky, independent of memory state
+	}
 	if err := ws.SaveWebRun(c, pr.user, pr.msgID, calls, srcs); err != nil {
 		s.Log.Error("web_persist_failed", "request_id", rid(r), "message_id", pr.msgID, "error", trunc(err.Error(), 200))
 	}

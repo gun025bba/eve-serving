@@ -1,9 +1,15 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,48 +32,100 @@ func (s *Server) withMemoryTool(defs []any) []any {
 	return append(append([]any{}, defs...), memory.ToolDef())
 }
 
-// historyTainted reports whether untrusted content is already in the
-// conversation: any tool message or assistant tool_calls in the request
-// history, or (persisted threads) any earlier message with web sources or a
-// proactive origin. Any lookup error counts as tainted (fail-closed).
-func (s *Server) historyTainted(r *http.Request, msgs []any, pr *chatPersist) bool {
-	for _, mm := range msgs {
+// threadTaintKey is a server-only sticky flag in threads.settings, set when a
+// web run is saved for the thread. It is never cleared (web retention purges
+// sources, the flag stays) and is stripped from API responses.
+const threadTaintKey = "memory_tainted"
+
+func (s *Server) markThreadTainted(r *http.Request, login, threadID string) {
+	ts, ok := s.Store.(store.ThreadSettingsStore)
+	if !ok || threadID == "" {
+		return
+	}
+	if err := ts.SetThreadSettings(r.Context(), login, threadID, json.RawMessage(`{"`+threadTaintKey+`":true}`)); err != nil {
+		s.Log.Warn("memory_taint_flag_failed", "request_id", rid(r))
+	}
+}
+
+// historyTainted decides taint from server state plus the request history:
+// tool messages / tool_calls in the request; for persisted threads the
+// sticky flag, or any message (all pages) with origin proactive or web
+// sources. Lookup errors count as tainted. reasons lists every source.
+func (s *Server) historyTainted(r *http.Request, msgs []any, pr *chatPersist) (bool, []string) {
+	var reasons []string
+	for i, mm := range msgs {
 		m, ok := mm.(map[string]any)
 		if !ok {
 			continue
 		}
 		if m["role"] == "tool" || m["tool_calls"] != nil {
-			return true
+			reasons = append(reasons, fmt.Sprintf("request:msg:%d", i))
 		}
 	}
 	if pr == nil || pr.threadID == "" {
-		return false
+		return len(reasons) > 0, reasons
 	}
-	ms, _, err := s.Store.ListMessages(r.Context(), user(r), pr.threadID, 1000, "")
-	if err != nil {
-		return true
-	}
-	var ids []string
-	for _, m := range ms {
-		if len(m.Sources) > 0 || strings.Contains(string(m.Metadata), `"proactive"`) {
-			return true
+	if ts, ok := s.Store.(store.ThreadSettingsStore); ok {
+		raw, err := ts.ThreadSettings(r.Context(), user(r), pr.threadID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return true, append(reasons, "lookup_error")
 		}
-		ids = append(ids, m.ID)
-	}
-	ws, ok := s.Store.(store.WebStore)
-	if !ok || len(ids) == 0 {
-		return false
-	}
-	src, err := ws.Sources(r.Context(), user(r), ids)
-	if err != nil {
-		return true
-	}
-	for _, v := range src {
-		if len(v) > 0 {
-			return true
+		var st map[string]any
+		if json.Unmarshal(raw, &st) == nil && st[threadTaintKey] == true {
+			reasons = append(reasons, "thread:flag")
 		}
 	}
-	return false
+	ws, hasWS := s.Store.(store.WebStore)
+	before := ""
+	for page := 0; ; page++ {
+		if page >= 1000 {
+			return true, append(reasons, "scan_limit")
+		}
+		ms, more, err := s.Store.ListMessages(r.Context(), user(r), pr.threadID, 500, before)
+		if errors.Is(err, store.ErrNotFound) && before == "" {
+			break
+		}
+		if err != nil {
+			return true, append(reasons, "lookup_error")
+		}
+		var ids []string
+		for _, m := range ms {
+			if m.Origin == store.OriginProactive {
+				reasons = append(reasons, "thread:proactive:"+m.ID)
+			}
+			for _, src := range m.Sources {
+				reasons = append(reasons, "thread:source:"+src.URL)
+			}
+			ids = append(ids, m.ID)
+		}
+		if hasWS && len(ids) > 0 {
+			src, err := ws.Sources(r.Context(), user(r), ids)
+			if err != nil {
+				return true, append(reasons, "lookup_error")
+			}
+			for _, v := range src {
+				for _, x := range v {
+					reasons = append(reasons, "thread:source:"+x.URL)
+				}
+			}
+		}
+		if !more || len(ms) == 0 {
+			break
+		}
+		before = ms[0].ID
+	}
+	return len(reasons) > 0, reasons
+}
+
+// taintDetail summarizes taint sources for audit (count + hash only).
+func taintDetail(reasons []string) map[string]string {
+	if len(reasons) == 0 {
+		return nil
+	}
+	sorted := append([]string(nil), reasons...)
+	sort.Strings(sorted)
+	h := sha256.Sum256([]byte(strings.Join(sorted, "\n")))
+	return map[string]string{"taint_source_count": strconv.Itoa(len(reasons)), "taint_sources_sha256": hex.EncodeToString(h[:])}
 }
 
 func toolResult(v map[string]any) string {
@@ -77,11 +135,16 @@ func toolResult(v map[string]any) string {
 
 // runMemoryPropose handles one model memory_propose call and returns the
 // tool result for the model. Cards go out as SSE confirmation events.
-func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string, tainted bool, emit func(map[string]any)) string {
+func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string, taintReasons []string, emit func(map[string]any)) string {
+	tainted := len(taintReasons) > 0
 	deny := func(code string) string {
+		d := map[string]string{"error_code": code}
+		for k, v := range taintDetail(taintReasons) {
+			d[k] = v
+		}
 		emit(map[string]any{"object": "chat.completion.confirmation", "tool": memory.ToolPropose, "status": "denied", "error_code": code})
 		s.appendAudit(r.Context(), user(r), audit.Event{At: time.Now().UTC(), Actor: audit.ActorUser, Event: "denied",
-			Tool: memory.ToolPropose, Scope: memory.ScopeWrite, Tainted: &tainted, Status: "denied", Detail: map[string]string{"error_code": code}})
+			Tool: memory.ToolPropose, Scope: memory.ScopeWrite, Tainted: &tainted, Status: "denied", Detail: d})
 		return toolResult(map[string]any{"status": "denied", "error": code})
 	}
 	a, err := memory.ParseToolArgs(args)
@@ -138,9 +201,7 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 // approveAction: POST /v1/actions/{id}/approve {confirm_token, payload_hash}.
 // Registered only while memory is on; only memory.propose cards execute.
 func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
-	// Browser session only (CSRF-checked); API keys can never approve (§3.9).
-	if id, _ := auth.FromContext(r.Context()); id.Provider == auth.ProviderAPIKey {
-		s.writeCode(w, r, "scope_denied")
+	if s.denyAPIKey(w, r) {
 		return
 	}
 	var b struct {
@@ -157,7 +218,7 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	now := time.Now().UTC()
+	now := s.now()
 	acts, err := s.Store.ListPendingActions(r.Context(), user(r))
 	if err != nil {
 		s.actionErr(w, r, err)
@@ -175,11 +236,11 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !now.Before(a.ExpiresAt) || a.TokenSHA256 == nil || a.TokenExpiresAt == nil || !now.Before(*a.TokenExpiresAt) ||
-		store.TokenHash(b.ConfirmToken) != *a.TokenSHA256 {
+		subtle.ConstantTimeCompare([]byte(store.TokenHash(b.ConfirmToken)), []byte(*a.TokenSHA256)) != 1 {
 		s.writeCode(w, r, "expired") // expired, never issued, replaced or wrong token
 		return
 	}
-	if b.PayloadHash != a.PayloadHash || store.PayloadHash(a.Payload) != a.PayloadHash {
+	if subtle.ConstantTimeCompare([]byte(b.PayloadHash), []byte(a.PayloadHash)) != 1 || store.PayloadHash(a.Payload) != a.PayloadHash {
 		s.writeCode(w, r, "payload_mismatch")
 		return
 	}
@@ -227,6 +288,10 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := memory.Execute(s.Memory, s.memUID(r), a.Payload, pc, src, now)
 	if err != nil {
+		// never leave a card consumed but unexecuted
+		if rerr := ap.ReleaseAction(r.Context(), user(r), id); rerr != nil {
+			s.Log.Error("memory_approve_release_failed", "request_id", rid(r), "action_id", id)
+		}
 		if code := memValidateCode(err); code != "" && code != "_internal" {
 			s.writeCode(w, r, code)
 			return
@@ -268,8 +333,22 @@ func memValidateCode(err error) string {
 		return "secret_detected"
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrFileTooLarge):
 		return "cap_exceeded"
-	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty):
+	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty), errors.Is(err, memory.ErrMarkup):
 		return "invalid"
 	}
 	return "_internal"
 }
+
+// denyAPIKey: approve/revise/reissue are browser-session only (CSRF-checked
+// by authed); a Bearer API key gets 403 scope_denied. Nothing auto-approves.
+func (s *Server) denyAPIKey(w http.ResponseWriter, r *http.Request) bool {
+	// allowlist, not denylist: only browser-session providers may confirm.
+	if id, _ := auth.FromContext(r.Context()); !browserSessionProviders[id.Provider] {
+		s.writeCode(w, r, "scope_denied")
+		return true
+	}
+	return false
+}
+
+// browserSessionProviders may approve/revise/reissue (CSRF-checked by authed).
+var browserSessionProviders = map[string]bool{auth.ProviderTailscale: true}
