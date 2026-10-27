@@ -468,6 +468,13 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
+				if c.name == memory.ToolName && s.memoryOn() && !memUser {
+					// user memory off: tool is hidden, but a call that arrives
+					// anyway gets a kill_switch tool error; nothing is saved.
+					res := toolResult(map[string]any{"status": "denied", "error": "kill_switch"})
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				if c.name == memory.ToolName && memUser {
 					// Any web result already in this request taints the proposal.
 					reasons := append([]string(nil), memTaint...)

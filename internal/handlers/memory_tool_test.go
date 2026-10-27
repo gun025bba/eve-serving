@@ -341,3 +341,20 @@ func TestMemoryGating_UserOffAddItem403(t *testing.T) {
 		t.Fatal("stored")
 	}
 }
+
+func TestMemoryGating_UserOffToolCallKillSwitch(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	if _, err := e.st.(store.UserSettingsStore).MergeUserSettings(t.Context(), "alice@example", "memory", []byte(`{"enabled":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	chatAuto(t, e)
+	if res := lastToolResult(e); !strings.Contains(res, "kill_switch") {
+		t.Fatalf("tool result %q", res)
+	}
+	if acts, _ := e.st.ListPendingActions(t.Context(), "alice@example"); len(acts) != 0 {
+		t.Fatal("card created")
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("stored")
+	}
+}
