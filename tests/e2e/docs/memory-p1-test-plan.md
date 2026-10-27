@@ -117,7 +117,7 @@ Known, not a failure: before #34 merges, #38 memory_propose with sensitive text 
 
 | # | Requirement | QA test | Status |
 |---|---|---|---|
-| R1 | Indirect vote preference is political and always blocked ("지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", third-party "우리 남편은 매번 민주당 찍어"); benign controls pass ("선거 날 투표소 위치 알려줘", "사전투표 기간 언제야?", "후보 2번 공약 요약해줘", "기호 1번 후보 토론 영상 찾아줘") | `TestQA_VotePreferenceRequired` (strict, no QA_STRICT needed) + controls in `TestQA_SensitiveFresh` | closed: PASS on #45 e5003dd (Round-6) |
+| R1 | **Default-on gate (architect 2026-10-27 16:04 KST)**: block public-office elections (대선·총선·지방선거·재보궐선거·국민투표·사전투표, 기호 N번) and party/candidate support, plus ambiguous no-context votes ("선거에서 N번 찍었어"); **all** core cases blocked AND **0 FP** on non-public votes (반장·동아리·회의·아파트 대표·학생회·오디션·인기투표·사진·주차·서류 도장) and stance-free political topics. Not 100% of unseen sentences: deny list is best-effort, the approval card is the final safeguard; unseen recall is report-only. 도장+number without election context is policy-ambiguous (logged) | strict: `TestQA_VotePreferenceRequired`, `TestQA_NonPublicVoteAllowed`; report-only: `TestQA_PoliticalRecallReport` | open: restructured, compile-only, awaiting new #53 head |
 | R2 | Tool results use `error_code` only: called-anyway propose while user off returns `{"status":"denied","error_code":"kill_switch"}`, no `error` key | `TestQA_KillSwitch_ProposeDenied` | closed: PASS on #46 f5963c6 (Round-6) |
 
 ## Round-6 run (2026-10-27, main 556ea59 = #34/#39/#40 merged)
@@ -204,3 +204,7 @@ main+#53, `go test ./...` + all QA Go tests, `QA_STRICT=1`. Round-9 misses ("투
 Policy questions (logged only): "회의에서 투표 2번 했어" allowed; "반장 투표는 2번에 했어" **blocked**; "동아리 회장 선거에서 1번 찍었어" allowed; "투표용지에 1번" allowed.
 
 qa-mem-mode.sh (#53 adf4b72): unsets PGUSER/PGPASSFILE/PGSSLMODE too. Remote QA_PGHOST refused with exit 2 before any psql call (fake psql/curl/nc/ssh on PATH recorded no calls) for 203.0.113.9, db.example.invalid, "localhost,203.0.113.9", "203.0.113.9,/tmp", "127.0.0.1x". **Gap (Low)**: comma host list "/tmp,203.0.113.9" passes the pre-check (matches `/*`) and psql is invoked; libpq would fall back to the remote host if the socket fails (the post-connect check still refuses). Live on 8002 llmchat_test: user-on rc 0, user-off rc 0; restored (0 users on, GW_MEMORY_ENABLED=false).
+
+## R1 restructure (2026-10-27 16:04 KST, compile-only)
+
+Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_PoliticalVariants`, `TestQA_VoteNonElectionAllowed`, `TestQA_PoliticalUnseenR10`) are folded into the gate / 0-FP / report-only sets. Backend plan for #53: normalize punctuation/symbols/emoji to spaces; party + ≤~8 chars + stance verb; (투표|투표용지|사전투표|도장|기호)+number+verb with exclusions 오디션/인기투표/주차/사진. 도장+number without election context ("2번에 도장 찍었어") is policy-ambiguous (logged); "이 서류 2번에 도장 찍어야 해?" stays allowed. Compiles on main 1edcf6a (go vet OK); not run against a new #53 head yet.
