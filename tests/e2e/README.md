@@ -43,3 +43,6 @@ npx playwright show-report
 - `ui-settings-proactive` — version (EVE_EXPECT_UI_VERSION), 선톡 card, back badge
 - `ui-background-resume` — iPhone PWA "answer disappears" bug: visibility (shows 답변 불러오는 중), offline, cut stream, reload. Selectors from eve-chat-ui PR #4.
   Expected to fail on UI 1.1.1 (no resume) and pass once UI resumes via `/messages/{mid}/stream`.
+
+## Memory P1
+Plan: `docs/memory-p1-test-plan.md`. API: `EVE_MEMORY_PROFILE=off|on|readonly|auditfail npx playwright test specs/api-memory.spec.js` (needs GW ≥ 4.1.0 on 8002, backend sets the profile). Go: `scripts/memory-go-checks.sh [ref]`. FS: `scripts/memory-fs-check.sh <data_dir> [--log gateway-test.log]`.
