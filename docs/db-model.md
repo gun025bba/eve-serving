@@ -298,6 +298,7 @@ pg_restore -h 127.0.0.1 -U <admin> -d <db>_restore --no-owner <backup>.dump
 
 - `ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'` — additive; existing rows get `{}`.
 - Down: `DROP COLUMN settings` (per-user settings are lost; memory falls back to off).
+- 런북: down 실행 **전에** 백업한다. `pg_dump --data-only -t users -f users_settings_backup.sql <DB>` 또는 `COPY (SELECT id, settings FROM users WHERE settings <> '{}') TO STDOUT` 결과를 보관하고, 행 수를 기록한다. 복구는 up 재적용 후 `UPDATE users SET settings = b.settings FROM backup b WHERE users.id = b.id`. 백업 없이 down을 실행하지 않는다.
 - One object with namespaced keys (`{"memory":{"enabled":true}}`). A missing key reads as its default (off).
   PATCH merges only the named key into its namespace; other namespaces and unknown keys are preserved.
 - Blueprint: future per-user settings go in as new namespaced keys here; split into a table if they grow
