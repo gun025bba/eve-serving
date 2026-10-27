@@ -274,7 +274,8 @@ tombstone은 API로 노출하지 않는다.
   - 매칭이 없으면 카드를 만들지 않고, 모델이 답한다(Q16).
   - **카드 없이 지우는 경로는 없다.**
 - 스타일: delete는 위험(danger) 스타일, add는 기본 스타일이다(Q13).
-- 시크릿 필터나 민감 범주에 걸리면 SSE 거부 카드 `{"status":"denied","error_code":"secret_detected"}`만 보낸다. 매칭 내용은 보내지 않는다.
+- 시크릿 필터에 걸리면 SSE 거부 카드 `{"status":"denied","error_code":"secret_detected"}`, 민감 범주(건강·성적 지향·종교·정치·범죄·노조·인종·생체/유전·금융·신분증)에 걸리면 `{"status":"denied","error_code":"sensitive_category"}`만 보낸다. 매칭 내용·세부 범주는 보내지 않는다. 직접 편집 API에서는 각각 422 `secret_detected` / 422 `sensitive_category`이다(MINOR, 새 코드).
+- 민감 범주 정책: 사용자 본인에 대한 민감 진술은 **거부**한다(P1). 제3자(가족·지인·동료 등)에 대한 민감 진술은 **항상 거부**하며 앞으로도 허용 경로를 두지 않는다.
 
 #### 3.9.5 승인 — `POST /v1/actions/{id}/approve`
 
@@ -317,6 +318,19 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 - `system.*`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다. (P1 설정 응답에는 `system.memory_read_only`가 없다. 읽기 전용 상태는 쓰기 시 503 `memory_read_only`로만 드러난다. 노출이 필요해지면 MINOR로 추가한다.)
 - SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR.
 
+#### 3.9.7a 보안 요건 (security Med, 고정)
+
+- approve·revise·reissue는 **브라우저 세션 전용**이다(세션 provider 허용 목록 + CSRF·Origin 검사). Bearer(API 키)는 403 `scope_denied`이다. **자동 승인 경로는 없다**(모델·scheduler·API 키 어느 것도 승인할 수 없음).
+- `confirm_token`:
+  - (user, action_id, payload_hash)에 바인딩된다.
+  - 1회용이다(승인 시 조건부 UPDATE로 소비).
+  - TTL 120초. 만료·대체·불일치는 모두 410 `expired`.
+  - 서버에는 해시만 저장한다(평문 저장·로그 없음). 비교는 상수 시간.
+  - revise·reissue 시 이전 토큰은 무효가 된다.
+- taint는 서버 상태로 결정하며 스레드에 고정(sticky)된다. 감사에는 출처 목록의 개수와 해시를 남긴다.
+- 실행 실패 시 카드는 pending으로 되돌아간다(소비만 되고 실행되지 않는 상태 없음).
+- 백업 제외(#42, fail-closed): 메모리가 켜진 상태로 시작할 때 메모리 디렉터리가 Time Machine 제외 목록(고정 경로 `tmutil`, 정확한 줄 일치)에 없거나 동기화 폴더(iCloud·Dropbox 등) 안이면 **시작을 거부**한다. 확인할 수 없는 환경에서만 `GW_MEMORY_ALLOW_UNVERIFIED_BACKUP=1`로 명시적으로 우회하며, 이때 시작 경고를 남긴다. 절차는 memory.md 런북 참고.
+
 #### 3.9.8 메모리 오류 코드 요약
 
 | HTTP | 본문 | 메모리 상황 |
@@ -327,7 +341,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 | 404 | `{"detail":"Not Found"}` | 서버 메모리 off(`GW_MEMORY_ENABLED=false`): `/v1/memory*`·approve 라우트가 등록되지 않아 게이트웨이 기본 404 |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
 | 410 | `expired` | 제안·토큰 만료, 틀리거나 대체된 토큰 |
-| 422 | `secret_detected` / `cap_exceeded` / `payload_mismatch` | 시크릿·민감 범주 / 200개·64KB·300자 / 해시 불일치 |
+| 422 | `secret_detected` / `sensitive_category` / `cap_exceeded` / `payload_mismatch` | 시크릿 / 민감 범주 / 200개·64KB·300자 / 해시 불일치 |
 | 500 | `{"error":{"code":"internal_error",...}}` | 감사 쓰기 실패 등(fail-closed) |
 | 503 | `{"error":{"code":"memory_read_only",...}}` | 파일 손상·권한 이상, 복구 전까지 쓰기 거부 |
 
@@ -339,7 +353,8 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
   | 404 | `not_found` | 항목 없음(다른 사용자 항목 포함) |
   | 404 | `{"detail":"Not Found"}` | 서버 메모리 off |
   | 409 | `conflict` | `if_updated_at`이 현재 값과 다름 |
-  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터·민감 범주에 걸림 |
+  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터에 걸림 |
+  | 422 | `sensitive_category` | 새 텍스트가 민감 범주에 걸림 |
   | 422 | `cap_exceeded` | 300자 초과, 파일 64KB 초과 |
   | 403 | CSRF 오류(기존 형식) | Origin/CSRF 불일치 |
   | 500 | `internal_error` | 감사 쓰기 실패(fail-closed, 파일 변경 없음) 등 |
@@ -349,6 +364,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 
 
 ## 4. 확장 메모 (청사진)
+- **민감 범주 자기 진술 opt-in(청사진)**: 향후 사용자가 명시적으로 켜면 본인에 대한 민감 진술을 **경고 확인 카드**(위험 스타일, 범주 안내 문구)로 저장할 수 있게 하는 설정(`memory.allow_self_sensitive`, 기본 off)을 검토한다. 제3자 민감 진술은 이 설정과 무관하게 항상 거부한다. 도입 시 보안 리뷰 대상, MINOR.
 - **job 스레드 표시(Q5)**: 목록에서 job이 만든 스레드를 구분해야 하면 Thread에 `job_id`를 노출(MINOR). P1은 메시지 `provenance`·`template_kind`로 충분.
 - **매칭 없음 신호(Q16)**: 필요하면 SSE `tool_result`에 `status:"no_match"`를 노출(MINOR).
 - **스레드별 메모리 끄기(Q18)**: `threads.settings` JSONB(`{"memory":false}`) 또는 `PATCH /v1/threads/{id} {"memory":false}`. 프롬프트 동작 변경이라 리뷰 대상.
