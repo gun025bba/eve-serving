@@ -1,6 +1,6 @@
 # iOS 셸 설계 (Eve Shell)
 
-상태: **설계 초안, 보안 검토 대기**. 사용자 결정: 무료 Apple ID + SideStore(또는 AltStore+AltServer) 사이드로딩을 먼저 하고, 푸시가 필요해지면 $99 TestFlight로 옮긴다.
+상태: **보안 조건부 승인(2026-10-27)**. 머지 전 최종 head 보안 리뷰 필요. 사용자 결정: 무료 Apple ID + SideStore(또는 AltStore+AltServer) 사이드로딩을 먼저 하고, 푸시가 필요해지면 $99 TestFlight로 옮긴다.
 
 ## 1. 구조
 - **얇은 네이티브 셸**: SwiftUI 앱 하나에 `WKWebView` 하나. 시작 URL은 `https://<TS_HOST>/ui/` 고정(빌드 설정값).
@@ -20,17 +20,20 @@
 - 메시지 형식: `{ "v": 1, "id": "<uuid>", "type": "<name>", "payload": {...} }`. 응답은 `{ "v":1, "re":"<id>", "ok":true|false, "error_code"?: "..." }`.
 - **핸드셰이크**: 페이지 로드 후 웹이 `hello {bridge: "1.0.0"}`를 보낸다. 셸은 `capabilities {bridge: "1.0.0", shell: "<셸 semver>", features: ["haptics", ...]}`로 답한다. 메이저가 다르면 웹은 브리지를 쓰지 않는다(일반 PWA로 동작). 마이너 차이는 `features`로만 판단한다.
 - **모르는 메시지**: 셸은 `ok:false, error_code:"unknown_type"`으로 답하고 무시한다. 웹도 모르는 셸 메시지는 무시한다. 둘 다 예외를 던지지 않는다.
-- **출처 제한**: 셸은 `message.frameInfo.isMainFrame == true`이고 `securityOrigin`이 `https://<TS_HOST>`일 때만 메시지를 처리한다. 다른 출처는 버린다. `WKNavigationDelegate`는 `<TS_HOST>` 밖의 이동을 막고 Safari로 넘긴다. iframe 메시지는 받지 않는다.
+- **출처 제한(보안 조건)**: 셸은 `WKScriptMessage.frameInfo.isMainFrame == true`이고 `securityOrigin`의 scheme·host·port가 설정된 출처(`https`, `<TS_HOST>`, 443)와 **각각 정확히 같을 때만** 메시지를 처리한다(접두어·부분 문자열 비교 금지). 그 밖의 메시지는 버린다.
+- **내비게이션**: `decidePolicyFor`는 설정된 출처가 아닌 모든 이동을 거부한다(사용자가 탭한 외부 https 링크만 Safari로 넘김). `file://`, `data:`, `javascript:` 스킴은 차단하고, 새 창 생성(`createWebViewWith`)은 항상 nil을 반환한다. ATS 예외는 두지 않는다.
 - 브리지는 **비밀·토큰을 주고받지 않는다**(쿠키·세션 정보 전달 메시지 없음).
 
 ## 4. 인증 (identity-transport.md와 일치)
 - 셸도 브라우저와 똑같이 **페어링 → 세션 쿠키**를 쓴다. `WKWebsiteDataStore.default()`(영구 저장소)에 HttpOnly 쿠키로 저장된다.
 - 네이티브 저장소(Keychain/UserDefaults)에는 토큰을 두지 않는다. 셸은 Bearer를 보내지 않는다. 셸은 브라우저 세션이므로 `/v1/memory*`, approve 같은 세션 전용 규칙이 그대로 적용된다.
 - 주의: Safari PWA와 셸은 쿠키 저장소가 달라서 **기기마다 셸에서도 따로 페어링**해야 한다. WKWebView 영구 저장소에도 ITP·저장소 정리 정책이 적용된다. 유휴 기간이 길거나 앱을 다시 설치하거나 다른 Apple ID로 다시 서명하면 쿠키가 사라질 수 있고, 그때는 재페어링한다(세션 수명 유휴 30일/절대 180일은 서버 기준).
+- **페어링 해제(필수)**: 셸 설정에 'unpair' 동작을 둔다. `WKWebsiteDataStore.default().removeData(ofTypes: allWebsiteDataTypes, modifiedSince: .distantPast)`로 쿠키와 웹사이트 데이터를 모두 지운다. 서버 세션 revoke는 웹의 로그아웃 API로 먼저 시도한다.
 - 나중에 푸시를 넣으면 APNs 기기 토큰은 비밀이 아닌 식별자로 다룬다. 세션 쿠키로 인증한 요청으로 등록한다.
 
 ## 5. 셸 배포와 버전
 - **배포**: SideStore/AltStore source JSON(`apps[].versions[]`: version, date, downloadURL, size, sha256). JSON과 서명되지 않은 IPA는 tailnet 안 정적 경로(예: `https://<TS_HOST>/shell/source.json`)나 비공개 저장소 릴리스에 둔다. 공개 인터넷에는 올리지 않는다.
+- **보안 조건**: SideStore가 쿠키 없이 source를 가져오지 못하면 URL 쿼리 토큰이나 새 비인증 경로를 만들지 **않는다**. 이때는 IPA를 수동으로 설치한다(파일 앱/AirDrop으로 SideStore에 열기). 이런 우회책이 필요하면 별도 보안 검토를 받는다.
 - **서명**: 빌드 산출물은 서명하지 않은 IPA다. 기기의 SideStore가 사용자 무료 Apple ID로 서명하고 7일마다 갱신한다. 저장소에는 인증서·프로비저닝을 두지 않는다.
 - **버전**: 셸 semver는 gateway·웹 버전과 **별개**다(`shell-vX.Y.Z` 태그). 메이저는 브리지 메이저 변경이나 번들 ID 변경, 마이너는 브리지 기능 추가, 패치는 버그 수정. 웹은 `capabilities`로 셸 버전을 확인하고, 오래된 셸에서도 동작해야 한다.
 - 번들 ID는 고정한다. 바꾸면 App ID 한도를 쓰고 쿠키·데이터도 잃는다.
@@ -55,7 +58,5 @@
 - 셸: `shell-v0.1.0`부터 시작한다.
 - 보안 경계: 새 인증 경로는 없다(같은 세션 쿠키). 다만 브리지가 웹 콘텐츠에 네이티브 기능을 노출하므로, 브리지에 민감한 기능(파일, 알림, 외부 발송)을 추가할 때마다 보안 검토가 필요하다. 푸시 도입은 MAJOR 후보로 다시 판단한다.
 
-## 9. 보안 확인 필요
-1. 브리지 출처 검증을 `securityOrigin == https://<TS_HOST>` + 메인 프레임만으로 하는 것으로 충분한가?
-2. IPA·source JSON을 tailnet 내부 `/shell/`에서 서빙하는 것(비인증 정적 파일)을 허용하는가, 아니면 세션 인증 뒤에 두는가?
-3. 셸 별도 페어링(기기당 세션 하나 추가)과 ITP로 쿠키가 사라질 때 재페어링하는 정책을 수용하는가?
+## 9. 보안 검토 결과
+조건부 승인: 출처 정확 일치·내비게이션 제한(§3), source 비인증 경로 금지·수동 설치 대체(§5), 영구 데이터 저장소 허용 + unpair 필수(§4). 머지 전 최종 head 리뷰.
