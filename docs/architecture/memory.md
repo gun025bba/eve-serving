@@ -234,8 +234,8 @@
 
 ## 13. P1 구현 상태 (4.1.0, PR #25)
 
-- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false. 서버 전역 킬스위치이며, 후속 사용자별 `/v1/settings` `memory.enabled`와 **AND**로 묶는다(서버가 false면 항상 off).
-- **이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것**: approve 엔드포인트와 `memory.propose` 툴 연결은 후속 PR이다.
+- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false. 서버 전역 킬스위치이며, 사용자별 `/v1/settings` `memory.enabled`(기본 false, #40)와 **AND**로 묶는다(서버가 false면 항상 off).
+- **연결 완료**: approve 엔드포인트와 `memory.propose` 툴 연결은 #38에서 들어갔다. 서버 기본값은 여전히 off이며, 기본 on 전환은 별도 결정이다.
 - **파일 키**: `users.id`(Postgres). 파일명은 `<users.id>.json`(락 `<users.id>.lock`)이고 숫자 id 외에는 들어가지 않는다. 양의 int64 정규 10진 표기만 허용하며, 결합한 경로가 data_dir 바로 아래인지 다시 확인한다.
 - **권한**: data_dir 0700, 파일 0600, 소유자는 게이트웨이 계정. 시작할 때 디렉터리와 모든 항목(정규 파일, 0600 이하, 소유자, 이름 형식)을 확인하고, 하나라도 어긋나면 기동을 거부한다(자동 수정하지 않음).
 - **백업 제외 (P1)**: 메모리 파일은 **pg 백업(`pg_dump`, db-model.md §8)에 포함되지 않는다**. data_dir은 **백업 경로 밖**에 둔다. §7의 암호화 백업은 아직 구현되지 않았다. 따라서 P1에서 삭제는 파일 삭제로 즉시 끝나고, 백업 사본이 남지 않는다.
