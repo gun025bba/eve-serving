@@ -101,8 +101,9 @@ type MemoryConfig struct {
 	// InjectCapTokens bounds the prompt block (default 1000, max 2000).
 	InjectCapTokens int `yaml:"inject_cap_tokens" json:"inject_cap_tokens"`
 	// AuditKeyFile is the 0600 HMAC-SHA256 key for item hashes in tool_audit.
-	// Required when enabled. Generate: (umask 077; openssl rand 32 > <file>)
-	// (raw 32 bytes; 64+ hex chars also accepted, one trailing newline ok).
+	// Required when enabled. Hex only, 64+ chars:
+	//   umask 077; openssl rand -hex 32 > <file>
+	// (one trailing newline is fine; raw binary is rejected).
 	AuditKeyFile string `yaml:"audit_key_file" json:"-"`
 }
 

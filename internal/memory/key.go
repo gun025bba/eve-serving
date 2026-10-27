@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"syscall"
 )
 
@@ -33,7 +32,7 @@ func ReadKeyFile(path string) ([]byte, error) {
 }
 
 const (
-	// MinKeyBytes: minimum key material (decoded hex, or raw bytes).
+	// MinKeyBytes: minimum decoded key length (64 hex chars).
 	MinKeyBytes = 32
 	// MinDistinctBytes: minimum distinct byte values in the decoded key.
 	MinDistinctBytes = 12
@@ -41,16 +40,18 @@ const (
 	repeatBlock = 8
 )
 
-var hexKeyRe = regexp.MustCompile(`^(?:[0-9a-fA-F]{2})+$`)
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
 
 // ParseKey validates and decodes the audit HMAC key file contents.
+// Generate with: umask 077; openssl rand -hex 32 > key
 //
-//	(a) ONE trailing "\n" is stripped (`openssl rand -hex 32 > key` is fine);
-//	    any other trailing whitespace, CR or a second newline is rejected.
-//	(b) Whole content hex -> decoded, needs >= 32 bytes (64+ hex chars);
-//	    otherwise the raw bytes need >= 32 (`openssl rand 32 > key`).
-//	(c) >= 12 distinct byte values in the decoded key.
-//	(d) not all zero, not its first 8 bytes repeated.
+//	(1) Hex only. At most ONE trailing "\n" is removed; any other whitespace
+//	    (incl. CR, a second newline, inner spaces), non-hex character or raw
+//	    binary is rejected.
+//	(2) >= 64 hex chars (>= 32 bytes decoded); on the decoded bytes:
+//	    >= 12 distinct values, not all zero, not its first 8 bytes repeated.
 //
 // Error messages give the reason only, never key material.
 func ParseKey(raw []byte) ([]byte, error) {
@@ -58,24 +59,25 @@ func ParseKey(raw []byte) ([]byte, error) {
 	if n := len(b); n > 0 && b[n-1] == '\n' {
 		b = b[:n-1]
 	}
-	if n := len(b); n > 0 {
-		switch b[n-1] {
-		case '\n':
-			return nil, errors.New("memory: audit key rejected: more than one trailing newline")
-		case '\r', ' ', '\t', '\v', '\f':
-			return nil, errors.New("memory: audit key rejected: trailing whitespace")
+	for _, c := range b {
+		switch {
+		case c == '\n':
+			return nil, errors.New("memory: audit key rejected: more than one trailing newline or an inner newline")
+		case c == ' ' || c == '\t' || c == '\r' || c == '\v' || c == '\f':
+			return nil, errors.New("memory: audit key rejected: contains whitespace")
+		case !isHex(c):
+			return nil, errors.New("memory: audit key rejected: not hex (raw/binary keys are not accepted; use `openssl rand -hex 32`)")
 		}
 	}
-	key := b
-	if hexKeyRe.Match(b) {
-		d, err := hex.DecodeString(string(b))
-		if err != nil {
-			return nil, errors.New("memory: audit key rejected: invalid hex")
-		}
-		key = d
+	if len(b) < 2*MinKeyBytes {
+		return nil, fmt.Errorf("memory: audit key rejected: %d hex chars, need at least %d (%d bytes)", len(b), 2*MinKeyBytes, MinKeyBytes)
 	}
-	if len(key) < MinKeyBytes {
-		return nil, fmt.Errorf("memory: audit key rejected: %d bytes (hex decoded or raw), need at least %d", len(key), MinKeyBytes)
+	if len(b)%2 != 0 {
+		return nil, errors.New("memory: audit key rejected: odd number of hex chars")
+	}
+	key, err := hex.DecodeString(string(b))
+	if err != nil {
+		return nil, errors.New("memory: audit key rejected: invalid hex")
 	}
 	allZero := true
 	for _, c := range key {

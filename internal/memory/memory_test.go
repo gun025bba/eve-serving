@@ -537,13 +537,14 @@ func TestMemoryKey_RejectsWeakKeys(t *testing.T) {
 	for i := range good {
 		good[i] = byte(i*7 + 3)
 	}
-	if _, err := ReadKeyFile(write(good)); err != nil {
-		t.Fatalf("good key: %v", err)
+	if _, err := ReadKeyFile(write([]byte(hex.EncodeToString(good) + "\n"))); err != nil {
+		t.Fatalf("good key file: %v", err)
 	}
 	for name, b := range map[string][]byte{
 		"repeated": []byte(strings.Repeat("k", 32)),
 		"pattern":  []byte(strings.Repeat("ab", 32)),
-		"short":    good[:31],
+		"short":    []byte(hex.EncodeToString(good[:31])),
+		"raw":      good,
 	} {
 		if _, err := ReadKeyFile(write(b)); err == nil {
 			t.Fatalf("%s accepted", name)
@@ -578,8 +579,8 @@ func TestMemoryFileKey_RoundTrip(t *testing.T) {
 }
 
 func TestMemoryKey_ParseKeyCriteria(t *testing.T) {
-	// openssl rand -hex 32 output passes with or without its newline, across
-	// many random seeds (only the distinct/repeat checks could ever trip).
+	// openssl rand -hex 32 output passes with or without its newline,
+	// across many random keys.
 	fails := 0
 	for range 2000 {
 		rnd := make([]byte, 32)
@@ -596,27 +597,23 @@ func TestMemoryKey_ParseKeyCriteria(t *testing.T) {
 	}
 	rnd := make([]byte, 32)
 	rand.Read(rnd)
-	for i, c := range rnd { // raw case: avoid accidental trailing whitespace / all-hex text
-		if c == '\n' || c == '\r' || c == ' ' || c == '\t' || c == '\v' || c == '\f' || c < 0x80 {
-			rnd[i] = 0x80 | byte(i)
-		}
-	}
 	hex32 := hex.EncodeToString(rnd)
 	cases := []struct{ name, in, wantErr string }{
-		{"raw 32 bytes (openssl rand 32)", string(rnd), ""},
-		{"raw 32 bytes + one newline", string(rnd) + "\n", ""},
-		{"hex 32 + one newline", hex32 + "\n", ""},
-		{"hex 32 + two newlines", hex32 + "\n\n", "more than one trailing newline"},
-		{"hex 32 + trailing space", hex32 + " ", "trailing whitespace"},
-		{"hex 32 + space + newline", hex32 + " \n", "trailing whitespace"},
-		{"hex 32 + CRLF", hex32 + "\r\n", "trailing whitespace"},
-		{"openssl rand -hex 16", hex32[:32], "16 bytes"},
-		{"openssl rand -hex 16 + newline", hex32[:32] + "\n", "16 bytes"},
-		{"raw 31 bytes", string(rnd[:31]), "31 bytes"},
-		{"all zero hex", strings.Repeat("00", 32), "all zero"},
-		{"all zero raw", string(make([]byte, 32)), "all zero"},
+		{"hex 64 chars", hex32, ""},
+		{"hex 64 chars + newline", hex32 + "\n", ""},
+		{"uppercase hex", strings.ToUpper(hex32), ""},
+		{"hex 32 chars (16 bytes)", hex32[:32], "32 hex chars"},
+		{"hex 32 chars + newline", hex32[:32] + "\n", "32 hex chars"},
+		{"raw binary 32 bytes", string(rnd), "not hex"},
+		{"raw binary 64 bytes", string(append(append([]byte{}, rnd...), rnd...)), "not hex"},
+		{"inner space", hex32[:32] + " " + hex32[32:], "whitespace"},
+		{"trailing space", hex32 + " ", "whitespace"},
+		{"CRLF", hex32 + "\r\n", "whitespace"},
+		{"two newlines", hex32 + "\n\n", "newline"},
+		{"inner newline", hex32[:32] + "\n" + hex32[32:], "newline"},
+		{"odd length", hex32 + "a", "odd number"},
+		{"all zero", strings.Repeat("00", 32), "all zero"},
 		{"first 8 bytes repeated", strings.Repeat(hex32[:16], 4), "repeating pattern"},
-		{"repeat with partial tail (raw)", strings.Repeat("ABCDEFGH", 5)[:36], "repeating pattern"},
 		{"11 distinct bytes", fewDistinctHex(11), "11 distinct bytes"},
 		{"12 distinct bytes", fewDistinctHex(12), ""},
 	}
