@@ -76,10 +76,17 @@ var homeDir = os.UserHomeDir
 // underDesktopDocs reports whether dir lies under ~/Desktop or ~/Documents,
 // which iCloud "Desktop & Documents" may sync. The setting cannot be read
 // reliably, so on macOS these paths are always refused (symlinks resolved).
-func underDesktopDocs(dir string) bool {
+// desktopDocsRe catches /Users/<name>/Desktop|Documents/ for any account,
+// independent of $HOME (path is lower-cased before matching).
+var desktopDocsRe = regexp.MustCompile(`/users/[^/]+/(desktop|documents)/`)
+
+func underDesktopDocs(dir string) (bool, error) {
 	h, err := homeDir()
-	if err != nil || h == "" {
-		return false
+	if err == nil && h == "" {
+		err = errors.New("empty home")
+	}
+	if err != nil {
+		return false, err // fail closed in the caller
 	}
 	cands := []string{filepath.Clean(dir)}
 	if r, err := filepath.EvalSymlinks(dir); err == nil {
@@ -94,12 +101,12 @@ func underDesktopDocs(dir string) bool {
 		for _, hh := range hs {
 			for _, sub := range []string{"desktop", "documents"} {
 				if strings.HasPrefix(c, strings.ToLower(filepath.Join(hh, sub))+"/") {
-					return true
+					return true, nil
 				}
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 // CheckBackupPolicy is the fail-closed startup gate while memory is on:
@@ -109,8 +116,17 @@ func underDesktopDocs(dir string) bool {
 //   - other OS: refuse unless allowUnverified (explicit operator opt-in).
 func CheckBackupPolicy(dir string, allowUnverified bool) (status string, err error) {
 	low := strings.ToLower(filepath.Clean(dir)) + "/"
-	if goos == "darwin" && underDesktopDocs(dir) {
+	if desktopDocsRe.MatchString(low) {
 		return BackupUnknown, ErrSyncedDataDir
+	}
+	if goos == "darwin" {
+		in, err := underDesktopDocs(dir)
+		if err != nil {
+			return BackupUnknown, fmt.Errorf("%w: home directory unknown (%v)", ErrSyncedDataDir, err)
+		}
+		if in {
+			return BackupUnknown, ErrSyncedDataDir
+		}
 	}
 	for _, m := range syncMarkers {
 		if strings.Contains(low, m) {

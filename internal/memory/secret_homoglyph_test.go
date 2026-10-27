@@ -3,6 +3,7 @@ package memory
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -36,5 +37,15 @@ func TestVariants_Bounded(t *testing.T) {
 	s := strings.Repeat(base64.StdEncoding.EncodeToString([]byte("abcdefghijklmnop"))+" ", 200)
 	if n := len(variants(s)); n > maxVariants {
 		t.Fatal(n)
+	}
+}
+
+func TestCheckSecret_RejectsWhenVariantCapHit(t *testing.T) {
+	var parts []string
+	for i := 0; i < 100; i++ {
+		parts = append(parts, base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("plain words number %03d", i))))
+	}
+	if err := CheckSecret(strings.Join(parts, " ")); err == nil {
+		t.Fatal("cap hit but accepted")
 	}
 }

@@ -25,3 +25,18 @@ func TestCheckBackupPolicy_DesktopDocuments(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckBackupPolicy_DesktopDocsPatternAndHomeError(t *testing.T) {
+	oldRun, oldOS, oldHome := tmutilRun, goos, homeDir
+	defer func() { tmutilRun, goos, homeDir = oldRun, oldOS, oldHome }()
+	tmutilRun = func(_ context.Context, d string) (string, error) { return "[Excluded]    " + d + "\n", nil }
+	goos = "linux"
+	if _, err := CheckBackupPolicy("/Users/other/Documents/eve/mem", true); !errors.Is(err, ErrSyncedDataDir) {
+		t.Fatal("pattern not applied:", err)
+	}
+	goos = "darwin"
+	homeDir = func() (string, error) { return "", errors.New("no home") }
+	if _, err := CheckBackupPolicy("/opt/eve/mem", false); !errors.Is(err, ErrSyncedDataDir) {
+		t.Fatal("home error not fail-closed:", err)
+	}
+}

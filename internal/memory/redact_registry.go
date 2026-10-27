@@ -29,7 +29,26 @@ const (
 
 type userReg struct {
 	texts    map[string]struct{}
+	degraded bool // stride fallback in use
 	overflow bool
+}
+
+// OnRegistryCap, when set, is called (outside the lock) when a user's set
+// newly goes over the per-user cap: level "degraded" (stride fallback) or
+// "fail_closed". Only the uid is passed, never text (security Low #47).
+var OnRegistryCap func(uid int64, level string)
+
+// RegistryStats reports how many users are on the stride fallback and how
+// many are over even that (global fail-closed).
+func RegistryStats() (degraded, failClosed int) {
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	for _, u := range reg.users {
+		if u.degraded {
+			degraded++
+		}
+	}
+	return degraded, reg.overflow
 }
 
 var reg struct {
@@ -65,21 +84,35 @@ func patternsStride(t string, stride int) []string {
 // setUserTexts replaces uid's registered texts.
 func setUserTexts(uid int64, texts []string) {
 	set, over := buildSet(texts, 1)
+	degraded := over
 	if over {
 		set, over = buildSet(texts, shingleRunes/2)
 	}
+	level := ""
 	reg.mu.Lock()
-	defer reg.mu.Unlock()
+	defer func() {
+		reg.mu.Unlock()
+		if level != "" && OnRegistryCap != nil {
+			OnRegistryCap(uid, level)
+		}
+	}()
 	if reg.users == nil {
 		reg.users = map[int64]*userReg{}
 	}
-	if old := reg.users[uid]; old != nil && old.overflow {
+	old := reg.users[uid]
+	switch {
+	case over && (old == nil || !old.overflow):
+		level = "fail_closed"
+	case degraded && !over && (old == nil || !old.degraded):
+		level = "degraded"
+	}
+	if old != nil && old.overflow {
 		reg.overflow--
 	}
 	if over {
 		reg.overflow++
 	}
-	reg.users[uid] = &userReg{texts: set, overflow: over}
+	reg.users[uid] = &userReg{texts: set, degraded: degraded, overflow: over}
 	reg.dirty = true
 }
 
