@@ -4,13 +4,23 @@ const { test, expect } = require('@playwright/test');
 const { auth, requireKey } = require('./helpers');
 const P = process.env.EVE_MEMORY_PROFILE || '';
 const only = (...ps) => test.skip(!ps.includes(P), `needs 8002 restarted with memory profile ${ps.join('|')} (EVE_MEMORY_PROFILE=${P || 'unset'})`);
-const J = { ...auth(), 'Content-Type': 'application/json' };
 const TAG = `qa-mem-${Date.now()}`;
 
+// Gate on the memory routes existing (not on version: 8002 may be built from main without a 4.x version bump).
+// Profile 'off' expects them absent; other profiles expect them present. Optional EVE_EXPECT_GW_VERSION pins /health.version.
+let routesPresent;
 test.beforeEach(async ({ request }) => {
   requireKey();
-  const v = (await (await request.get('/health')).json()).version || '0';
-  test.skip(v.localeCompare('4.1.0', undefined, { numeric: true }) < 0, `gateway ${v} < 4.1.0 (memory P1 not deployed)`);
+  test.skip(!P, 'set EVE_MEMORY_PROFILE=off|on|readonly|auditfail (backend switches 8002 via scripts/qa-mem-mode.sh)');
+  if (routesPresent === undefined) {
+    const r = await request.get('/v1/memory', { headers: auth() });
+    routesPresent = r.status() !== 404;
+  }
+  if (P !== 'off') test.skip(!routesPresent, 'memory endpoints not present on this gateway (P1 not deployed or memory disabled)');
+});
+test('gateway version matches EVE_EXPECT_GW_VERSION', async ({ request }) => {
+  const want = process.env.EVE_EXPECT_GW_VERSION; test.skip(!want, 'EVE_EXPECT_GW_VERSION not set');
+  expect((await (await request.get('/health')).json()).version).toBe(want);
 });
 const hdr = () => auth();
 
@@ -67,12 +77,8 @@ test.describe('M16 secret rejection (on)', () => {
 });
 
 test.describe('M18 잊어줘 card (on)', () => {
-  test('revise on a forget card with a deleted item → 409 item_gone', async ({ request }) => {
-    only('on');
-    const card = process.env.EVE_FORGET_PROPOSAL_ID, gone = process.env.EVE_FORGET_GONE_ITEM_ID;
-    test.skip(!card || !gone, 'P1 has no propose wiring; needs a seeded forget card (EVE_FORGET_PROPOSAL_ID, EVE_FORGET_GONE_ITEM_ID) — covered by Go TestMemoryRevise_*');
-    const r = await request.post(`/v1/proposals/${card}/revise`, { headers: hdr(), data: { item_ids: [gone] } });
-    expect(r.status()).toBe(409); expect(await r.text()).toBe('{"error_code":"item_gone"}');
+  test.fixme('forget card: revise with deleted item → 409 item_gone; payload hash binds item ids', async () => {
+    // card API comes in a follow-up PR (P1 has no propose wiring). Go TestMemory_Forget*/TestMemoryRevise_* cover logic.
   });
 });
 

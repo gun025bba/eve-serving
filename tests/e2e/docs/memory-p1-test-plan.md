@@ -11,7 +11,7 @@ Target: **test instance 8002 only**, API-key identity, throwaway data dir. Never
 | `PATCH /v1/memory/items/{id}` `{"pinned","text"}` | 200 / 404 foreign / 409 conflict |
 | `DELETE /v1/memory/items/{id}`, `DELETE /v1/memory` | 204 |
 | `GET /v1/memory/export` | 200 |
-| `POST /v1/proposals/{id}/revise` `{"item_ids"}` (잊어줘 card) | 200 / 409 `item_gone` |
+| `POST /v1/proposals/{id}/revise` `{"item_ids"}` (잊어줘 card) | 200 / 409 `item_gone` — **card API in a follow-up PR; API cases are test.fixme** |
 | Errors | unsafe file → 503 `memory_read_only`; audit append failure → 500 `internal_error` (write refused) |
 
 Config: `memory.enabled` / `GW_MEMORY_ENABLED` (default false), `memory.data_dir`, `memory.audit_key_file`, `memory.inject_cap_tokens` (0..2000).
@@ -44,7 +44,8 @@ Legend: **A** = API spec on 8002 (`specs/api-memory.spec.js`), **G** = Go test (
 | M20 | Settings toggle (per-user `/v1/settings memory.enabled`, ANDed with server flag) | **Not in P1** (doc: follow-up). Spec is `test.fixme` | — |
 | M21 | Delete-all / export | A | on |
 
-## Profiles needed on 8002 (backend restarts; QA never edits config)
+## Profiles needed on 8002 (backend restarts via `scripts/qa-mem-mode.sh <profile>`; QA never edits config)
+Specs gate on `EVE_MEMORY_PROFILE` + whether `/v1/memory` exists, not on version.
 All use a throwaway dir, e.g. `/tmp/eve-qa-mem` (not under backups), and a dedicated test key file (0600, owned by gateway user, generated with `openssl rand -hex 32`). Set `EVE_MEMORY_PROFILE=<name>` when running specs.
 
 | Profile | Config | Expected |
@@ -64,3 +65,15 @@ For key-* profiles the check is "starts / refuses to start" + error text in `gat
 
 ## Not black-box testable
 Prompt position/content (M2, M13, M14), per-file disk-access checks (M4), audit content (M9), two-identity isolation (M17) → Go tests on the merged commit.
+
+## Go run result (2026-10-27 14:18 KST, origin/main 1c2921b)
+50/50 memory Go tests pass with `scripts/memory-go-checks.sh` after the TMPDIR fix.
+First run failed 27 tests: on macOS `t.TempDir()` lives under `/var/folders` (symlink → `/private/var`) and `memory.Open` refuses symlinked parents ("data dir path contains a symlink"). Test-env issue, not a product bug; but **ops note**: `memory.data_dir` must be a symlink-free path (e.g. `/private/tmp/...`, not `/tmp/...`) or the gateway refuses to start.
+
+## Gaps of Go tests vs plan
+- M2: covered (upstream messages unchanged when off) for one shape (system+user); no web-mode/off check.
+- M4: numeric-ID checks only via int64 (0, -1, -42) at store level and file-name validation list; no test that a users.id lookup failure (memory_user_id_failed) blocks memory at the handler level.
+- M9: plaintext check only for `memory_add`; edit/delete/delete-all/forget events not checked.
+- M13: single block in a system message and at end of the system prompt; ordering vs. later user/tool messages is checked only by the fixtures used (no fuzz/multi-turn tool-call history in web mode beyond fixtures).
+- M14: covered.
+- M17: read/patch/delete across identities covered; export, delete-all and injection into the other user's prompt not covered.

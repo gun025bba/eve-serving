@@ -6,5 +6,9 @@ git -C "$REPO" fetch -q origin || true
 git -C "$REPO" worktree add -q --detach "$WT" "$REF"
 trap 'git -C "$REPO" worktree remove --force "$WT"' EXIT
 cd "$WT"
+# macOS: $TMPDIR (/var/folders/...) and /tmp are symlinks into /private; memory.Open refuses symlinked parents,
+# so t.TempDir() must live under a symlink-free path.
+QT="$(mktemp -d /tmp/eve-qa-gotmp.XXXX)"; export TMPDIR="$(cd "$QT" && pwd -P)"
+trap 'git -C "$REPO" worktree remove --force "$WT"; rm -rf "$QT"' EXIT
 RUN='TestMemory|TestMemoryDisabled_NoRoutesNoPromptChange|TestMemoryAPI_|TestMemoryAudit_|TestMemoryInject_|TestMemoryFile_|TestMemoryOpen_|TestMemoryKey_|TestMemorySecret_|TestMemoryRevise_'
-go test -count=1 -run "$RUN" ./internal/memory/... ./internal/handlers/... 2>&1 | tee /tmp/eve-qa-memgo.log
+go test -count=1 -v -run "$RUN" ./internal/memory/... ./internal/handlers/... 2>&1 | tee /tmp/eve-qa-memgo.log
