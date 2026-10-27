@@ -147,6 +147,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.injectMemory(r, body)
 	if pr != nil {
 		// Saved chats run detached from the client connection (§3.8).
 		s.runDetached(w, r, body, pr, func(w http.ResponseWriter, r *http.Request) {

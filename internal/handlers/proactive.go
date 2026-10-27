@@ -188,6 +188,10 @@ func (s *Server) reviseProposal(w http.ResponseWriter, r *http.Request) {
 		s.writeCode(w, r, "invalid")
 		return
 	}
+	if code := s.reviseMemoryCheck(r, r.PathValue("id"), ids); code != "" {
+		s.writeCode(w, r, code)
+		return
+	}
 	a, tok, err := s.Store.ReviseAction(r.Context(), user(r), r.PathValue("id"), ids, time.Now().UTC())
 	if err != nil {
 		s.actionErr(w, r, err)

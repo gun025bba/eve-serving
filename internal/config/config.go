@@ -74,11 +74,26 @@ type Config struct {
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
-	Env      string     `yaml:"env" json:"env"`
-	Auth     AuthConfig `yaml:"auth" json:"auth"`
-	Database DBConfig   `yaml:"database" json:"database"`
-	Web      WebConfig  `yaml:"web" json:"web"`
-	Push     PushConfig `yaml:"push" json:"push"`
+	Env      string       `yaml:"env" json:"env"`
+	Auth     AuthConfig   `yaml:"auth" json:"auth"`
+	Database DBConfig     `yaml:"database" json:"database"`
+	Web      WebConfig    `yaml:"web" json:"web"`
+	Push     PushConfig   `yaml:"push" json:"push"`
+	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+}
+
+// MemoryConfig enables personalization memory (docs/architecture/memory.md).
+// Off by default: when off, the /v1/memory endpoints answer 404 and no
+// memory block is added to prompts, exactly as before.
+type MemoryConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// DataDir holds one 0600 JSON file per user (dir 0700, outside the repo).
+	DataDir string `yaml:"data_dir" json:"data_dir"`
+	// InjectCapTokens bounds the prompt block (default 1000, max 2000).
+	InjectCapTokens int `yaml:"inject_cap_tokens" json:"inject_cap_tokens"`
+	// AuditKeyFile is the 0600 HMAC-SHA256 key for item hashes in tool_audit.
+	// Required when enabled.
+	AuditKeyFile string `yaml:"audit_key_file" json:"-"`
 }
 
 // PushConfig enables the Web Push subscription endpoints
@@ -148,6 +163,7 @@ func Default() Config {
 		Database:   DBConfig{AutoMigrate: true},
 		Web:        defaultWeb(),
 		Generation: DefaultGen(),
+		Memory:     MemoryConfig{Enabled: false, DataDir: "~/llm-serving/data/memory", InjectCapTokens: 1000},
 	}
 }
 
@@ -167,6 +183,14 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
 		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
+	}
+	if c.Memory.Enabled {
+		if strings.TrimSpace(c.Memory.DataDir) == "" || strings.TrimSpace(c.Memory.AuditKeyFile) == "" {
+			return c, fmt.Errorf("memory.enabled requires memory.data_dir and memory.audit_key_file")
+		}
+		if c.Memory.InjectCapTokens < 0 || c.Memory.InjectCapTokens > 2000 {
+			return c, fmt.Errorf("memory.inject_cap_tokens must be 0..2000")
+		}
 	}
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
@@ -241,6 +265,13 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_DB_AUTO_MIGRATE: %w", err)
 		}
 		c.Database.AutoMigrate = b
+	}
+	if v := getenv("GW_MEMORY_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
+		}
+		c.Memory.Enabled = b
 	}
 	if v := getenv("GW_PUSH_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)

@@ -1,0 +1,229 @@
+package handlers
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/logging"
+	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/metrics"
+	"github.com/gun025bba/eve-serving/internal/proxy"
+	"github.com/gun025bba/eve-serving/internal/queue"
+	"github.com/gun025bba/eve-serving/internal/store/memstore"
+)
+
+type failLedger struct{ fail bool }
+
+func (f *failLedger) Append(context.Context, string, audit.Event) error {
+	if f.fail {
+		return errors.New("down")
+	}
+	return nil
+}
+
+func newMemEnv(t *testing.T, enabled bool, led audit.Ledger) (*env, *memory.FileStore) {
+	seen, mu := &[]map[string]any{}, &sync.Mutex{}
+	up := reasoningUpstream(t, seen, mu)
+	t.Cleanup(up.Close)
+	cfg := config.Default()
+	cfg.AllowedOrigins = []string{testOrigin}
+	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
+	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
+	cfg.Memory.Enabled = enabled
+	s := &Server{Cfg: cfg, Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(10), Mem: &metrics.MemSampler{Needle: "none-xyz"},
+		Q: queue.New(2, 4, time.Second), Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: 2 * time.Second}), Start: time.Now(),
+		Audit: led, MemoryAuditKey: []byte(strings.Repeat("k", 32))}
+	fs, err := memory.Open(filepath.Join(t.TempDir(), "memory"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Memory = fs
+	e := &env{seen: seen, mu: mu}
+	e.st = memstore.New()
+	s.Store = e.st
+	e.ts = httptest.NewServer(s.Handler())
+	t.Cleanup(e.ts.Close)
+	return e, fs
+}
+
+func (e *env) lastUpstream() map[string]any {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return (*e.seen)[len(*e.seen)-1]
+}
+
+// SemVer condition 3: with memory.enabled=false (the default) nothing changes.
+func TestMemoryDisabled_NoRoutesNoPromptChange(t *testing.T) {
+	if config.Default().Memory.Enabled {
+		t.Fatal("memory.enabled must default to false")
+	}
+	e, fs := newMemEnv(t, false, nil)
+	memory.Add(fs, "alice@example", memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
+	for _, p := range []string{"/v1/memory", "/v1/memory/export"} {
+		r, b := e.call(t, "alice@example", "GET", p, "")
+		r2, b2 := e.call(t, "alice@example", "GET", "/v1/definitely-not-a-route", "")
+		if r.StatusCode != 404 || r2.StatusCode != 404 || len(b) != len(b2) {
+			t.Fatalf("%s: %d %s", p, r.StatusCode, b)
+		}
+	}
+	body := `{"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`
+	if r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", body); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	msgs := e.lastUpstream()["messages"].([]any)
+	if len(msgs) != 2 || msgs[0].(map[string]any)["content"] != "S" {
+		t.Fatal(msgs)
+	}
+}
+
+func TestMemoryAPI_CRUDAndInjection(t *testing.T) {
+	e, _ := newMemEnv(t, true, &failLedger{})
+	r, b := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"preference","text":"아침 브리핑은 짧게"}`)
+	if r.StatusCode != 201 || r.Header.Get("Cache-Control") != "no-store" {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	id := js(t, b)["id"].(string)
+	r, b = e.call(t, "alice@example", "GET", "/v1/memory", "")
+	if r.StatusCode != 200 || !strings.Contains(string(b), "아침 브리핑은 짧게") || r.Header.Get("Cache-Control") != "no-store" ||
+		r.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Fatal(r.StatusCode, r.Header, string(b))
+	}
+	// injected at the end of the existing system prompt
+	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`)
+	sys := e.lastUpstream()["messages"].([]any)[0].(map[string]any)["content"].(string)
+	if !strings.HasPrefix(sys, "S\n\n"+memory.Preamble) || !strings.Contains(sys, "아침 브리핑은 짧게") || !strings.HasSuffix(sys, "\">") {
+		t.Fatal(sys)
+	}
+	// no system message: a system message is added
+	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`)
+	msgs := e.lastUpstream()["messages"].([]any)
+	if len(msgs) != 2 || msgs[0].(map[string]any)["role"] != "system" {
+		t.Fatal(msgs)
+	}
+	// bob sees none of it and gets 404 on alice's id
+	_, b = e.call(t, "bob@example", "GET", "/v1/memory", "")
+	if strings.Contains(string(b), "아침") {
+		t.Fatal("cross-user read")
+	}
+	if r, _ = e.call(t, "bob@example", "DELETE", "/v1/memory/items/"+id, ""); r.StatusCode != 404 {
+		t.Fatal(r.StatusCode)
+	}
+	if r, _ = e.call(t, "bob@example", "PATCH", "/v1/memory/items/"+id, `{"pinned":true}`); r.StatusCode != 404 {
+		t.Fatal(r.StatusCode)
+	}
+	r, b = e.call(t, "alice@example", "PATCH", "/v1/memory/items/"+id, `{"pinned":true,"text":"브리핑은 한국어로"}`)
+	if r.StatusCode != 200 || js(t, b)["pinned"] != true {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	if r, _ = e.call(t, "alice@example", "DELETE", "/v1/memory/items/"+id, ""); r.StatusCode != 204 {
+		t.Fatal(r.StatusCode)
+	}
+	if r, _ = e.call(t, "alice@example", "DELETE", "/v1/memory", ""); r.StatusCode != 204 {
+		t.Fatal(r.StatusCode)
+	}
+}
+
+func TestMemoryAPI_SecretRejectedNotStored(t *testing.T) {
+	e, fs := newMemEnv(t, true, &failLedger{})
+	r, b := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"내 비밀번호: hunter22"}`)
+	if r.StatusCode != 422 || string(b) != `{"error_code":"secret_detected"}` {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	if d, _ := fs.Load("alice@example"); len(d.Items) != 0 {
+		t.Fatal("stored")
+	}
+	if r, _ := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"x","user":"bob@example"}`); r.StatusCode != 400 {
+		t.Fatal("unknown field (user) must be rejected", r.StatusCode)
+	}
+}
+
+func TestMemoryAPI_OriginCSRF(t *testing.T) {
+	e, _ := newMemEnv(t, true, &failLedger{})
+	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/memory/items", strings.NewReader(`{"kind":"fact","text":"x"}`))
+	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.invalid")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 403 {
+		t.Fatal(resp.StatusCode)
+	}
+}
+
+func TestMemoryAudit_FailureRefusesWrite(t *testing.T) {
+	led := &failLedger{fail: true}
+	e, fs := newMemEnv(t, true, led)
+	r, _ := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"고양이"}`)
+	if r.StatusCode != 500 {
+		t.Fatal(r.StatusCode)
+	}
+	if d, _ := fs.Load("alice@example"); len(d.Items) != 0 {
+		t.Fatal("written without audit")
+	}
+}
+
+type recLedger struct {
+	mu sync.Mutex
+	ev []audit.Event
+}
+
+func (l *recLedger) Append(_ context.Context, _ string, e audit.Event) error {
+	l.mu.Lock()
+	l.ev = append(l.ev, e)
+	l.mu.Unlock()
+	return nil
+}
+
+func TestMemory_AuditNoPlaintextHMAC(t *testing.T) {
+	led := &recLedger{}
+	e, _ := newMemEnv(t, true, led)
+	e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"고양이를 키운다"}`)
+	if len(led.ev) == 0 {
+		t.Fatal("no audit")
+	}
+	for _, ev := range led.ev {
+		c := string(audit.Canonical(ev))
+		if strings.Contains(c, "고양이") {
+			t.Fatal("plaintext in audit")
+		}
+		if ev.Event == "memory_add" && !strings.HasPrefix(ev.PayloadSHA256, "hmac-sha256:") {
+			t.Fatal(ev.PayloadSHA256)
+		}
+	}
+}
+
+func TestMemoryRevise_ItemGone409(t *testing.T) {
+	e, fs := newMemEnv(t, true, &failLedger{})
+	a, _ := memory.Add(fs, "alice@example", memory.NewItem{Kind: "fact", Text: "하나", Confidence: "user"}, time.Now())
+	b, _ := memory.Add(fs, "alice@example", memory.NewItem{Kind: "fact", Text: "둘", Confidence: "user"}, time.Now())
+	card, err := memory.ForgetProposal(fs, "alice@example", []string{a.ID, b.ID}, true, memory.ProposalCtx{Actor: "user"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := e.st.CreateAction(context.Background(), "alice@example", card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory.Delete(fs, "alice@example", []string{b.ID}, time.Now())
+	r, body := e.call(t, "alice@example", "POST", "/v1/proposals/"+stored.ID+"/revise", `{"item_ids":["`+b.ID+`"]}`)
+	if r.StatusCode != 409 || string(body) != `{"error_code":"item_gone"}` {
+		t.Fatal(r.StatusCode, string(body))
+	}
+	r, body = e.call(t, "alice@example", "POST", "/v1/proposals/"+stored.ID+"/revise", `{"item_ids":["`+a.ID+`"]}`)
+	if r.StatusCode != 200 || !strings.Contains(string(body), `"confirm_token"`) {
+		t.Fatal(r.StatusCode, string(body))
+	}
+}
