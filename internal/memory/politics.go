@@ -36,8 +36,8 @@ func foldPunct(s string) string {
 // Rule lists, kept together so they can move to config later.
 const (
 	// current and recent parties, including common abbreviations.
-	partyNames      = `더불어\s?민주당|더불어\s?민주연합|더민주|민주당|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|조혁당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운미래당?|새로운\s미래당|새미래당?|자유통일당|우리공화당|노동당|사회민주당|사민당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
-	politicianNames = `이재명|윤석열|한동훈|조국|이준석|김문수|안철수|홍준표|문재인|박근혜|이낙연|오세훈|김동연|심상정|트럼프|바이든|해리스|trump|biden|harris`
+	partyNames      = `더민|더불어\s?민주당|더불어\s?민주연합|더민주|민주당|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|조혁당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운미래당?|새로운\s미래당|새미래당?|자유통일당|우리공화당|노동당|사회민주당|사민당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
+	politicianNames = `찢재명|찢명|윤통|굥|문통|준스톤|이재명|윤석열|한동훈|조국|이준석|김문수|안철수|홍준표|문재인|박근혜|이낙연|오세훈|김동연|심상정|트럼프|바이든|해리스|trump|biden|harris`
 	// a single-syllable surname directly before 후보 ('윤 후보 찍었어').
 	surnameCandidate = `[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모남궁]\s?후보`
 
@@ -174,13 +174,13 @@ func voteInContext(f string) bool {
 // TODO(architect): choseong (ㅁㅈㄷ), English-mixed forms ('I voted for
 // 민주당') and inverted order ('찍었어 민주당', '지지하는 건 민주당') are out of scope for this round.
 func politicsStructural(folded, original string) bool {
-	folded = simileRe.ReplaceAllString(photoRe.ReplaceAllString(candSiteRe.ReplaceAllString(folded, " _ "), " _ "), " _ ")
+	folded = simileStrip(original, photoRe.ReplaceAllString(candSiteRe.ReplaceAllString(folded, " _ "), " _ "), " _ ")
 	// exemptions are judged once on the spaced original.
-	base := simileRe.ReplaceAllString(photoRe.ReplaceAllString(candSiteRe.ReplaceAllString(foldPunct(strings.ToLower(original)), " _ "), " _ "), " _ ")
+	base := simileStrip(original, photoRe.ReplaceAllString(candSiteRe.ReplaceAllString(foldPunct(strings.ToLower(original)), " _ "), " _ "), " _ ")
 	fp := firstPerson(base)
 	// non-public organisation context with no major political word: weak
 	// anchors (사전투표, 후보, N번 후보, 기호, 지지자) do not anchor.
-	if !majorAnchorRe.MatchString(base) && !majorAnchorRe.MatchString(folded) && !publicCueRe.MatchString(base) && weakModified(base) {
+	if !majorAnchorRe.MatchString(base) && !majorAnchorRe.MatchString(joinSyllables(base)) && !publicCueRe.MatchString(base) && weakModified(base) {
 		return false
 	}
 	news := !fp && isNewsReport(base)
@@ -279,6 +279,9 @@ func hasAnchor(f string) bool {
 	if !voteActRe.MatchString(f) {
 		return false
 	}
+	if publicCueRe.MatchString(f) && numChoiceRe.MatchString(f) {
+		return true
+	}
 	if strongAnchorRe.MatchString(f) || regexp.MustCompile(`기호\s?\d`).MatchString(f) {
 		return true
 	}
@@ -292,6 +295,11 @@ func isNewsReport(f string) bool {
 		return false
 	}
 	if newsEventRe.MatchString(strings.TrimSpace(f)) || statRe.MatchString(f) {
+		return true
+	}
+	// election-word-only report ('투표소에 사람 많대'): no party/politician,
+	// no chosen number or vote verb.
+	if !partyPolRe.MatchString(f) && !numChoiceRe.MatchString(f) && !voteStemRe.MatchString(f) {
 		return true
 	}
 	for _, t := range strings.Fields(f) {
@@ -366,11 +374,11 @@ var (
 	evaluativeRe  = regexp.MustCompile(`최고|최악|좋다|좋아|좋지|좋네|좋음|좋은|좋겠|꼴좋|극혐|싫|별로|짱|멋지|멋있|괜찮|쓰레기|ㅋㅋ|ㅎㅎ|화이팅|파이팅|가즈아|사랑|훌륭|대단|잘했|잘한다|잘하|못했|못한다|망해|망했|망한|혐오|역겹|한심|속시원|통쾌|쌤통|꼬시|고소하|미워|미친|개념|답없|답이 없|믿음직|든든|실망|최애|호감|비호감|맘에\s?(들|듦|든)|마음에\s?(들|듦|든)|낫|답\s?없|옳|틀리|틀렸|잘한|해야\s?한|돼야\s?한|되어야\s?한|야\s?(한|된|돼|하는|되는)|맞지|맞잖|맞죠|나아|낫지`)
 	cheerRe       = regexp.MustCompile(`역시|ㅋㅋ|ㅎㅎ|ㅠ|!|대박|만세|굿|짱|가즈아|최고다`)
 	statRe        = regexp.MustCompile(`(역대|사상|역사상)\s?(최고|최저)(치)?|(투표율|득표율|지지율|참여율|개표율|\d+\s?(%|퍼센트))\s?(이|가|은|는|도)?\s?(최고|최저)(치)?|최고치|최저치`)
-	voteStemRe    = regexp.MustCompile(`(찍|뽑)($|을|으|으려|으며|었|았|어|아|고|겠|는|음)|지지\s?(하|해|했|할)|밀어\s?(줄|주|줬)|기표`)
+	voteStemRe    = regexp.MustCompile(`(찍|뽑)($|길|기|자|을|으|으려|으며|었|았|어|아|고|겠|는|음)|지지\s?(하|해|했|할)|밀어\s?(줄|주|줬)|기표`)
 	newsEventRe   = regexp.MustCompile(`(됐|되었|선출|부결|가결|통과|출범|확정|사퇴|해산|발표)\S*(대|래|대요|래요)$`)
 	numChoiceRe   = regexp.MustCompile(`\d+\s?번`)
 	agreeEndRe    = regexp.MustCompile(`(지|죠|잖아|잖아요|잖냐|지 않아|지 않냐|지 않아요|지 않니)\s?$`)
-	clauseSplitRe = regexp.MustCompile(`(는데|은데|인데|던데|지만|니까|으니|어서|아서|고|으며|며|면서|다가)(\s|$)|[.!?\n]+`)
+	clauseSplitRe = regexp.MustCompile(`(길래|더니|는데|은데|인데|던데|지만|니까|으니|어서|아서|고|으며|며|면서|다가)(\s|$)|[.!?\n]+`)
 	actorRe       = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)(이|가)\s`)
 	candSiteRe    = regexp.MustCompile(`후보지(\s|$|[가는를은에의도로])|후보\s?(장소|부지|지역|날짜|곡|작)`)
 	orgCompanyRe  = regexp.MustCompile(`^(사람|사람들|친구|친구들|애들|형|형들|선배|후배|동기|멤버)`)
@@ -388,17 +396,78 @@ var (
 var (
 	weakWordRe    = regexp.MustCompile(`사전\s?투표|투표소|투표|선거|회장|대표|후보|기호|지지자|당선`)
 	numTokRe      = regexp.MustCompile(`^(\d+\s?번|기호|사전|번)\S{0,4}$`)
-	verbFormRe    = regexp.MustCompile(`(다가|가지고|려고|러|데|고|서|면|는데|은데|었어|았어|했어|했고|어|아|요|다|지|게|며|니|자|던|는|은|을|ㄴ)$`)
+	verbFormRe    = regexp.MustCompile(`(길래|더니|래|다가|가지고|려고|러|데|고|서|면|는데|은데|었어|았어|했어|했고|어|아|요|다|지|게|며|니|자|던|는|은|을|ㄴ)$`)
 	nounParticle  = regexp.MustCompile(`(의|에서|에서의|에|별|내|용|끼리|들|들의)$`)
 	locWordRe     = regexp.MustCompile(`^(동네|주민센터|행정복지센터|복지센터|구청|시청|군청|동사무소|면사무소|읍사무소|\S*센터|근처|앞|옆|뒤|건너편|주변|부근|안|밖|쪽|가는|길|아침|점심|저녁|밤|새벽|오전|오후|주말|평일|출근|퇴근|출근길|퇴근길)(에|에서|의|때)?$`)
 	surnameCandRe = regexp.MustCompile(`^` + surnameCandidate)
 	publicCueRe   = regexp.MustCompile(`구청|주민센터|행정복지센터|동사무소|선관위|선거관리|투표용지|신분증|사전투표소|구민|시민|도민|군민`)
 	simileRe      = regexp.MustCompile(`\S*(처럼|같이|마냥|듯이|듯)(\s|$)`)
-	voteActRe     = regexp.MustCompile(`완료|선택|골랐|골라|택했|정했|밀어|밀었|응원|(찍|뽑)($|을|으|었|았|어|아|고|겠|는|음)|지지|투표\s?(하|했|함|완료|끝|해)|기표|\d+\s?번\s?(후보|정당|으로|로|이야|임|예요|입니다|이요|이었|$)|\d+\s?번$`)
+	voteActRe     = regexp.MustCompile(`줬|주었|줌|드렸|표\s?(넣|던|행사|줬|줌)|넣음|넣었|쪽에|쪽으로|쪽이|밀어줬|완료|선택|골랐|골라|택했|정했|밀어|밀었|응원|(찍|뽑)($|길|기|자|을|으|었|았|어|아|고|겠|는|음)|지지|투표\s?(하|했|함|완료|끝|해)|기표|\d+\s?번\s?(후보|정당|으로|로|이야|임|예요|입니다|이요|이었|$)|\d+\s?번$`)
 	orgSuffixRe   = regexp.MustCompile(`(회|단|부|회사|조합|카페|모임|지부|연합|클럽|동호회|협회|위원회|교회|학교|아파트)(의|에서|에|별|내)?$`)
 )
 
+// orgElection: a non-public org election is established in the sentence
+// (org noun as topic/subject/genitive + 회장/대표/임원... + 선거/투표/후보);
+// later weak anchors in it inherit the non-public scope.
+var (
+	partyPolRe    = regexp.MustCompile(`(^|\s)(` + partyNames + `|` + politicianNames + `)`)
+	orgElectionRe = regexp.MustCompile(`(^|\s)(\S+)\s(회장|부회장|대표|임원|총무|단장|반장|리더|위원장|과대|주장|회장단)\s?(선거|투표|후보)`)
+	ideologyRe    = regexp.MustCompile(`^(찢|진보|보수|좌파|우파|좌빨|수꼴|더민|민주|` + partyNames + `|` + politicianNames + `)(쪽|측|진영)?$`)
+	supporterRe   = regexp.MustCompile(`^(지지자|지지층|팬|빠|골수\s?지지자)(야|이야|임|예요|이에요|입니다|이셔|이세요|이다|라|이라|$)`)
+	roleNounRe    = regexp.MustCompile(`(자|장|원|대|무|님|가수|선수|배우|작가)$`)
+	simileGuardRe = regexp.MustCompile(`생각|성향|보수|진보|좌파|우파`)
+)
+
+// simileStrip drops '…처럼/같이' tokens unless the sentence has a party or
+// politician, a first-person/kin word, or a vote/support/생각/성향 word.
+func simileStrip(original, f, repl string) string {
+	o := foldPunct(strings.ToLower(original))
+	if partyPolRe.MatchString(o) || firstPerson(o) || voteStemRe.MatchString(o) || simileGuardRe.MatchString(o) {
+		return f
+	}
+	return simileRe.ReplaceAllString(f, repl)
+}
+
+func orgElection(f string) bool {
+	for _, m := range orgElectionRe.FindAllStringSubmatch(f, -1) {
+		if !firstPersonRe.MatchString(m[2]) && !locWordRe.MatchString(m[2]) && (nounModifier(m[2]) || strings.HasSuffix(m[2], "는") || strings.HasSuffix(m[2], "은")) {
+			return true
+		}
+	}
+	return false
+}
+
+// supporterStatement (Med I): a first-person/kin subject + 지지자/지지층/팬
+// blocks unless the noun heads a non-public org NP or a non-political
+// object ('아이유 팬'); party, politician, nickname, ideology, a bare
+// number or a single-syllable surname before it blocks.
+func supporterStatement(f string) bool {
+	if !firstPerson(f) {
+		return false
+	}
+	ts := strings.Fields(f)
+	for i, t := range ts {
+		if !supporterRe.MatchString(t) {
+			continue
+		}
+		j := i - 1
+		for j >= 0 && numTokRe.MatchString(ts[j]) {
+			j--
+		}
+		if j < 0 || firstPersonRe.MatchString(ts[j]) || ideologyRe.MatchString(ts[j]) || len([]rune(ts[j])) == 1 {
+			return true
+		}
+		if !nounModifier(ts[j]) && !roleNounRe.MatchString(ts[j]) {
+			return true
+		}
+	}
+	return false
+}
+
 func weakModified(f string) bool {
+	if orgElection(f) {
+		return true
+	}
 	ts := strings.Fields(f)
 	found := false
 	mod := make([]bool, len(ts))
@@ -456,8 +525,10 @@ func evaluatesAnchor(f, original string) bool {
 // (가입, 탈퇴, 조합원, 회원, 대의원, 지부장, 간부, 조합비); info requests stay
 // allowed.
 var (
-	unionRe       = regexp.MustCompile(`노조|노동조합|민주노총|한국노총|노총`)
-	unionMemberRe = regexp.MustCompile(`가입|탈퇴|조합원|회원|대의원|지부장|간부|조합비|노조원|위원장|활동`)
+	unionRe = regexp.MustCompile(`(?i)노조|노동조합|민주노총|한국노총|노총|총연맹|유니언|\bunion\b`)
+	// affiliation: membership, any role noun (-장/-자/-원, 간부, 부장...),
+	// activity, dues, 소속, or '…노조야' identity.
+	unionMemberRe = regexp.MustCompile(`(?i)가입|탈퇴|조합원|회원|멤버|member|대의원|지부장|간부|조합비|노조비|노조원|위원장|활동|소속|집회|파업|시위|단체\s?행동|노조\s?일|사무장|상근|전임|부장|노조(야|이야|예요|에요|임|입니다|이다)|\S+(장|자|원|무|사|관|직)(이야|이에요|예요|임|입니다|이셔|이세요|이었|야|이다|으로|이라|$)`)
 )
 
 func unionStatement(original string) bool {

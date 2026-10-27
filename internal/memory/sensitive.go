@@ -145,6 +145,9 @@ func CheckSensitive(text string) error {
 		if unionStatement(text) {
 			return &RejectError{Reason: "sensitive_union"}
 		}
+		if supporterStatement(foldPunct(strings.ToLower(text))) {
+			return &RejectError{Reason: "sensitive_politics"}
+		}
 		if politicsStructural(foldPunct(v), text) {
 			return &RejectError{Reason: "sensitive_politics"}
 		}
