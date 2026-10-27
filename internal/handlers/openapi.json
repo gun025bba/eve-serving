@@ -431,6 +431,16 @@
               }
             }
           },
+          "409": {
+            "description": "generation_in_progress (same user turn already being answered, or regenerating a generating message)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "429": {
             "description": "queue_full | queue_timeout",
             "content": {

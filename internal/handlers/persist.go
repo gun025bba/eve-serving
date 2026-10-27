@@ -27,6 +27,21 @@ type chatPersist struct {
 	msgID     string
 	placed    bool          // assistant row created up front (status generating)
 	failCode  func() string // detached run: cancel/timeout code overrides the reason
+	release   func()        // drops the in-flight turn mark (#30); nil when none
+}
+
+// releaseInflight drops the in-flight mark for this turn. Idempotent; called
+// when the chat handler returns (completion, error or client cancel).
+func (p *chatPersist) releaseInflight() {
+	if p != nil && p.release != nil {
+		p.release()
+		p.release = nil
+	}
+}
+
+// errTurnInFlight: the same user turn is already being answered (#30).
+func errTurnInFlight() *apierr.Error {
+	return apierr.New(409, "generation_in_progress", "This message is already being answered; wait for it or retry after it finishes", "invalid_request_error")
 }
 
 // startPlaceholder creates the assistant row (or marks the regenerated one)
@@ -159,6 +174,14 @@ func (s *Server) beginPersist(r *http.Request, body map[string]any) (*chatPersis
 		// thread row instead.
 		unlock := s.threadLocks.lock(p.user + "\x00" + p.threadID)
 		defer unlock()
+		// #30: an identical turn already in flight (handler running, or its
+		// reply row still generating) must not start a second answer.
+		key := p.user + "\x00" + p.threadID + "\x00" + lastUser
+		if s.inflight.has(key) || s.lastTurnGenerating(ctx, p.user, p.threadID, lastUser) {
+			s.Log.Info("persist_retry_inflight", "request_id", rid(r), "thread_id", p.threadID)
+			return nil, errTurnInFlight()
+		}
+		p.release = s.inflight.add(key)
 		if uid, failedID, ok := s.retryTarget(ctx, p.user, p.threadID, lastUser); ok {
 			// Client resent the same turn without replace_message_id (e.g. after
 			// "Load failed"): reuse the saved user message instead of storing it
@@ -170,6 +193,7 @@ func (s *Server) beginPersist(r *http.Request, body map[string]any) (*chatPersis
 	}
 	um, err := s.Store.AddMessage(ctx, p.user, store.Message{ThreadID: p.threadID, Role: "user", Content: lastUser})
 	if err != nil {
+		p.releaseInflight()
 		return nil, storeErr(err, "Thread")
 	}
 	p.userMsgID = um.ID
@@ -197,6 +221,19 @@ func (s *Server) retryTarget(ctx context.Context, user, threadID, content string
 		return ms[0].ID, last.ID, true
 	}
 	return "", "", false
+}
+
+// lastTurnGenerating reports whether the thread ends with the same user
+// message followed by a reply that a live run is still generating (#30).
+// A stale generating row with no run in memory stays a new turn (#24).
+func (s *Server) lastTurnGenerating(ctx context.Context, user, threadID, content string) bool {
+	ms, _, err := s.Store.ListMessages(ctx, user, threadID, 2, "")
+	if err != nil || len(ms) != 2 {
+		return false
+	}
+	u, a := ms[0], ms[1]
+	return u.Role == "user" && u.Origin != store.OriginProactive && u.Content == content &&
+		a.Role == "assistant" && a.Status == store.StatusGenerating && s.hub().get(user, a.ID) != nil
 }
 
 func (p *chatPersist) setHeaders(h http.Header) {
@@ -321,5 +358,36 @@ func (k *keyedLocks) lock(key string) (unlock func()) {
 			delete(k.m, key)
 		}
 		k.mu.Unlock()
+	}
+}
+
+// keyedSet marks keys in flight (#30). add returns an idempotent release.
+type keyedSet struct {
+	mu sync.Mutex
+	m  map[string]int
+}
+
+func (k *keyedSet) has(key string) bool {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.m[key] > 0
+}
+
+func (k *keyedSet) add(key string) (release func()) {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]int{}
+	}
+	k.m[key]++
+	k.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			k.mu.Lock()
+			if k.m[key]--; k.m[key] <= 0 {
+				delete(k.m, key)
+			}
+			k.mu.Unlock()
+		})
 	}
 }

@@ -82,7 +82,11 @@ func (s *Server) runDetached(w http.ResponseWriter, r *http.Request, body map[st
 			rel()
 		}
 	}()
-	if err := pr.startPlaceholder(r); err != nil {
+	err = pr.startPlaceholder(r)
+	// From here the generating row guards the turn (#30), so the in-memory
+	// mark can go; earlier exits are covered by the handler's defer.
+	pr.releaseInflight()
+	if err != nil {
 		if errors.Is(err, store.ErrGenerating) {
 			s.M.GenRejected.WithLabelValues("conflict").Inc()
 		}

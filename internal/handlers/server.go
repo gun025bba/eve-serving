@@ -49,6 +49,7 @@ type Server struct {
 	Now func() time.Time
 
 	threadLocks keyedLocks // per-thread persist serialization (retry dedup)
+	inflight    keyedSet   // user turns being answered (#30)
 
 	Cfg     config.Config
 	Key     string             // API key; used to build Auth when Auth is nil

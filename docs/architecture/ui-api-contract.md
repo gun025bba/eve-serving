@@ -186,7 +186,7 @@ iPhone PWA가 백그라운드로 가면 SSE가 끊긴다. 저장되는 채팅(`t
   ```
   헤더 `X-Message-Id`도 같은 값. 이후 **모든 이벤트에 `id: <seq>`**(1부터 단조 증가)가 붙는다. 그 뒤 순서는 기존과 같다(persist 청크 → 콘텐츠 청크/툴 이벤트 → sources → `chat.completion.persisted` → `[DONE]`). `persisted.status`도 `complete|failed`.
 - **어드미션 전 에러 = HTTP 상태 (3.0.0과 동일)**: 요청 검증(400/404/503), 큐 포화 `429 queue_full`, 큐 대기 초과 `queue_timeout` 등 **큐 슬롯을 얻기 전** 실패는 기존과 같은 HTTP 상태·본문으로 오고 **assistant 행을 만들지 않는다**(`generating` 행은 어드미션 후에만 생성). 웹검색 경로도 동일(3.0.0에서는 스트림 안 에러였음 → 이제 HTTP 429).
-  추가 HTTP 에러: `429 too_many_generations`(사용자당 동시 생성 2개 초과), `429 server_busy`(허브 전체 한도), `409 generation_in_progress`(이미 `generating`인 메시지를 동시에 재생성 — 조건부 UPDATE로 한 요청만 성공). 모든 429에는 `Retry-After` 헤더.
+  추가 HTTP 에러: `429 too_many_generations`(사용자당 동시 생성 2개 초과), `429 server_busy`(허브 전체 한도), `409 generation_in_progress`(이미 `generating`인 메시지를 동시에 재생성 — 조건부 UPDATE로 한 요청만 성공. 같은 스레드에 같은 사용자 턴을 답변 중에 다시 보내도 동일, #30). 모든 429에는 `Retry-After` 헤더.
 - **어드미션 후 에러 = 스트림 안**: 업스트림 연결 실패·중간 에러·타임아웃은 HTTP 200 SSE 안에서 에러 이벤트(`{"error":{"code","message",…,"retry_after"?}}`) → persisted(`failed`) → `[DONE]`. 원래 상태·코드는 서버 로그와 `eve_gen_stream_errors_total{code,status}`에 남는다.
 - **취소**: `POST /v1/threads/{thread_id}/messages/{message_id}/cancel` (CSRF 헤더 필요, 본문 없음) → 항상 **204**(멱등: 이미 끝난 메시지도 204, 상태 변화 없음). 진행 중이면 생성을 멈추고 `failed` + `error_code:"cancelled"`. 없는/남의 메시지 → 같은 404.
 - **자동 취소**: 구독자(원 스트림 + 재연결)가 하나도 없는 상태가 5분(`generation.idle_cancel_s`, env `GW_GEN_IDLE_CANCEL_S`) 이어지면 `failed` + `no_subscriber`. 백그라운드 PWA는 5분 안에 재연결해야 이어서 받는다.
