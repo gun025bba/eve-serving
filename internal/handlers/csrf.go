@@ -41,7 +41,7 @@ func hasBody(r *http.Request) bool {
 
 // csrfCheck returns "" when the request may proceed, else the rejection reason.
 func (s *Server) csrfCheck(r *http.Request, id auth.Identity) string {
-	if !isStateChanging(r.Method) || id.Provider == auth.ProviderAPIKey {
+	if !isStateChanging(r.Method) || !id.NeedsCSRF() {
 		return ""
 	}
 	if len(s.Cfg.AllowedOrigins) == 0 {
