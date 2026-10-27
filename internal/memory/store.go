@@ -448,6 +448,9 @@ func Clean(text string) (string, error) {
 	if err := CheckSecret(t); err != nil {
 		return "", err
 	}
+	if err := CheckSensitive(t); err != nil {
+		return "", err
+	}
 	return t, nil
 }
 
