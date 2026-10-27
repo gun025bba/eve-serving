@@ -81,6 +81,7 @@ type Config struct {
 	Web      WebConfig    `yaml:"web" json:"web"`
 	Push     PushConfig   `yaml:"push" json:"push"`
 	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+	Pim      PimConfig    `yaml:"pim" json:"-"`    // Jarvis M1 (#69); not in /admin/config
 	// AllowedHosts are extra Host header values (port ignored) accepted besides
 	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
 	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
@@ -130,6 +131,19 @@ type MemoryConfig struct {
 	//   umask 077; openssl rand -hex 32 > <file>
 	// (one trailing newline is fine; raw binary is rejected).
 	AuditKeyFile string `yaml:"audit_key_file" json:"-"`
+}
+
+// PimConfig enables the Jarvis M1 read tools backed by the eve-pim helper
+// (pim/eve-pim). Off by default: no tool is offered and no socket is opened.
+type PimConfig struct {
+	// Enabled (GW_PIM_ENABLED) is the server-wide switch for the pim tools.
+	Enabled bool `yaml:"enabled"`
+	// SocketPath (GW_PIM_SOCKET_PATH) is eve-pim's unix socket (absolute).
+	SocketPath string `yaml:"socket_path"`
+	// OwnerUserID (GW_PIM_OWNER_USER_ID) is the users.id whose Calendar and
+	// Reminders the helper reads (EventKit = one login user). Every other
+	// user never sees the tools.
+	OwnerUserID int64 `yaml:"owner_user_id"`
 }
 
 // PushConfig enables the Web Push subscription endpoints
@@ -227,6 +241,9 @@ func Load(path string, getenv func(string) string) (Config, error) {
 		if c.Memory.InjectCapTokens < 0 || c.Memory.InjectCapTokens > 2000 {
 			return c, fmt.Errorf("memory.inject_cap_tokens must be 0..2000")
 		}
+	}
+	if c.Pim.Enabled && (!filepath.IsAbs(c.Pim.SocketPath) || c.Pim.OwnerUserID <= 0) {
+		return c, fmt.Errorf("pim.enabled requires an absolute pim.socket_path and pim.owner_user_id > 0")
 	}
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
@@ -326,6 +343,23 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP: %w", err)
 		}
 		c.Memory.AllowUnverifiedBackup = b
+	}
+	if v := getenv("GW_PIM_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_ENABLED: %w", err)
+		}
+		c.Pim.Enabled = b
+	}
+	if v := getenv("GW_PIM_SOCKET_PATH"); v != "" {
+		c.Pim.SocketPath = v
+	}
+	if v := getenv("GW_PIM_OWNER_USER_ID"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_OWNER_USER_ID: %w", err)
+		}
+		c.Pim.OwnerUserID = n
 	}
 	if v := getenv("GW_PUSH_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)

@@ -98,3 +98,21 @@ func TestLoad_PushRequiresKillswitch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPimConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := Load("/nonexistent.yaml", env(nil))
+	if err != nil || c.Pim.Enabled {
+		t.Fatal("pim must default off", err)
+	}
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true"})); err == nil {
+		t.Fatal("enabled without socket/owner accepted")
+	}
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "rel/pim.sock", "GW_PIM_OWNER_USER_ID": "1"})); err == nil {
+		t.Fatal("relative socket accepted")
+	}
+	c, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}))
+	if err != nil || c.Pim.OwnerUserID != 7 {
+		t.Fatal(err, c.Pim)
+	}
+}
