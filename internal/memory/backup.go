@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -69,6 +70,38 @@ var (
 	ErrSyncedDataDir     = errors.New("memory: data_dir is inside a cloud-sync folder")
 )
 
+// homeDir is replaceable in tests.
+var homeDir = os.UserHomeDir
+
+// underDesktopDocs reports whether dir lies under ~/Desktop or ~/Documents,
+// which iCloud "Desktop & Documents" may sync. The setting cannot be read
+// reliably, so on macOS these paths are always refused (symlinks resolved).
+func underDesktopDocs(dir string) bool {
+	h, err := homeDir()
+	if err != nil || h == "" {
+		return false
+	}
+	cands := []string{filepath.Clean(dir)}
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		cands = append(cands, r)
+	}
+	hs := []string{filepath.Clean(h)}
+	if r, err := filepath.EvalSymlinks(h); err == nil {
+		hs = append(hs, r)
+	}
+	for _, c := range cands {
+		c = strings.ToLower(c) + "/"
+		for _, hh := range hs {
+			for _, sub := range []string{"desktop", "documents"} {
+				if strings.HasPrefix(c, strings.ToLower(filepath.Join(hh, sub))+"/") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // CheckBackupPolicy is the fail-closed startup gate while memory is on:
 //   - data_dir under an iCloud/Dropbox/OneDrive/Google Drive folder → refuse;
 //   - macOS: Time Machine must report the dir [Excluded] (not_excluded or
@@ -76,6 +109,9 @@ var (
 //   - other OS: refuse unless allowUnverified (explicit operator opt-in).
 func CheckBackupPolicy(dir string, allowUnverified bool) (status string, err error) {
 	low := strings.ToLower(filepath.Clean(dir)) + "/"
+	if goos == "darwin" && underDesktopDocs(dir) {
+		return BackupUnknown, ErrSyncedDataDir
+	}
 	for _, m := range syncMarkers {
 		if strings.Contains(low, m) {
 			return BackupUnknown, ErrSyncedDataDir
