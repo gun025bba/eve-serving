@@ -35,7 +35,7 @@ var sensitiveCategories = []struct {
 	{"sexual_orientation", regexp.MustCompile(`(?i)동성애자|성소수자|게이($|[^가-힣]|야|예요|에요|입니다|이다|라서|인데|임|커플)|레즈비언|양성애자|트랜스젠더|성\s*정체성|성적\s*지향|\bgay\b|\blesbian\b|\bbisexual\b|\btransgender\b|sexual\s+orientation`)},
 	{"religion", regexp.MustCompile(`(?i)(내|제|나의|저의)\s*(종교|신앙)|(종교|신앙)(는|은|이|가)\s*(불교|기독교|천주교|개신교|이슬람|가톨릭|원불교|유대교|힌두교)|(불교|기독교|천주교|개신교|이슬람교?|가톨릭|원불교|유대교|힌두교|하나님|하느님|부처님|예수님?|알라)\s*(을|를)?\s*(믿|섬기|신봉)|(교회|성당|사찰|절|모스크)\s*(에|를|을)?\s*(다녀|다님|다닌|다니|나가)|(기독교|천주교|개신교|불교|이슬람|가톨릭|원불교)\s*(신자|인|도)\s*(야|이야|예요|이에요|입니다|이다|인데|이라|임|$)|무슬림\s*(이|이야|이에요|입니다|이다|인데|이라|임)|(나|저)\s*(는|도)?\s*무슬림|신천지|여호와의\s*증인|\bmy\s+(religion|faith)\b|\bi\s*('m|am)\s+(a\s+)?(muslim|christian|catholic|buddhist|jewish|hindu)\b`)},
 	{"criminal", regexp.MustCompile(`(?i)(^|[^이예])전과\s*(가|자|기록|\d|있|\s있)|범죄\s*기록|(수감|복역)\s*(됐|되었|돼|되어|중이|했|한\s*적)|(교도소|감옥|구치소|소년원)\s*(에서|에)?\s*(출소|나왔|복역|살았|수감|갔다\s*왔|다녀왔)|출소\s*(했|한|하고)|집행유예|유죄\s*판결|\bcriminal\s+record\b|\bconvicted\b|\bfelony\b|\bi\s+(was|went)\s+(in|to)\s+(prison|jail)\b`)},
-	{"union", regexp.MustCompile(`(?i)(노조|노동조합)\s*(에\s*)?가입|(노조|노동조합)\s*(의\s*)?조합원\s*(이야|이에요|예요|입니다|임|이다|이고|이라|인데|이거든|됐|이\s*됐|이\s*에요)|\bunion\s+member`)},
+	{"union", regexp.MustCompile(`(?i)(노조|노동조합|민주노총|한국노총)\s*(에\s*)?가입\s*(했|함|해\s*있|돼|됐|되어|되었|중|했었|하셨|하셨어|해서|했는데|완료)|(노조|노동조합|민주노총|한국노총)\s*(의\s*)?조합원\s*(이야|이에요|예요|입니다|임|이다|이고|이라|인데|이거든|됐|이\s*됐|이\s*에요)|\bunion\s+member`)},
 	{"ethnicity", regexp.MustCompile(`(?i)(내|제|나의|저의)\s*(인종|민족)|(조선족|고려인|화교|혼혈)\s*(출신|이야|이에요|입니다|이다|인데|이라)|민족\s*출신|\bmy\s+(ethnicity|race)\b`)},
 	{"biometric_genetic", regexp.MustCompile(`(?i)지문\s*(정보|데이터)|홍채\s*(정보|데이터|인식\s*데이터)|유전자\s*검사|dna\s*검사|\bfingerprint\b|\bgenetic\s+test`)},
 	// finance: first-person or sentence-initial (implicit self) only; news
@@ -49,7 +49,7 @@ var thirdPartyRe = regexp.MustCompile(`(?i)(^|[^가-힣])(엄마|아빠|어머�
 
 // ... together with any sensitive term (broader than the self rules,
 // because third-party statements are always refused).
-var thirdPartyTermRe = regexp.MustCompile(`(?i)불교\s*(를|을)?\s*(믿|신자|도)|기독교|천주교|개신교|이슬람|무슬림|가톨릭\s*(신자|믿)|(교회|성당|절|사찰)\s*(에|를|을)?\s*(다녀|다니|다님|나가|열심)|신자|(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|래|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|지지자|(노조|노동조합|민주노총|한국노총)\s*(에|에서|의)?\s*(원|가입|조합원|활동|간부|위원장\s*(이|임))|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
+var thirdPartyTermRe = regexp.MustCompile(`(?i)불교\s*(를|을)?\s*(믿|신자|도)|기독교|천주교|개신교|이슬람|무슬림|가톨릭\s*(신자|믿)|(교회|성당|절|사찰)\s*(에|를|을)?\s*(다녀|다니|다님|나가|열심)|신자|(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|래|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|지지자|(노조|노동조합|민주노총|한국노총)\s*(에|에서|의)?\s*(원\s*(이|임)|가입\s*(했|함|해\s*있|돼|됐|되어|중|하셨)|조합원\s*(이|임)|활동\s*(해|하|함|했)|간부\s*(야|이|임|예요)|위원장\s*(이|임))|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
 
 // foreignIDRe candidates are validated (date + 7th digit 5-8) to avoid
 // matching arbitrary 13-digit numbers.
