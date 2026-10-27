@@ -16,6 +16,9 @@ func TestQA_RedactorLeakPaths(t *testing.T) {
 	l := logging.New(&buf, logging.DEBUG)
 	l.SetRedactor(RedactLog)
 	item := "고양이를 키운다"
+	RegisterText(item) // as store load/Clean do in production (PR #39)
+	long := strings.Repeat("주말마다 북한산 둘레길을 걷는다 ", 20)
+	RegisterText(long)
 	secret := "sk-abcdefghijklmnopqrstuv"
 	hex := strings.Repeat("0f1e2d3c", 8)
 	cases := []struct {
@@ -28,6 +31,7 @@ func TestQA_RedactorLeakPaths(t *testing.T) {
 		{"secret in message", func() { l.Warn("bad " + secret) }, []string{secret}},
 		{"bare item text in error (no block)", func() { l.Error("memory_error", "err", errors.New("write item \""+item+"\": disk full")) }, []string{item}},
 		{"bare item text field", func() { l.Info("memory_write", "text", item) }, []string{item}},
+		{"registered item text truncated in err", func() { l.Error("memory_error", "err", "write: "+long[:150]) }, []string{long[:60]}},
 		{"secret in key name", func() { l.Info("x", secret, 1) }, []string{secret}},
 	}
 	for _, c := range cases {
@@ -35,7 +39,7 @@ func TestQA_RedactorLeakPaths(t *testing.T) {
 		c.log()
 		for _, b := range c.bad {
 			if strings.Contains(buf.String(), b) {
-				t.Logf("LEAK %s: %s", c.name, strings.TrimSpace(buf.String()))
+				t.Errorf("LEAK %s: %s", c.name, strings.TrimSpace(buf.String()))
 			}
 		}
 	}

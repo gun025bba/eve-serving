@@ -28,7 +28,7 @@ var qaSensitive = []string{
 	"I'm gay", "I am a union member",
 }
 
-func TestQA_SensitiveCorpus(t *testing.T) {
+func TestQA_SensitiveCorpusV1(t *testing.T) {
 	var fp, fn int
 	for _, s := range qaOrdinary {
 		if err := CheckSensitive(s); err != nil {
