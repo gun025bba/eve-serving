@@ -35,9 +35,17 @@ func NewTailscale(logins []string) *Tailscale {
 func (t *Tailscale) Enabled() bool { return t != nil && len(t.allowed) > 0 }
 
 func (t *Tailscale) Authenticate(r *http.Request) (Identity, error) {
-	login := strings.TrimSpace(r.Header.Get(HeaderTailscaleLogin))
-	if login == "" || !IsLoopback(r.RemoteAddr) || !t.Enabled() {
+	vals, present := r.Header[HeaderTailscaleLogin]
+	if !present || !IsLoopback(r.RemoteAddr) || !t.Enabled() {
 		return Identity{}, ErrNoCredentials
+	}
+	// Present but empty/whitespace, or duplicated: reject instead of falling through.
+	if len(vals) != 1 {
+		return Identity{}, ErrForbiddenIdentity
+	}
+	login := strings.TrimSpace(vals[0])
+	if login == "" {
+		return Identity{}, ErrForbiddenIdentity
 	}
 	if _, ok := t.allowed[strings.ToLower(login)]; !ok {
 		return Identity{}, ErrForbiddenIdentity

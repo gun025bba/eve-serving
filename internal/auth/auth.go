@@ -104,22 +104,39 @@ func keys() []string {
 	return out
 }
 
-// Chain tries each authenticator in order; the first success wins. If none
-// succeed, the most specific error wins over ErrNoCredentials.
+// Chain tries each authenticator in order; the first success wins.
+// ErrNoCredentials means "not mine" and moves on to the next provider.
+// ErrForbiddenIdentity and ErrInvalidKey are definitive rejections: the chain
+// stops immediately and never falls through, so e.g. a refused identity
+// header cannot be downgraded to the api-key user by a valid Bearer key.
+// Any other provider error also stops the chain (fail closed).
 type Chain []Authenticator
 
 func (c Chain) Authenticate(r *http.Request) (Identity, error) {
-	var last error = ErrNoCredentials
 	for _, a := range c {
 		id, err := a.Authenticate(r)
 		if err == nil {
 			return id, nil
 		}
 		if !errors.Is(err, ErrNoCredentials) {
-			last = err
+			return Identity{}, err
 		}
 	}
-	return Identity{}, last
+	return Identity{}, ErrNoCredentials
+}
+
+// RejectReason maps a chain error to a short, secret-free log reason.
+func RejectReason(err error) string {
+	switch {
+	case errors.Is(err, ErrForbiddenIdentity):
+		return "forbidden_identity"
+	case errors.Is(err, ErrInvalidKey):
+		return "invalid_key"
+	case errors.Is(err, ErrNoCredentials):
+		return "no_credentials"
+	default:
+		return "provider_error"
+	}
 }
 
 type ctxKey struct{}

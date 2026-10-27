@@ -30,6 +30,6 @@ func Unauthenticated() *Error {
 	return New(401, "unauthenticated", "Authentication required: open via the tailnet HTTPS URL, or send 'Authorization: Bearer <key>'.", "authentication_error")
 }
 func ForbiddenIdentity() *Error {
-	return New(401, "identity_not_allowed", "This Tailscale login is not in the gateway allowlist.", "authentication_error")
+	return New(403, "identity_not_allowed", "This identity is not in the gateway allowlist.", "permission_error")
 }
 func Internal() *Error { return New(500, "internal_error", "Internal gateway error", "server_error") }

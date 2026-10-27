@@ -65,6 +65,8 @@ func TestChain(t *testing.T) {
 		{"api key", "100.64.0.9:5000", "", "k1", ProviderAPIKey, "api-key", nil},
 		{"api key + spoofed header", "100.64.0.9:5000", "alice@github", "k1", ProviderAPIKey, "api-key", nil},
 		{"bad key", "127.0.0.1:5000", "", "nope", "", "", ErrInvalidKey},
+		{"forbidden identity + valid key", "127.0.0.1:5000", "mallory@github", "k1", "", "", ErrForbiddenIdentity},
+		{"forbidden identity + bad key", "127.0.0.1:5000", "mallory@github", "nope", "", "", ErrForbiddenIdentity},
 		{"nothing", "127.0.0.1:5000", "", "", "", "", ErrNoCredentials},
 	}
 	for _, tc := range cases {
@@ -141,5 +143,78 @@ func TestContextAndNoop(t *testing.T) {
 	}
 	if !(NoopLimiter{}).Allow(ctx, Identity{}) {
 		t.Fatal("noop denied")
+	}
+}
+
+type stubAuth struct {
+	err   error
+	calls *int
+}
+
+func (s stubAuth) Authenticate(*http.Request) (Identity, error) {
+	*s.calls++
+	if s.err == nil {
+		return Identity{User: "next", Provider: "stub"}, nil
+	}
+	return Identity{}, s.err
+}
+
+func TestChainStopsOnRejection(t *testing.T) {
+	for _, rej := range []error{ErrForbiddenIdentity, ErrInvalidKey} {
+		var a, b int
+		c := Chain{stubAuth{rej, &a}, stubAuth{nil, &b}}
+		if _, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); !errors.Is(err, rej) || b != 0 {
+			t.Fatalf("%v: err=%v next calls=%d", rej, err, b)
+		}
+		if RejectReason(rej) == "" {
+			t.Fatal("empty reason")
+		}
+	}
+	var a, b int
+	c := Chain{stubAuth{ErrNoCredentials, &a}, stubAuth{nil, &b}}
+	if id, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); err != nil || id.User != "next" {
+		t.Fatal(id, err)
+	}
+}
+
+func TestPresentButEmptyOrDuplicateHeaders(t *testing.T) {
+	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"alice@github"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(h map[string][]string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "127.0.0.1:5000"
+		for k, v := range h {
+			r.Header[http.CanonicalHeaderKey(k)] = v
+		}
+		return r
+	}
+	cases := []struct {
+		name string
+		h    map[string][]string
+		want error
+	}{
+		{"empty login + valid key", map[string][]string{HeaderTailscaleLogin: {""}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
+		{"blank login + valid key", map[string][]string{HeaderTailscaleLogin: {"   "}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
+		{"duplicate login", map[string][]string{HeaderTailscaleLogin: {"alice@github", "alice@github"}}, ErrForbiddenIdentity},
+		{"empty authorization", map[string][]string{"Authorization": {""}}, ErrInvalidKey},
+		{"blank authorization", map[string][]string{"Authorization": {"  "}}, ErrInvalidKey},
+		{"duplicate authorization", map[string][]string{"Authorization": {"Bearer k1", "Bearer k1"}}, ErrInvalidKey},
+	}
+	for _, tc := range cases {
+		if _, err := c.Authenticate(mk(tc.h)); !errors.Is(err, tc.want) {
+			t.Errorf("%s: err %v want %v", tc.name, err, tc.want)
+		}
+	}
+}
+
+func TestChainProviderError(t *testing.T) {
+	boom := errors.New("boom")
+	var a, b int
+	c := Chain{stubAuth{boom, &a}, stubAuth{nil, &b}}
+	_, err := c.Authenticate(httptest.NewRequest("GET", "/", nil))
+	if !errors.Is(err, boom) || b != 0 || RejectReason(err) != "provider_error" {
+		t.Fatalf("err=%v next=%d reason=%s", err, b, RejectReason(err))
 	}
 }
