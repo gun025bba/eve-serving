@@ -86,6 +86,9 @@ func TestSensitive_PoliticsPolicyR10(t *testing.T) {
 		"election에서 2번 찍었어", "아들 투표 2번 찍었어", "여친 투표 1번 뽑았대", "내 딸 선거 때 2번 찍었어", "남친도 투표 3번 찍었어",
 		"나 민.주.당 지지해", "우리 아빠 정.의.당 찍었어", "민주 찍었어", "더민에 한 표 던졌어",
 		// security review of f57f1b2
+		// English keywords currently in politics.go (pinned; English-mixed text and choseong are TODO)
+		"election에서 3번 뽑았어", "election 때 1번 찍었음", "trump 찍었어", "biden 지지해", "harris 뽑았어",
+		"my political view is liberal", "my political party is green", "political affiliation: none", "i voted for him",
 		"아들이 투표 2번 찍었어", "제가 투표 2번 찍었어", "나 민주당원이야", "정의당원이야", "나 진보당원임", "우리 엄마 녹색당원입니다", "남편이 국민의힘 당원이야", "나 민 주 당 지지해",
 	}
 	allow := []string{
