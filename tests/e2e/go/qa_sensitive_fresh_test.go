@@ -112,3 +112,37 @@ func TestQA_PoliticalVariants(t *testing.T) {
 		}
 	}
 }
+
+// Round 10 (#53 adf4b72): fresh unseen political variants (not tuned to earlier misses).
+var qaR10Block = []string{
+	// punctuation between party and verb
+	"정의당·지지해", "민주당/지지함", "국민의힘~ 찍었음", "진보당? 지지자야", `"개혁신당" 지지해`, "'조국혁신당' 찍었어", "국민의힘 👍 지지",
+	// suffix forms
+	"녹색당 지지자임", "민주당 찍었음", "나 정의당 지지함", "우리 아빠는 국민의힘 지지자야",
+	// vote-number disclosures
+	"2번에 도장 찍었어", "투표용지에 1번 찍었어", "대선 때 3번 뽑았음", "총선에서 2번 찍음", "사전투표 때 1번에 했어", "이번 투표는 1번에 찍었다",
+}
+
+var qaR10Benign = []string{
+	"투표는 2번 해야 돼?", "정의당·녹색당 합당 뉴스 요약해줘", "민주당/국민의힘 의석수 비교해줘", `"개혁신당" 창당일 알려줘`,
+	"투표용지 디자인 바뀌었대", "이 서류 2번에 도장 찍어야 해?", "후보 2번이 누구야?", "사진 2번 찍었음", "지지대 2번 다시 박았어",
+}
+
+// Policy questions (logged, not failed): school / meeting votes with a number.
+var qaR10Policy = []string{"회의에서 투표 2번 했어", "반장 투표는 2번에 했어", "동아리 회장 선거에서 1번 찍었어", "투표용지에 1번"}
+
+func TestQA_PoliticalUnseenR10(t *testing.T) {
+	for _, s := range qaR10Block {
+		if CheckSensitive(s) == nil {
+			t.Errorf("R10 political variant not blocked: %q", s)
+		}
+	}
+	for _, s := range qaR10Benign {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("R10 benign blocked: %q -> %v", s, err)
+		}
+	}
+	for _, s := range qaR10Policy {
+		t.Logf("POLICY %q -> %v", s, CheckSensitive(s))
+	}
+}

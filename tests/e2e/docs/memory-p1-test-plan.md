@@ -190,3 +190,17 @@ main+#53, `go test ./...` + all QA Go tests, `QA_STRICT=1`: everything PASS exce
 | Re-approve executed card | `TestQA_ReapproveExecuted409` PASS: 409 `{"error_code":"conflict"}`; reissue also 409 conflict; written once |
 | qa-mem-mode.sh (#53) static | DB constant; unsets PGSERVICE/PGSERVICEFILE/PGDATABASE/PGHOSTADDR/PGOPTIONS; PGHOST/PGPORT only from QA_PGHOST/QA_PGPORT; post-connect check of db/local host/port; column check filtered by `table_schema=current_schema()`. Minor: PGUSER/PGPASSFILE still inherited; a non-local QA_PGHOST is rejected only after connecting |
 | qa-mem-mode.sh live (8002 llmchat_test, user `api-key`) | user-on rc 0 → user-off rc 0. PGDATABASE=llmchat, PGSERVICE, PGHOST=203.0.113.9, PGOPTIONS, DB=llmchat are ignored (still llmchat_test). Bad QA_PGPORT / QA_PGHOST → "cannot connect" rc 3. Restored: 0 users on, GW_MEMORY_ENABLED=false |
+
+## Round-10 run (2026-10-27, main 1edcf6a; #53 adf4b72)
+
+main+#53, `go test ./...` + all QA Go tests, `QA_STRICT=1`. Round-9 misses ("투표는 2번에 했어", "조국혁신당, 지지해", "녹색당…지지함") now blocked; all earlier tests PASS.
+
+`TestQA_PoliticalUnseenR10` (fresh, unseen): **FAIL 10/17 not blocked**
+- punctuation: "정의당·지지해", "민주당/지지함", "국민의힘~ 찍었음", "진보당? 지지자야", `"개혁신당" 지지해`, "'조국혁신당' 찍었어", "국민의힘 👍 지지" (all 7 punctuation forms)
+- vote number: "2번에 도장 찍었어", "투표용지에 1번 찍었어", "사전투표 때 1번에 했어"
+- blocked OK: "녹색당 지지자임", "민주당 찍었음", "나 정의당 지지함", "우리 아빠는 국민의힘 지지자야", "대선 때 3번 뽑았음", "총선에서 2번 찍음", "이번 투표는 1번에 찍었다"
+- benign 9/9 allowed
+
+Policy questions (logged only): "회의에서 투표 2번 했어" allowed; "반장 투표는 2번에 했어" **blocked**; "동아리 회장 선거에서 1번 찍었어" allowed; "투표용지에 1번" allowed.
+
+qa-mem-mode.sh (#53 adf4b72): unsets PGUSER/PGPASSFILE/PGSSLMODE too. Remote QA_PGHOST refused with exit 2 before any psql call (fake psql/curl/nc/ssh on PATH recorded no calls) for 203.0.113.9, db.example.invalid, "localhost,203.0.113.9", "203.0.113.9,/tmp", "127.0.0.1x". **Gap (Low)**: comma host list "/tmp,203.0.113.9" passes the pre-check (matches `/*`) and psql is invoked; libpq would fall back to the remote host if the socket fails (the post-connect check still refuses). Live on 8002 llmchat_test: user-on rc 0, user-off rc 0; restored (0 users on, GW_MEMORY_ENABLED=false).
