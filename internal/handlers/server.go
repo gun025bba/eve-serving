@@ -198,6 +198,8 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		id, err := s.Auth.Authenticate(r)
 		if err != nil {
 			s.M.Auth.WithLabelValues("none", "denied").Inc()
+			// Never log header values or keys; reason + request metadata only.
+			s.Log.Warn("auth_rejected", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "reason", auth.RejectReason(err))
 			s.fail(w, r, authErr(err))
 			return
 		}

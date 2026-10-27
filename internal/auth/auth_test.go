@@ -65,6 +65,8 @@ func TestChain(t *testing.T) {
 		{"api key", "100.64.0.9:5000", "", "k1", ProviderAPIKey, "api-key", nil},
 		{"api key + spoofed header", "100.64.0.9:5000", "alice@github", "k1", ProviderAPIKey, "api-key", nil},
 		{"bad key", "127.0.0.1:5000", "", "nope", "", "", ErrInvalidKey},
+		{"forbidden identity + valid key", "127.0.0.1:5000", "mallory@github", "k1", "", "", ErrForbiddenIdentity},
+		{"forbidden identity + bad key", "127.0.0.1:5000", "mallory@github", "nope", "", "", ErrForbiddenIdentity},
 		{"nothing", "127.0.0.1:5000", "", "", "", "", ErrNoCredentials},
 	}
 	for _, tc := range cases {
@@ -141,5 +143,36 @@ func TestContextAndNoop(t *testing.T) {
 	}
 	if !(NoopLimiter{}).Allow(ctx, Identity{}) {
 		t.Fatal("noop denied")
+	}
+}
+
+type stubAuth struct {
+	err   error
+	calls *int
+}
+
+func (s stubAuth) Authenticate(*http.Request) (Identity, error) {
+	*s.calls++
+	if s.err == nil {
+		return Identity{User: "next", Provider: "stub"}, nil
+	}
+	return Identity{}, s.err
+}
+
+func TestChainStopsOnRejection(t *testing.T) {
+	for _, rej := range []error{ErrForbiddenIdentity, ErrInvalidKey} {
+		var a, b int
+		c := Chain{stubAuth{rej, &a}, stubAuth{nil, &b}}
+		if _, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); !errors.Is(err, rej) || b != 0 {
+			t.Fatalf("%v: err=%v next calls=%d", rej, err, b)
+		}
+		if RejectReason(rej) == "" {
+			t.Fatal("empty reason")
+		}
+	}
+	var a, b int
+	c := Chain{stubAuth{ErrNoCredentials, &a}, stubAuth{nil, &b}}
+	if id, err := c.Authenticate(httptest.NewRequest("GET", "/", nil)); err != nil || id.User != "next" {
+		t.Fatal(id, err)
 	}
 }
