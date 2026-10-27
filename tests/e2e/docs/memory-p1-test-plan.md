@@ -117,5 +117,19 @@ Known, not a failure: before #34 merges, #38 memory_propose with sensitive text 
 
 | # | Requirement | QA test | Status |
 |---|---|---|---|
-| R1 | Indirect vote preference is political and always blocked ("지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", third-party "우리 남편은 매번 민주당 찍어"); benign controls pass ("선거 날 투표소 위치 알려줘", "사전투표 기간 언제야?", "후보 2번 공약 요약해줘", "기호 1번 후보 토론 영상 찾아줘") | `TestQA_VotePreferenceRequired` (strict, no QA_STRICT needed) + controls in `TestQA_SensitiveFresh` | open: not run against heads yet (compile-only) |
+| R1 | Indirect vote preference is political and always blocked ("지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", third-party "우리 남편은 매번 민주당 찍어"); benign controls pass ("선거 날 투표소 위치 알려줘", "사전투표 기간 언제야?", "후보 2번 공약 요약해줘", "기호 1번 후보 토론 영상 찾아줘") | `TestQA_VotePreferenceRequired` (strict, no QA_STRICT needed) + controls in `TestQA_SensitiveFresh` | closed (#45 e5003dd): not run against heads yet (compile-only) |
 | R2 | Tool results use `error_code` only: called-anyway propose while user off returns `{"status":"denied","error_code":"kill_switch"}`, no `error` key | `TestQA_KillSwitch_ProposeDenied` | open: not run against heads yet (compile-only) |
+
+## Round-6 run (2026-10-27, main 556ea59 = #34/#39/#40 merged)
+
+| PR | Head | Tree | Result |
+|---|---|---|---|
+| #38 | e4a3017 | alone (#40 already in main) | PASS except `TestQA_KillSwitch_ProposeDenied`: tool result still `{"error":"kill_switch"}` (fixed by #46) |
+| #46 | f5963c6 | on #38, + #45 | PASS all; R2 error_code-only **closed** |
+| #45 | e5003dd | alone (base main) | PASS; `TestQA_VotePreferenceRequired` 4/4, fresh FP=0 FN=0; R1 **closed** |
+| #46+#45+#43 | — | merged | QA PASS; only `TestListMessages_LastNOldestToNewest` fails, flaky on main too (5/10) |
+| #43 | cd2ed14 | alone (base #40) | `TestQA_SettingsPatchBearer403` PASS; PerUserIsolation POST fails only because #38 not in base |
+| #44 | 49bd5b2 | alone (base #38 3fa8aa1) | `go test ./internal/...` PASS |
+| #41 | c79b7e7 | docs | line-153 stale text removed; error_code only. Still stale: memory.md §9.1 L237-238 ("후속 사용자별", "approve·propose 연결은 후속 PR") |
+
+Note: after #43, `api-memory.spec.js` beforeEach enabling memory via Bearer PATCH /v1/settings gets 403; on-profile E2E needs a browser-session setup step (or pre-enabled test user).
