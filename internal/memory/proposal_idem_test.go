@@ -35,3 +35,25 @@ func TestHasBlockMarker_CfAndCompat(t *testing.T) {
 		}
 	}
 }
+
+func TestExecute_RetryDoesNotResurrectDeleted(t *testing.T) {
+	fs, err := Open(filepath.Join(t.TempDir(), "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{"op":"add","items":[{"kind":"fact","text":"고양이를 키운다"}]}`)
+	c := ProposalCtx{Actor: "user", ActionID: "01JBACTION2", ActionCreated: time.Unix(1700000000, 0)}
+	ids, err := Execute(fs, 8, raw, c, nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Delete(fs, 8, ids, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Execute(fs, 8, raw, c, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := fs.Load(8); len(d.Items) != 0 {
+		t.Fatalf("deleted item resurrected: %v", d.Items)
+	}
+}

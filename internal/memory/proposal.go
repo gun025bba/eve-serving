@@ -237,6 +237,11 @@ func Execute(st Store, uid int64, raw json.RawMessage, c ProposalCtx, src *Sourc
 		for _, x := range d.Items {
 			have[x.ID] = true
 		}
+		// a retried Execute must not resurrect an item the user deleted
+		// after the first run (security Low #44).
+		for _, t := range d.Tombstones {
+			have[t.ID] = true
+		}
 		for _, it := range add {
 			if have[it.ID] {
 				continue
