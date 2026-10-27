@@ -1,5 +1,7 @@
 # iOS 셸 설계 (Eve Shell)
 
+> **경계 원칙(인증 독립)**: 기능은 인증 방식에 의존하지 않는다. 기능·라우트는 인증 미들웨어가 요청 컨텍스트에 붙인 principal `{user_id, scopes}`(내부 `users.id`)만 보고 필요한 scope만 검사하며, 쿠키·세션·페어링·Bearer 구분은 인증 계층 안에만 둔다.
+
 상태: **보안 조건부 승인(2026-10-27)**. 머지 전 최종 head 보안 리뷰 필요. 사용자 결정: 무료 Apple ID + SideStore(또는 AltStore+AltServer) 사이드로딩을 먼저 하고, 푸시가 필요해지면 $99 TestFlight로 옮긴다.
 
 ## 1. 구조
@@ -26,7 +28,7 @@
 
 ## 4. 인증 (identity-transport.md와 일치)
 - 셸도 브라우저와 똑같이 **페어링 → 세션 쿠키**를 쓴다. `WKWebsiteDataStore.default()`(영구 저장소)에 HttpOnly 쿠키로 저장된다.
-- 네이티브 저장소(Keychain/UserDefaults)에는 토큰을 두지 않는다. 셸은 Bearer를 보내지 않는다. 셸은 브라우저 세션이므로 `/v1/memory*`, approve 같은 세션 전용 규칙이 그대로 적용된다.
+- 네이티브 저장소(Keychain/UserDefaults)에는 토큰을 두지 않는다. 셸은 Bearer를 보내지 않는다. 셸이 받는 principal은 웹과 같아서(`interactive` scope) `/v1/memory*`, approve 같은 규칙이 그대로 적용된다. 셸·브리지 기능은 인증 방식을 가정하지 않는다(인증이 바뀌면 웹 로그인 화면만 바뀐다).
 - 주의: Safari PWA와 셸은 쿠키 저장소가 달라서 **기기마다 셸에서도 따로 페어링**해야 한다. WKWebView 영구 저장소에도 ITP·저장소 정리 정책이 적용된다. 유휴 기간이 길거나 앱을 다시 설치하거나 다른 Apple ID로 다시 서명하면 쿠키가 사라질 수 있고, 그때는 재페어링한다(세션 수명 유휴 30일/절대 180일은 서버 기준).
 - **페어링 해제(필수)**: 셸 설정에 'unpair' 동작을 둔다. `WKWebsiteDataStore.default().removeData(ofTypes: allWebsiteDataTypes, modifiedSince: .distantPast)`로 쿠키와 웹사이트 데이터를 모두 지운다. 서버 세션 revoke는 웹의 로그아웃 API로 먼저 시도한다.
 - 나중에 푸시를 넣으면 APNs 기기 토큰은 비밀이 아닌 식별자로 다룬다. 세션 쿠키로 인증한 요청으로 등록한다.
@@ -49,14 +51,14 @@
 
 ## 7. 확장 청사진 (TestFlight, $99)
 - 같은 번들 ID로 ADP 팀에 옮기면 TestFlight 90일 빌드가 되고 7일 재서명이 없어진다. 처음부터 번들 ID와 코드 구조를 그대로 옮길 수 있게 둔다.
-- 푸시: `register_push {token}` 브리지 메시지 + gateway `POST /v1/devices`(세션 인증)를 추가한다. 이 API는 그때 별도 계약으로 정하고 외부 발송(APNs)이라 사용자 승인 대상이다.
+- 푸시: `register_push {token}` 브리지 메시지 + gateway `POST /v1/devices`(`interactive` scope)를 추가한다. 이 API는 그때 별도 계약으로 정하고 외부 발송(APNs)이라 사용자 승인 대상이다.
 - Siri(App Intents)와 위젯: App Groups가 필요하다. 표시용 최소 데이터만 공유 컨테이너에 두고 세션 쿠키는 공유하지 않는다.
 - 하드코딩 지점: 시작 URL, 허용 출처 하나. 나중에 목록 설정으로 바꾼다.
 
 ## 8. SemVer
 - 저장소/gateway: **변경 없음**(셸은 새 클라이언트이고 서버 계약을 바꾸지 않는다). 서버 쪽 추가(예: `/shell/` 정적 서빙)가 필요해지면 **MINOR**다.
 - 셸: `shell-v0.1.0`부터 시작한다.
-- 보안 경계: 새 인증 경로는 없다(같은 세션 쿠키). 다만 브리지가 웹 콘텐츠에 네이티브 기능을 노출하므로, 브리지에 민감한 기능(파일, 알림, 외부 발송)을 추가할 때마다 보안 검토가 필요하다. 푸시 도입은 MAJOR 후보로 다시 판단한다.
+- 보안 경계: 새 인증 경로는 없다(웹과 같은 인증 계층·같은 principal). 다만 브리지가 웹 콘텐츠에 네이티브 기능을 노출하므로, 브리지에 민감한 기능(파일, 알림, 외부 발송)을 추가할 때마다 보안 검토가 필요하다. 푸시 도입은 MAJOR 후보로 다시 판단한다.
 
 ## 9. 보안 검토 결과
 조건부 승인: 출처 정확 일치·내비게이션 제한(§3), source 비인증 경로 금지·수동 설치 대체(§5), 영구 데이터 저장소 허용 + unpair 필수(§4). 머지 전 최종 head 리뷰.
