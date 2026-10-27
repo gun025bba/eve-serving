@@ -358,3 +358,24 @@ func TestMemoryGating_UserOffToolCallKillSwitch(t *testing.T) {
 		t.Fatal("stored")
 	}
 }
+
+// Security Low #52: after the tombstone is gone (TTL or Purge), a replayed
+// approve must still not re-run Execute: the action state blocks it.
+func TestMemoryApprove_ReplayAfterTombstoneGoneBlocked(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	body := `{"confirm_token":"` + tok + `","payload_hash":"` + ph + `"}`
+	if r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 200 {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	uid := uidOf(t, &e.env, "alice@example")
+	d, _ := fs.Load(uid)
+	memory.Delete(fs, uid, []string{d.Items[0].ID}, time.Now())
+	fs.Update(uid, func(d *memory.Doc) error { d.Tombstones = nil; return nil }) // as after TTL / Purge
+	if r, _ := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", body); r.StatusCode != 409 {
+		t.Fatal("replay", r.StatusCode)
+	}
+	if d, _ := fs.Load(uid); len(d.Items) != 0 {
+		t.Fatal("resurrected", d.Items)
+	}
+}

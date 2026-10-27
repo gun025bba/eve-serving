@@ -193,6 +193,8 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 		return deny("tainted")
 	case errors.Is(err, memory.ErrScheduler):
 		return deny("scope_denied")
+	case errors.As(err, &rej) && rej.Reason == "filter_limit":
+		return deny("filter_limit")
 	case errors.As(err, &rej):
 		return deny("secret_detected")
 	case errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrTooMany):
@@ -301,6 +303,14 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, errors.New("audit unavailable"))
 		return
 	}
+	// An executed action stays 'approved' (no separate status value, no
+	// migration). That state, not the item tombstones, is what blocks a
+	// second Execute: tombstones expire after TombstoneTTL or a Purge, the
+	// action state does not (security Low #52).
+	if st, err := ap.ActionStatus(r.Context(), user(r), id); err == nil && st != "pending" {
+		s.writeCode(w, r, "conflict")
+		return
+	}
 	if err := ap.ApproveAction(r.Context(), user(r), id, *a.TokenSHA256, now); err != nil {
 		s.actionErr(w, r, err)
 		return
@@ -358,6 +368,8 @@ func memValidateCode(err error) string {
 		return "tainted"
 	case errors.Is(err, memory.ErrScheduler):
 		return "scope_denied"
+	case errors.As(err, &rej) && rej.Reason == "filter_limit":
+		return "filter_limit"
 	case errors.As(err, &rej):
 		return "secret_detected"
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrFileTooLarge):

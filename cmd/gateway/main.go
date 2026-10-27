@@ -101,7 +101,7 @@ func main() {
 		log.Warn("memory_redact_registry_over_cap", "user_id", uid, "level", level)
 	}
 	m.Reg.MustRegister(
-		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_degraded_users", Help: "Users whose log-mask set uses the stride fallback (over per-user cap)"},
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_degraded_users", Help: "Users whose log-mask set uses the stride fallback (over per-user cap; includes fail-closed users)"},
 			func() float64 { d, _ := memory.RegistryStats(); return float64(d) }),
 		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_fail_closed_users", Help: "Users over the cap even with the fallback (global fail-closed)"},
 			func() float64 { _, f := memory.RegistryStats(); return float64(f) }),

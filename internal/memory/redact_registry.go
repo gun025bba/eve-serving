@@ -39,7 +39,8 @@ type userReg struct {
 var OnRegistryCap func(uid int64, level string)
 
 // RegistryStats reports how many users are on the stride fallback and how
-// many are over even that (global fail-closed).
+// many are over even that (global fail-closed). A fail-closed user is also
+// counted as degraded, so failClosed <= degraded.
 func RegistryStats() (degraded, failClosed int) {
 	reg.mu.RLock()
 	defer reg.mu.RUnlock()

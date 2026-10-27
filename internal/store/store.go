@@ -215,7 +215,6 @@ type UserIDResolver interface {
 	UserID(ctx context.Context, login string) (int64, error)
 }
 
-// NewID returns a ULID for t (time-sortable, 26 chars).
 // NewID returns a ULID for t. IDs minted in the same millisecond are
 // strictly increasing (monotonic entropy), so (created_at, id) ordering is
 // stable even when timestamps tie. Never use for secrets or tokens: the

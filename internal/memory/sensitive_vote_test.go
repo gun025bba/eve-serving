@@ -21,7 +21,21 @@ func TestSensitive_PoliticianAndJamo(t *testing.T) {
 			t.Errorf("not blocked: %q", s)
 		}
 	}
-	for _, s := range []string{"이재명 대표 기사 요약해줘", "윤석열 관련 뉴스", "트럼프 관세 정책 설명해줘", "우리 팀장 응원해", "팀 대표 뽑았어", "반 대표 후보 지지해", "학생회장 후보 지지해", "기호 2번 찍었어", "동아리 대표 지지해"} {
+	for _, s := range []string{"이재명 대표 기사 요약해줘", "윤석열 관련 뉴스", "트럼프 관세 정책 설명해줘", "우리 팀장 응원해", "팀 대표 뽑았어", "반 대표 후보 지지해", "학생회장 후보 지지해", "동아리 대표 지지해"} {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("false positive %q: %v", s, err)
+		}
+	}
+}
+
+// R1: 기호 + number + 찍/뽑 is election context on its own (NFKC, spacing variants).
+func TestSensitive_VoteNumberR1(t *testing.T) {
+	for _, s := range []string{"기호 2번 찍었어", "기호2번 찍었어", "기호 ２번 찍었어", "기호 2 번 찍었어요", "기호 3번 뽑았어", "정의당 지지.", "정의당 지지!", "민주당 지지 ."} {
+		if CheckSensitive(s) == nil {
+			t.Errorf("not blocked: %q", s)
+		}
+	}
+	for _, s := range []string{"기호 1번 후보 토론 영상", "팀 대표 뽑았어", "정의당 지지율 뉴스", "사진 2번 찍었어"} {
 		if err := CheckSensitive(s); err != nil {
 			t.Errorf("false positive %q: %v", s, err)
 		}
