@@ -231,8 +231,11 @@ func memoryEnabledFromYAML(b []byte) (*bool, error) {
 	if v.Tag == "!!null" || strings.TrimSpace(v.Value) == "" {
 		return nil, fmt.Errorf("memory.enabled is present but empty/null; set true or false")
 	}
-	var out bool
-	if err := v.Decode(&out); err != nil {
+	if v.Kind != yaml.ScalarNode || v.Style != 0 {
+		return nil, fmt.Errorf("memory.enabled must be exactly true or false")
+	}
+	out, err := strictBool(v.Value)
+	if err != nil {
 		return nil, fmt.Errorf("memory.enabled: %w", err)
 	}
 	return &out, nil
@@ -259,9 +262,9 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 		if v == "" {
 			return c, fmt.Errorf("GW_MEMORY_ENABLED is set but empty; set true or false, or unset it")
 		}
-		b, err := strconv.ParseBool(v)
+		b, err := strictBool(v)
 		if err != nil {
-			return c, fmt.Errorf("GW_MEMORY_ENABLED: invalid value (want true/false)")
+			return c, fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
 		}
 		envMemory = &b
 	}
@@ -490,4 +493,16 @@ func ResolveMemoryEnabled(cfg, env *bool) (bool, string) {
 // msg "memory config resolved" with memory_enabled and memory_enabled_source.
 func MemoryResolvedLog(c Config) (string, []any) {
 	return "memory config resolved", []any{"memory_enabled", c.Memory.Enabled, "memory_enabled_source", c.Memory.EnabledSource}
+}
+
+// strictBool accepts only the exact lowercase literals "true" and "false"
+// (no on/yes/1/TRUE), shared by memory.enabled and GW_MEMORY_ENABLED.
+func strictBool(s string) (bool, error) {
+	switch s {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid value (want exactly true or false)")
 }

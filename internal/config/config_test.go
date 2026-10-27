@@ -187,7 +187,7 @@ func TestRepoConfigYAMLStrict(t *testing.T) {
 }
 
 func TestMemoryEnvEmptyOrInvalid(t *testing.T) {
-	for _, v := range []string{"", "  ", "yes-please", "on"} {
+	for _, v := range []string{"", "  ", "yes-please", "on", "yes", "1", "0", "TRUE", "False", "t"} {
 		env := func(k string) (string, bool) {
 			if k == "GW_MEMORY_ENABLED" {
 				return v, true
