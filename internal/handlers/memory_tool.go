@@ -145,7 +145,7 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 		emit(map[string]any{"object": "chat.completion.confirmation", "tool": memory.ToolPropose, "status": "denied", "error_code": code})
 		s.appendAudit(r.Context(), user(r), audit.Event{At: time.Now().UTC(), Actor: audit.ActorUser, Event: "denied",
 			Tool: memory.ToolPropose, Scope: memory.ScopeWrite, Tainted: &tainted, Status: "denied", Detail: d})
-		return toolResult(map[string]any{"status": "denied", "error": code})
+		return toolResult(map[string]any{"status": "denied", "error_code": code})
 	}
 	a, err := memory.ParseToolArgs(args)
 	if err != nil {
@@ -344,7 +344,7 @@ func memValidateCode(err error) string {
 	case errors.Is(err, memory.ErrScheduler):
 		return "scope_denied"
 	case errors.As(err, &rej):
-		return "secret_detected"
+		return rejectCode(rej)
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrFileTooLarge):
 		return "cap_exceeded"
 	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty), errors.Is(err, memory.ErrMarkup):

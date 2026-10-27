@@ -348,7 +348,7 @@ func TestMemoryGating_UserOffToolCallKillSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatAuto(t, e)
-	if res := lastToolResult(e); !strings.Contains(res, "kill_switch") {
+	if res := lastToolResult(e); strings.TrimSpace(res) != `{"error_code":"kill_switch","status":"denied"}` {
 		t.Fatalf("tool result %q", res)
 	}
 	if acts, _ := e.st.ListPendingActions(t.Context(), "alice@example"); len(acts) != 0 {
@@ -356,5 +356,12 @@ func TestMemoryGating_UserOffToolCallKillSwitch(t *testing.T) {
 	}
 	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
 		t.Fatal("stored")
+	}
+}
+
+func TestMemValidateCode_Sensitive(t *testing.T) {
+	_, err := memory.Clean("민주당 지지해")
+	if got := memValidateCode(err); got != "sensitive_category" {
+		t.Fatalf("got %q (%v)", got, err)
 	}
 }
