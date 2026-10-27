@@ -150,7 +150,7 @@
 4. 이후 pg_trgm 관련도 선택, 필요 시 pgvector.
 
 ### 9.1 P1 범위와 활성화 청사진
-- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.** P1에는 서버 플래그만 있고(킬스위치), 사용자별 설정은 approve·`memory.propose` 연결과 함께 들어간다.
+- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.**
 - **P1 저장 정책**: 삭제는 파일 삭제(항목 삭제는 파일에서 제거). 저장 디렉터리는 **백업에서 제외**하고 권한은 **0700**(파일 0600). §7의 사용자별 암호화 백업·crypto-shred는 **후속 단계**이며, 그 전까지 백업이 없으므로 삭제가 곧 영구 삭제다.
 - 감사 기록 쓰기에 실패하면 메모리 쓰기를 거부한다(500, fail-closed). 읽기 전용 상태(§7 손상 복구)에서는 쓰기를 `memory_read_only` 503으로 거부한다(ui-api-contract §3.3).
 - 최종 판단은 보안 담당이 한다.

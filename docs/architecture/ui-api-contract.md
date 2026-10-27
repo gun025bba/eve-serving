@@ -315,7 +315,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 - 사용자 `memory.enabled=false`(서버는 on)일 때:
   - 허용: `GET /v1/memory`, `GET /v1/memory/export`, `PATCH`·`DELETE /v1/memory/items/{id}`, `DELETE /v1/memory`(읽기·편집·삭제·내보내기).
   - 거부(HTTP 403 `kill_switch`): `POST /v1/memory/items`, `POST /v1/actions/{id}/approve`, 메모리 카드의 `POST /v1/proposals/{id}/revise`.
-  - 주입 없음. `memory.propose` 도구 정의를 모델에 보내지 않는다. 그래도 모델이 `memory.propose`를 호출하면 도구 결과로 `{"status":"denied","error":"kill_switch"}`를 돌려주고 아무것도 저장하지 않으며 카드도 만들지 않는다.
+  - 주입 없음. `memory.propose` 도구 정의를 모델에 보내지 않는다. 그래도 모델이 `memory.propose`를 호출하면 도구 결과로 `{"status":"denied","error_code":"kill_switch"}`를 돌려주고 아무것도 저장하지 않으며 카드도 만들지 않는다. 메모리 거부 사유는 도구 결과·SSE 카드·HTTP 모두 `error_code` 키 하나만 쓴다(별칭 없음, 코드 변경은 #38 머지 후 후속 PR).
 - 서버 `GW_MEMORY_ENABLED=false`이면 위 라우트가 모두 없고(404 `{"detail":"Not Found"}`), 도구 정의·주입도 없으며 API 응답은 메모리 도입 전과 같다.
 - 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고, 모르는 기존 키는 보존한다.
 - 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
