@@ -20,7 +20,7 @@
 | Q5 | 별도 "job 전용 스레드" 종류는 없다. `scheduled_jobs.thread_id`는 nullable: follow-up은 원 스레드, 원 스레드가 없는 job(브리핑·watch)은 **첫 실행 때 서버가 스레드를 하나 만들고**(제목 = `job_name`) 그 id를 `thread_id`에 저장, 이후 실행은 재사용. 보통 Thread라 새 필드 없음(PM §3 갱신, 컬럼 추가만 = MINOR). | MINOR |
 | Q6 | `POST /v1/threads/{id}/read` → 해당 스레드의 미읽음 proactive 메시지를 모두 `read_at=now()`, 응답 `{unread_count:0}`. 다른 사용자 스레드는 **404**. 기존 `POST /v1/messages/{id}/read`도 유지. CSRF·Origin 동일. | MINOR |
 | Q7 | `GET /v1/settings`, `PATCH /v1/settings`(부분 갱신, merge). 키는 §2. 알 수 없는 키·타입·범위 오류는 400(PM S4-4). | MINOR |
-| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17). PATCH로 `system`을 보내면 400. | MINOR |
+| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
 | Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
 | Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
@@ -28,10 +28,10 @@
 | Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 스코프 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
 | Q19 | 확인 카드 `payload_view.verb`: 고정 enum `add`\|`update`\|`send`\|`delete`\|`run`. **서버가 툴 매니페스트의 정적 `verb` 필드(배포 시 정의, TP §1.1)로만 채운다.** 모델 출력·툴 인자·사용자 입력으로는 바꿀 수 없고, 자유 텍스트 label은 없다. UI가 verb → 한국어 버튼 문구를 매핑하고, **모르는 값은 `run`으로 처리**(전방 호환). **위험 스타일은 verb가 아니라 Q13의 scopes 규칙** 그대로. enum 값 추가는 MINOR. 테스트: (1) 모든 매니페스트 툴이 유효한 `verb`를 선언(누락·무효 시 CI 실패), (2) 모델 출력이 `verb`를 바꾸는 경로 없음(모델 args에 `verb`/`payload_view`를 넣어도 카드 verb = 매니페스트 값). | MINOR |
 | Q20 | `template_kind`는 **Message 최상위 필드**(`origin`·`job_id`·`kind`와 같은 레벨)다. `provenance` 안에 넣지 않는다(`provenance`는 `{actor, job_id, job_name}`만). 예: `{"id":"…","origin":"proactive","job_id":"…","kind":null,"template_kind":"briefing","read_at":null,"provenance":{"actor":"scheduler","job_id":"…","job_name":"아침 브리핑"}}` | — |
-| Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `payload_mismatch` \| `kill_switch` \| `invalid`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
+| Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `sensitive_category` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `payload_mismatch` \| `kill_switch` \| `invalid`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
 | Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400 `invalid`). 새 제안·새 `payload_hash`·새 토큰, 원 제안 `voided`. approve 본문은 그대로(TP). 규칙은 §3.1. | MINOR |
 | Q16 | 매칭 없음 = **카드 없음**, 모델이 답한다. 별도 신호 필드 없음(P1). UI의 "메모리 관리 열기" 링크는 붙이지 않거나 고정 도움말로. (청사진 §3) | — |
-| Q17 | 메모리 읽기 전용(MEM S5-R6)은 `GET /v1/settings`의 `system.memory_read_only`. `GET /v1/memory`에는 추가 필드 없음. | MINOR |
+| Q17 | 메모리 읽기 전용(MEM S5-R6)은 설정 필드로 노출하지 않는다. 쓰기 시 503 `memory_read_only`로만 드러난다(아키텍트 결정). `GET /v1/memory`에는 추가 필드 없음. | MINOR |
 | Q18 | 스레드별 "메모리 없이"는 **P1 범위 밖**. (청사진 §3) | — |
 
 ## 2. 설정 (`users.settings`)
@@ -42,8 +42,8 @@ GET /v1/settings
   "proactive": { "enabled": false,
                  "quiet_hours": {"start": "22:00", "end": "08:00"},
                  "memory_read": false },
-  "memory":    { "enabled": true },
-  "system":    { "proactive_available": false, "tools_available": true, "memory_read_only": false }
+  "memory":    { "enabled": false },
+  "system":    { "proactive_available": false, "tools_available": true, "memory_available": false }
 }
 ```
 
@@ -52,7 +52,7 @@ GET /v1/settings
 | `proactive.enabled` | bool, false | 사용자 선톡 on/off. `system.proactive_available=false`면 UI 토글 비활성. |
 | `proactive.quiet_hours` | `{"start":"22:00","end":"08:00"}` | 24시간 `HH:MM`. 서버 시간대 **Asia/Seoul** 고정. `end < start`면 자정을 넘김(22:00–08:00). `start == end`는 400. `tz` 필드는 예약(나중에 추가, MINOR). |
 | `proactive.memory_read` | bool, false | 선톡이 메모리를 읽을지(MEM §6, 기본 off). UI는 `memory.enabled=true`일 때만 표시. |
-| `memory.enabled` | bool, true | 메모리 주입 전체 on/off(MEM §3). |
+| `memory.enabled` | bool, **false** | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 false. 실제 적용 = `system.memory_available` AND `memory.enabled`. |
 | `proactive.daily_cap` | **P1에 없음** | 서버 고정 하루 3건. 키는 예약: 나중에 1–3 범위, **낮추기만** 허용(MINOR). P1에 보내면 400(알 수 없는 키). |
 
 - PM §3의 `quiet_start`/`quiet_end`/`daily_cap` 예시는 이 계약(`quiet_hours` 객체, `daily_cap` 미노출)으로 대체한다. PM의 서버 상한(코드 상수)은 그대로.
@@ -274,7 +274,8 @@ tombstone은 API로 노출하지 않는다.
   - 매칭이 없으면 카드를 만들지 않고, 모델이 답한다(Q16).
   - **카드 없이 지우는 경로는 없다.**
 - 스타일: delete는 위험(danger) 스타일, add는 기본 스타일이다(Q13).
-- 시크릿 필터나 민감 범주에 걸리면 SSE 거부 카드 `{"status":"denied","error_code":"secret_detected"}`만 보낸다. 매칭 내용은 보내지 않는다.
+- 시크릿 필터에 걸리면 SSE 거부 카드 `{"status":"denied","error_code":"secret_detected"}`, 민감 범주(건강·성적 지향·종교·정치·범죄·노조·인종·생체/유전·금융·신분증)에 걸리면 `{"status":"denied","error_code":"sensitive_category"}`만 보낸다. 매칭 내용·세부 범주는 보내지 않는다. 직접 편집 API에서는 각각 422 `secret_detected` / 422 `sensitive_category`이다(MINOR, 새 코드).
+- 민감 범주 정책: 사용자 본인에 대한 민감 진술은 **거부**한다(P1). 제3자(가족·지인·동료 등)에 대한 민감 진술은 **항상 거부**하며 앞으로도 허용 경로를 두지 않는다.
 
 #### 3.9.5 승인 — `POST /v1/actions/{id}/approve`
 
@@ -285,7 +286,7 @@ tombstone은 API로 노출하지 않는다.
 200  { "status": "executed", "action_id": "01JB...", "result": { "op": "add", "item_ids": ["01JC..."] } }
 ```
 
-- 검사 순서: 본문 400 `invalid`(`confirm_token` 누락·빈 값 포함) → 404 `not_found`(다른 사용자도 본문 동일) → 409 `conflict`(이미 approve·void) → 410 `expired`(제안 또는 토큰 만료) → 422 `payload_mismatch` → 403 `kill_switch`(사용자 `memory.enabled=false`) / `tainted` / `scope_denied` → 실행.
+- 검사 순서: 본문 400 `invalid`(`confirm_token` 누락·빈 값 포함) → 404 `not_found`(다른 사용자도 본문 동일) → 409 `conflict`(이미 approve·void) → 410 `expired`(제안 또는 토큰 만료. 토큰이 틀리거나 재발급으로 대체된 경우도 같은 410 — 토큰 존재 여부를 구분해 노출하지 않는다) → 422 `payload_mismatch` → 403 `kill_switch`(사용자 `memory.enabled=false`) / `tainted` / `scope_denied` → 실행.
 - 실행 시점에 다시 검사한다.
   - add 텍스트는 정규화와 시크릿 필터를 다시 거친다. 걸리면 422 `secret_detected`, 개수·크기 상한은 422 `cap_exceeded`이다.
   - delete 대상이 그사이 사라졌으면 409 `item_gone`이다.
@@ -304,32 +305,71 @@ tombstone은 API로 노출하지 않는다.
 §2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
 
 ```json
-GET   → { ..., "memory": { "enabled": true }, "system": { ..., "memory_read_only": false } }
-PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
+GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_available": true } }
+PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 ```
 
-- 기본값은 true다. 그래도 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `memory` 블록은 응답에 나오지 않고, `memory` 키를 PATCH하면 400 `invalid`이다. 꺼진 상태에서는 기존 응답과 같다.
+- 사용자 `memory.enabled`의 기본값은 **off(false)**다. 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 off로 읽는다. 사용자가 직접 켜야 한다.
+- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
+- 실제 적용 = `system.memory_available` AND `memory.enabled`.
+- 사용자 `memory.enabled=false`(서버는 on)일 때:
+  - 허용: `GET /v1/memory`, `GET /v1/memory/export`, `PATCH`·`DELETE /v1/memory/items/{id}`, `DELETE /v1/memory`(읽기·편집·삭제·내보내기).
+  - 거부(HTTP 403 `kill_switch`): `POST /v1/memory/items`, `POST /v1/actions/{id}/approve`, 메모리 카드의 `POST /v1/proposals/{id}/revise`.
+  - 주입 없음. `memory.propose` 도구 정의를 모델에 보내지 않는다. 그래도 모델이 `memory.propose`를 호출하면 도구 결과로 `{"status":"denied","error_code":"kill_switch"}`를 돌려주고 아무것도 저장하지 않으며 카드도 만들지 않는다. 메모리 거부 사유는 도구 결과·SSE 카드·HTTP 모두 `error_code` 키 하나만 쓴다(별칭 없음, 코드 변경은 #38 머지 후 후속 PR).
+- 서버 `GW_MEMORY_ENABLED=false`이면 위 라우트가 모두 없고(404 `{"detail":"Not Found"}`), 도구 정의·주입도 없으며 API 응답은 메모리 도입 전과 같다.
+- 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고, 모르는 기존 키는 보존한다.
+- 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
-- `system.memory_read_only`는 읽기 전용이다. PATCH로 보내면 400이다.
+- `system.*`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다. (P1 설정 응답에는 `system.memory_read_only`가 없다. 읽기 전용 상태는 쓰기 시 503 `memory_read_only`로만 드러난다. 노출이 필요해지면 MINOR로 추가한다.)
+- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR.
+
+#### 3.9.7a 보안 요건 (security Med, 고정)
+
+- approve·revise·reissue는 **브라우저 세션 전용**이다(세션 provider 허용 목록 + CSRF·Origin 검사). Bearer(API 키)는 403 `scope_denied`이다. **자동 승인 경로는 없다**(모델·scheduler·API 키 어느 것도 승인할 수 없음).
+- `confirm_token`:
+  - (user, action_id, payload_hash)에 바인딩된다.
+  - 1회용이다(승인 시 조건부 UPDATE로 소비).
+  - TTL 120초. 만료·대체·불일치는 모두 410 `expired`.
+  - 서버에는 해시만 저장한다(평문 저장·로그 없음). 비교는 상수 시간.
+  - revise·reissue 시 이전 토큰은 무효가 된다.
+- taint는 서버 상태로 결정하며 스레드에 고정(sticky)된다. 감사에는 출처 목록의 개수와 해시를 남긴다.
+- 실행 실패 시 카드는 pending으로 되돌아간다(소비만 되고 실행되지 않는 상태 없음).
+- 백업 제외(#42, fail-closed): 메모리가 켜진 상태로 시작할 때 메모리 디렉터리가 Time Machine 제외 목록(고정 경로 `tmutil`, 정확한 줄 일치)에 없거나 동기화 폴더(iCloud·Dropbox 등) 안이면 **시작을 거부**한다. 확인할 수 없는 환경에서만 `GW_MEMORY_ALLOW_UNVERIFIED_BACKUP=1`로 명시적으로 우회하며, 이때 시작 경고를 남긴다. 절차는 memory.md 런북 참고.
 
 #### 3.9.8 메모리 오류 코드 요약
 
 | HTTP | 본문 | 메모리 상황 |
 |---|---|---|
 | 400 | `{"error_code":"invalid"}` | strict decode 실패, kind·길이·형식 오류 |
-| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 approve, taint, scheduler |
-| 404 | `{"error_code":"not_found"}` 또는 기존 404 | 항목·제안 없음 / 서버 off이면 라우트 없음(기존 404 그대로) |
+| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 항목 추가·approve·revise, taint, scheduler·Bearer |
+| 404 | `{"error_code":"not_found"}` | 항목·제안 없음, 다른 사용자 소유(본문 동일) |
+| 404 | `{"detail":"Not Found"}` | 서버 메모리 off(`GW_MEMORY_ENABLED=false`): `/v1/memory*`·approve 라우트가 등록되지 않아 게이트웨이 기본 404 |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
-| 410 | `expired` | 제안·토큰 만료 |
-| 422 | `secret_detected` / `cap_exceeded` / `payload_mismatch` | 시크릿·민감 범주 / 200개·64KB·300자 / 해시 불일치 |
+| 410 | `expired` | 제안·토큰 만료, 틀리거나 대체된 토큰 |
+| 422 | `secret_detected` / `sensitive_category` / `cap_exceeded` / `payload_mismatch` | 시크릿 / 민감 범주 / 200개·64KB·300자 / 해시 불일치 |
 | 500 | `{"error":{"code":"internal_error",...}}` | 감사 쓰기 실패 등(fail-closed) |
 | 503 | `{"error":{"code":"memory_read_only",...}}` | 파일 손상·권한 이상, 복구 전까지 쓰기 거부 |
 
+- 404 본문 구분: `{"detail":"Not Found"}`는 **기능 꺼짐**(라우트 없음), `{"error_code":"not_found"}`는 **기능은 켜져 있고 대상이 없음**이다. UI는 전자를 "메모리 사용 불가", 후자를 "항목 없음"으로 보여준다.
+- `PATCH /v1/memory/items/{id}` 오류 전체 목록:
+  | HTTP | 본문 | 원인 |
+  |---|---|---|
+  | 400 | `invalid` | JSON 아님·객체 아님, 모르는 필드, 타입 오류(`text`·`pinned`·`expires_at`·`if_updated_at`), 빈 텍스트, 형식 오류, 메모리 블록 마커(`<user_memory>` 변형) 포함 |
+  | 404 | `not_found` | 항목 없음(다른 사용자 항목 포함) |
+  | 404 | `{"detail":"Not Found"}` | 서버 메모리 off |
+  | 409 | `conflict` | `if_updated_at`이 현재 값과 다름 |
+  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터에 걸림 |
+  | 422 | `sensitive_category` | 새 텍스트가 민감 범주에 걸림 |
+  | 422 | `cap_exceeded` | 300자 초과, 파일 64KB 초과 |
+  | 403 | CSRF 오류(기존 형식) | Origin/CSRF 불일치 |
+  | 500 | `internal_error` | 감사 쓰기 실패(fail-closed, 파일 변경 없음) 등 |
+  | 503 | `memory_read_only` | 파일 손상·권한 이상 |
 - 500과 503은 기존 게이트웨이 오류 형식(`error` 객체)을 쓰고, `error_code` 단일 필드 형식이 아니다(현재 구현 그대로).
 - UI는 `error.code`를 읽어 고정 문구로 보여준다.
 
 
 ## 4. 확장 메모 (청사진)
+- **민감 범주 자기 진술 opt-in(청사진)**: 향후 사용자가 명시적으로 켜면 본인에 대한 민감 진술을 **경고 확인 카드**(위험 스타일, 범주 안내 문구)로 저장할 수 있게 하는 설정(`memory.allow_self_sensitive`, 기본 off)을 검토한다. 제3자 민감 진술은 이 설정과 무관하게 항상 거부한다. 도입 시 보안 리뷰 대상, MINOR.
 - **job 스레드 표시(Q5)**: 목록에서 job이 만든 스레드를 구분해야 하면 Thread에 `job_id`를 노출(MINOR). P1은 메시지 `provenance`·`template_kind`로 충분.
 - **매칭 없음 신호(Q16)**: 필요하면 SSE `tool_result`에 `status:"no_match"`를 노출(MINOR).
 - **스레드별 메모리 끄기(Q18)**: `threads.settings` JSONB(`{"memory":false}`) 또는 `PATCH /v1/threads/{id} {"memory":false}`. 프롬프트 동작 변경이라 리뷰 대상.
