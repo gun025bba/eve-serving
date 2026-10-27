@@ -106,9 +106,16 @@ Heads verified: #38 3fa8aa1, #40 cb233e6, #34 aa843e1, #39 80f84cc, #41 c54065d.
 | #38+#40 merge | TestQA_Approve_NonPending409 (replay 409 conflict, foreign 404) | PASS |
 | #34 | corpus V1 40/25, unseen 12/15, PR V2/DenyList | PASS (FP 0, FN 0) |
 | #34 | fresh (round-3 FP: HIV 기사, 성당 바자회; FN: 동료가 게이래, 여권 원거리 번호) | all fixed |
-| #34 | fresh round-4 politics/health: benign 6 FP 0; sensitive 6 FN 1 | FN "지난 선거에 2번 찍었어" |
+| #34 | fresh round-4 politics/health: benign 6 FP 0; sensitive 6 FN 1 | FN "지난 선거에 2번 찍었어" → now **REQUIRED** (see below) |
 | #34 | TestQA_SensitiveCategory422 (422 sensitive_category, no echo, secret → secret_detected, nothing stored) | PASS |
 | #39 | go test ./internal/... | PASS |
 
 Known, not a failure: before #34 merges, #38 memory_propose with sensitive text is denied as secret_detected (sensitive_category arrives with #34).
 
+
+## Required before memory default-on (architect decisions, 2026-10-27 15:18 KST)
+
+| # | Requirement | QA test | Status |
+|---|---|---|---|
+| R1 | Indirect vote preference is political and always blocked ("지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", third-party "우리 남편은 매번 민주당 찍어"); benign controls pass ("선거 날 투표소 위치 알려줘", "사전투표 기간 언제야?", "후보 2번 공약 요약해줘", "기호 1번 후보 토론 영상 찾아줘") | `TestQA_VotePreferenceRequired` (strict, no QA_STRICT needed) + controls in `TestQA_SensitiveFresh` | open: not run against heads yet (compile-only) |
+| R2 | Tool results use `error_code` only: called-anyway propose while user off returns `{"status":"denied","error_code":"kill_switch"}`, no `error` key | `TestQA_KillSwitch_ProposeDenied` | open: not run against heads yet (compile-only) |

@@ -3,6 +3,7 @@ package handlers
 // QA (#38 + #40 together), final architect decision: user memory off -> memory_propose is
 // hidden from tool definitions; if the model calls it anyway the result is a kill_switch
 // error (not "unknown tool") and nothing is stored. approve -> 403 kill_switch.
+// Tool results use the error_code key only: {"status":"denied","error_code":"kill_switch"}, no "error" alias.
 // Needs memToolEnv/proposeAndToken (PR #38) and settings (PR #40); compile on a tree with both.
 import (
 	"encoding/json"
@@ -38,6 +39,18 @@ func TestQA_KillSwitch_ProposeDenied(t *testing.T) {
 	res := lastToolResult(e)
 	if strings.Contains(res, "unknown tool") {
 		t.Errorf("called-anyway result is 'unknown tool'; want kill_switch")
+	}
+	var tr map[string]any
+	if i, j := strings.Index(res, "{"), strings.LastIndex(res, "}"); i >= 0 && j > i {
+		if err := json.Unmarshal([]byte(res[i:j+1]), &tr); err != nil {
+			t.Errorf("tool result not JSON: %v", err)
+		}
+	}
+	if tr["status"] != "denied" || tr["error_code"] != "kill_switch" {
+		t.Errorf("tool result %v: want {\"status\":\"denied\",\"error_code\":\"kill_switch\"}", tr)
+	}
+	if _, ok := tr["error"]; ok {
+		t.Errorf("tool result carries legacy 'error' key: %v", tr)
 	}
 	if len(acts) != 0 || !strings.Contains(res, "kill_switch") {
 		t.Errorf("propose while off: res=%q cards=%d (want kill_switch, no card)", res, len(acts))
