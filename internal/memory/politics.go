@@ -36,14 +36,14 @@ func foldPunct(s string) string {
 // Rule lists, kept together so they can move to config later.
 const (
 	// current and recent parties, including common abbreviations.
-	partyNames      = `더불어\s?민주당|더불어\s?민주연합|더민주|민주당|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운\s?미래|새미래|자유통일당|우리공화당|노동당|사회민주당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
+	partyNames      = `더불어\s?민주당|더불어\s?민주연합|더민주|더민|민주당|민주|국민의\s?힘|국민의\s?미래|국힘|국짐|정의당|조국혁신당|조국당|조혁당|개혁신당|개혁당|진보당|국민의당|녹색당|기본소득당|새로운\s?미래|새미래|자유통일당|우리공화당|노동당|사회민주당|사민당|녹색정의당|새누리당|한나라당|자유한국당|미래통합당`
 	politicianNames = `이재명|윤석열|한동훈|조국|이준석|김문수|안철수|홍준표|문재인|박근혜|이낙연|오세훈|김동연|심상정|트럼프|바이든|해리스|trump|biden|harris`
 	// a single-syllable surname directly before 후보 ('윤 후보 찍었어').
 	surnameCandidate = `[김이박최정강조윤장임한오서신권황안송류홍전고문양손배백허남심노하곽성차주우구민유나진지엄채원천방공현함변염여추도소석선설마길연위표명기반왕금옥육인맹제모남궁]\s?후보`
 
 	// vote-verb dictionary: support verbs; endings make them statements (not 지지율, 지지대, 지지층, 찍힌).
 	supportVerbs = `(지지|찍|뽑)(었|았|어|음|을|고|겠|해|함|하|했|합|한다|하는|$|자\s?(야|임|이|예|라|였|입|$))` +
-		`|표\s?(줬|줌|줄|준|주었|줘|던졌|던짐)|밀어\s?(줬|줌|줄|준|주었|줘|주고|주는)|팬\s?(이야|임|이에요|입니다|이다|이라|이거든|$)|후원\s?(해|하|함|했)|응원\s?(해|하|함|했)` +
+		`|(한\s?)?표\s?(를)?\s?(줬|줌|줄|준|주었|줘|던졌|던짐|행사)|밀어\s?(줬|줌|줄|준|주었|줘|주고|주는)|팬\s?(이야|임|이에요|입니다|이다|이라|이거든|$)|후원\s?(해|하|함|했)|응원\s?(해|하|함|했)` +
 		`|당원\s?(이|임|으로)`
 
 	// explicit public-election keywords.
@@ -59,7 +59,9 @@ const (
 	voteExcludes = `(반장|동아리|회의|오디션|인기|동\s?대표|아파트|입주자|학생회|반\s?대표|팀\s?대표|학교|노조)(장|에서|의)?\s?(회장|대표|반장|위원장)?\s?(선거|투표)`
 	// photo/video objects: '사진 찍었어' is not a vote.
 	photoObjects = `(사진|영상|동영상|포스터|셀카|화보|광고|프로필)\s?(을|를|도|만)?\s?(\d+\s?번\s?)?(찍|뽑)`
-	voteEndings  = `(었|았|음|을|고|겠|다|어( |$|요)|는)`
+	// vote-verb dictionary for the vote-number rule (beyond 찍/뽑 + ending).
+	ballotVerbs = `(한\s?)?표\s?(를)?\s?(던졌|던짐|던지고|줬|줌|주고|행사\s?(했|함))|기표\s?(했|함|하고)`
+	voteEndings = `(었|았|음|을|고|겠|다|어( |$|요)|는)`
 )
 
 var (
@@ -80,7 +82,7 @@ var (
 
 	// after a vote context: N번 (+ 에/으로/로) (+ 칸) + 찍/뽑 + ending, or
 	// N번에 했다, or 찬성/반대 + 찍/뽑/했.
-	voteTailRe = regexp.MustCompile(`^\S{0,3}( \S{1,6}){0,2}? ?(\d+ ?번 ?(에|으로|로)? ?((찍|뽑)` + voteEndings + `)` +
+	voteTailRe = regexp.MustCompile(`^\S{0,3}( \S{1,6}){0,2}? ?(\d+ ?번 ?(에|으로|로|한테|에게)? ?((찍|뽑)` + voteEndings + `|` + ballotVerbs + `)` +
 		`|\d+ ?번 ?(에|으로|로) ?했|\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEndings + `|(\d+ ?번 ?)?후보\S{0,3} ?((찍|뽑)` + voteEndings + `|지지\s?(해|하|함|했))|(찬성|반대)\S{0,2} ?((찍|뽑)` + voteEndings + `|했|투표\s?했))`)
 	// N번에 도장 찍었어 with nothing before it (a ballot stamp, not a document).
 	dojangRe = regexp.MustCompile(`^\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEndings)
