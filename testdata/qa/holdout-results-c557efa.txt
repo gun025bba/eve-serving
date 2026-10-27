@@ -1,0 +1,36 @@
+code head c557efa
+    sensitive_politics_default_test.go:72: R17 default set: block 62/62 | allow FP 0/103
+--- PASS: TestSensitive_PoliticsDefaultR17 (0.03s)
+    sensitive_politics_exempt_test.go:53: R18 exemption set: block 36/36 | allow FP 0/62
+--- PASS: TestSensitive_PoliticsExemptR18 (0.02s)
+    sensitive_politics_general_test.go:64: general set: block 40/40 | allow FP 0/60
+--- PASS: TestSensitive_PoliticsGeneralR16 (0.02s)
+    sensitive_politics_np_test.go:50: R20 NP/union/cue set: block 40/40 | allow FP 0/46
+--- PASS: TestSensitive_PoliticsNPR20 (0.02s)
+    sensitive_politics_r21_test.go:46: R21 set: block 36/36 | allow FP 0/32
+--- PASS: TestSensitive_PoliticsR21 (0.01s)
+    sensitive_politics_r22_test.go:42: R22 set: block 30/30 | allow FP 0/13
+--- PASS: TestSensitive_PoliticsR22 (0.00s)
+    sensitive_politics_r23_test.go:36: R23 set: block 16/16 | allow FP 0/9
+--- PASS: TestSensitive_PoliticsR23 (0.00s)
+    sensitive_politics_weak_test.go:52: R19 weak/boundary set: block 55/55 | allow FP 0/77
+--- PASS: TestSensitive_PoliticsWeakR19 (0.02s)
+--- PASS: TestSensitive_IndirectVote (0.00s)
+--- PASS: TestSensitive_VoteNumberR1 (0.00s)
+--- PASS: TestSensitive_VoteRound9 (0.00s)
+--- PASS: TestSensitive_PoliticsPolicyR10 (0.04s)
+ok  	github.com/gun025bba/eve-serving/internal/memory	0.178s
+== 00e5985
+    zz_qa_sensitive_corpus_test.go:45: ordinary=40 FP=0 | sensitive=25 FN=0
+    zz_qa_sensitive_fresh_test.go:65: fresh ordinary=24 FP=0 | sensitive=16 FN=0
+    zz_qa_sensitive_unseen_test.go:35: unseen ordinary=12 FP=0 | sensitive=15 FN=0
+== 081a31c
+    zz_qa_sensitive_corpus_test.go:45: ordinary=40 FP=0 | sensitive=25 FN=0
+    zz_qa_sensitive_fresh_test.go:77: fresh ordinary=24 FP=0 | sensitive=16 FN=0
+    zz_qa_sensitive_unseen_test.go:35: unseen ordinary=12 FP=0 | sensitive=15 FN=0
+== 45f191f
+    zz_qa_political_holdout_test.go:50: MISS[recall] "이번엔 1번 찍었다 아이가" blocked=false
+    zz_qa_political_holdout_test.go:53: holdout core blocked 19/19 | recall 11/12 | allow FP 0/34
+    zz_qa_sensitive_corpus_test.go:45: ordinary=40 FP=0 | sensitive=25 FN=0
+    zz_qa_sensitive_fresh_test.go:77: fresh ordinary=24 FP=0 | sensitive=16 FN=0
+    zz_qa_sensitive_unseen_test.go:35: unseen ordinary=12 FP=0 | sensitive=15 FN=0

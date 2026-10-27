@@ -1,0 +1,7 @@
+Results measured at code head e7544f2 (QA_STRICT=1)
+00e5985: corpus 40 ord FP0 / 25 sens FN0; fresh 24/16 FP0 FN0; unseen 12/15 FP0 FN0
+081a31c: same counts, both gates pass; political unseen recall 12/12
+2e9da67/45f191f holdout (report-only): core 19/19, recall 11/12 (miss: "이번엔 1번 찍었다 아이가" - bare number, no anchor), allow FP 0/34
+R10: pass; R16 general: block 40/40, allow FP 0/60; R17 anchor-default: block 60/60, allow FP 0/105
+Backlog: default-public bare vote (bare 투표/선거/N번 without anchor stays allowed by default, PM decision)
+Reproduce: go test -count=1 -v -run 'R10|R16|R17' ./internal/memory; QA suites via QA_STRICT=1 on the listed QA commits.

@@ -411,5 +411,8 @@ func rejectCode(rej *memory.RejectError) string {
 	if strings.HasPrefix(rej.Reason, "sensitive_") {
 		return "sensitive_category"
 	}
+	if rej.Reason == "filter_limit" {
+		return "filter_limit"
+	}
 	return "secret_detected"
 }

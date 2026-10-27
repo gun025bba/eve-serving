@@ -156,13 +156,22 @@ const (
 // variants returns the forms CheckSecret matches against: raw, NFKC,
 // confusable-folded, squashed, and up to maxDecodeDepth levels of URL /
 // base64 / hex decoding of each (bounded by maxVariants).
-func variants(s string) []string {
+func variants(s string) []string { v, _ := variantsCapped(s); return v }
+
+// variantsCapped also reports whether maxVariants cut the expansion short;
+// CheckSecret then rejects (fail-closed, security Low #49).
+func variantsCapped(s string) ([]string, bool) {
 	n := norm.NFKC.String(s)
 	f := confusables.Replace(n)
 	seen := map[string]bool{}
 	var out []string
+	capped := false
 	add := func(v string) bool {
-		if seen[v] || len(out) >= maxVariants {
+		if seen[v] {
+			return false
+		}
+		if len(out) >= maxVariants {
+			capped = true
 			return false
 		}
 		seen[v] = true
@@ -185,7 +194,7 @@ func variants(s string) []string {
 		}
 		level = next
 	}
-	return out
+	return out, capped
 }
 
 func decodeOnce(base string) []string {
@@ -235,7 +244,11 @@ func CheckSecret(text string) (err error) {
 		}
 	}()
 	sq := squash(text)
-	for _, v := range variants(text) {
+	vs, capped := variantsCapped(text)
+	if capped {
+		return &RejectError{Reason: "filter_limit"}
+	}
+	for _, v := range vs {
 		for _, p := range tools.SecretPatterns {
 			if p.Re.MatchString(v) {
 				return &RejectError{Reason: p.Name}

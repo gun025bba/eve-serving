@@ -9,7 +9,9 @@
 #   readonly-restore  -> NO restart; chmod user files back to 0600
 #   user-on | user-off -> NO restart; set users.settings memory.enabled=true|false for
 #                        QA_USER (login) in the TEST DB only (llmchat_test). Prints only the
-#                        resulting memory.enabled value.
+#                        resulting memory.enabled value. Refuses unless the server reports
+#                        db=llmchat_test, a local host and port QA_PGPORT (default 5432).
+#                        psql always uses PGHOST=QA_PGHOST (default /tmp), PGPORT=QA_PGPORT.
 #
 # Env overrides: QA_DIR (default /private/tmp/eve-qa-mem; must be a real path, no symlinks),
 #                QA_MEM_DIR (default $QA_DIR/mem).
@@ -25,6 +27,16 @@ PL=$HOME/Library/LaunchAgents/$LABEL.plist; PB=/usr/libexec/PlistBuddy
 LOG=$BASE/gateway-test.log; LLOG=$BASE/gateway-test.launchd.log
 DB=llmchat_test; APPROLE=llmchat_test
 umask 077
+# Explicit connection target: never inherit PGHOST/PGPORT/PGSERVICE etc. from the caller.
+unset PGSERVICE PGSERVICEFILE PGDATABASE PGHOSTADDR PGOPTIONS PGUSER PGPASSFILE PGSSLMODE
+export PGHOST=${QA_PGHOST:-/tmp} PGPORT=${QA_PGPORT:-5432}
+# refuse a non-local target before any connection is made
+# libpq accepts a comma-separated host list: every element must be local.
+IFS=, read -r -a _qa_hosts <<<"$PGHOST,"
+[ ${#_qa_hosts[@]} -gt 0 ] || { echo "refusing: empty QA_PGHOST" >&2; exit 2; }
+for _h in "${_qa_hosts[@]}"; do
+  case $_h in /*|localhost|127.0.0.1|::1) ;; *) echo "refusing: QA_PGHOST must be local (socket dir, localhost, 127.0.0.1, ::1)" >&2; exit 2;; esac
+done
 
 # Leak check: looks for each key's raw bytes, hex and base64 (prefixes) in the given text file.
 # Prints only YES/no, never key material.
@@ -92,9 +104,16 @@ case $MODE in
     exit 0;;
   user-on|user-off)
     : "${QA_USER:?set QA_USER to the test user login}"
-    [ "$DB" = llmchat_test ] || { echo "refusing: not the test DB" >&2; exit 2; }
     val=false; [ "$MODE" = user-on ] && val=true
-    psql -qtAX -d "$DB" -c "SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='settings'" | grep -q 1 ||
+    # target check: database name AND server host/port as reported by the server itself
+    want_port=$PGPORT
+    tgt=$(psql -qtAX -d "$DB" -c "SELECT current_database()||' '||coalesce(host(inet_server_addr()),'local')||' '||current_setting('port')") ||
+      { echo "$MODE: cannot connect" >&2; exit 3; }
+    set -- $tgt
+    [ "$1" = llmchat_test ] || { echo "refusing: connected db is not llmchat_test" >&2; exit 2; }
+    case $2 in local|127.0.0.1|::1) ;; *) echo "refusing: DB server is not local" >&2; exit 2;; esac
+    [ "$3" = "$want_port" ] || { echo "refusing: DB port $3 != expected $want_port (set QA_PGPORT)" >&2; exit 2; }
+    psql -qtAX -d "$DB" -c "SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='users' AND column_name='settings'" | grep -q 1 ||
       { echo "$MODE: users.settings missing (test DB not migrated to 00007); nothing changed" >&2; exit 3; }
     got=$(user_mem_set "$QA_USER" "$val") || { echo "$MODE: update failed" >&2; exit 3; }
     [ -n "$got" ] || { echo "$MODE: no such user in $DB (log in once via the test gateway first)" >&2; exit 3; }

@@ -34,12 +34,13 @@ var errorStatus = map[string]int{
 	"invalid": 400, "scope_denied": 403, "tainted": 403, "kill_switch": 403,
 	"not_found": 404, "item_gone": 409, "conflict": 409, "expired": 410,
 	"secret_detected": 422, "sensitive_category": 422, "cap_exceeded": 422, "payload_mismatch": 422,
+	"filter_limit": 422,
 }
 
 // ErrorCodes is the contract error_code enum (§3.3 / Q14).
 func ErrorCodes() []string {
 	return []string{"secret_detected", "sensitive_category", "cap_exceeded", "tainted", "scope_denied", "expired", "not_found",
-		"item_gone", "conflict", "payload_mismatch", "kill_switch", "invalid"}
+		"item_gone", "conflict", "payload_mismatch", "kill_switch", "invalid", "filter_limit"}
 }
 
 // writeCode writes {"error_code":code} with fixed headers.

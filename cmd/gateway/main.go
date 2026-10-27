@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/prometheus/client_golang/prometheus"
 	stdlog "log"
 	"net"
 	"net/http"
@@ -96,6 +97,15 @@ func main() {
 	log.SetRedactor(memory.RedactLog) // always: secrets and memory text never reach logs
 
 	m := metrics.New(cfg.StatsWindow)
+	memory.OnRegistryCap = func(uid int64, level string) {
+		log.Warn("memory_redact_registry_over_cap", "user_id", uid, "level", level)
+	}
+	m.Reg.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_degraded_users", Help: "Users whose log-mask set uses the stride fallback (over per-user cap; includes fail-closed users)"},
+			func() float64 { d, _ := memory.RegistryStats(); return float64(d) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{Name: "eve_memory_redact_fail_closed_users", Help: "Users over the cap even with the fallback (global fail-closed)"},
+			func() float64 { _, f := memory.RegistryStats(); return float64(f) }),
+	)
 	q := queue.New(cfg.MaxConc, cfg.MaxQueue, secs(cfg.QueueTimeoutS))
 	q.OnChange = func(w, i int64) { m.QDepth.Set(float64(w)); m.Inflight.Set(float64(i)) }
 	up := proxy.New(proxy.Options{BaseURL: cfg.Upstream, ConnectTimeout: secs(cfg.ConnectTimeoutS), ReadTimeout: secs(cfg.ReadTimeoutS),

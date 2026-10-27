@@ -19,7 +19,7 @@ func TestRedact_OverCapIsPerUser(t *testing.T) {
 	defer ReleaseUser(902)
 	var d Doc
 	for i := 0; i < MaxItems; i++ {
-		d.Items = append(d.Items, Item{Text: fmt.Sprintf("%03d", i) + strings.Repeat("가나다라마바사아자차카타파하", 21)[:3*290]})
+		d.Items = append(d.Items, Item{Text: distinctText(i, 290)})
 	}
 	registerDoc(901, d)
 	registerDoc(902, Doc{Items: []Item{{Text: "bob의 비밀 일기 내용입니다"}}})
@@ -36,4 +36,34 @@ func TestRedact_OverCapIsPerUser(t *testing.T) {
 	if got := RedactLog("bob의 비밀 일기 내용입니다"); !strings.Contains(got, "[REDACTED:memory]") {
 		t.Fatalf("bob not masked: %q", got)
 	}
+}
+
+func TestRegistryCapHookAndStats(t *testing.T) {
+	defer ReleaseUser(903)
+	var got []string
+	OnRegistryCap = func(uid int64, level string) { got = append(got, fmt.Sprintf("%d %s", uid, level)) }
+	defer func() { OnRegistryCap = nil }()
+	var d Doc
+	for i := 0; i < MaxItems; i++ {
+		d.Items = append(d.Items, Item{Text: distinctText(i, 290)})
+	}
+	registerDoc(903, d)
+	registerDoc(903, d) // no repeat warning
+	if len(got) != 1 || got[0] != "903 degraded" {
+		t.Fatal(got)
+	}
+	if dg, fc := RegistryStats(); dg < 1 || fc != 0 {
+		t.Fatal(dg, fc)
+	}
+}
+
+// distinctText yields n Hangul runes unique per (seed, position).
+func distinctText(seed, n int) string {
+	r := make([]rune, n)
+	x := uint32(seed*7919 + 1)
+	for j := range r {
+		x = x*1664525 + 1013904223
+		r[j] = rune(0xAC00 + int(x>>8)%11172)
+	}
+	return string(r)
 }

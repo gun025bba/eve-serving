@@ -392,7 +392,7 @@ func sameNotFound(t *testing.T, a, b *httptest.ResponseRecorder) {
 
 func TestErrorCodes_StatusMapping(t *testing.T) {
 	want := map[string]int{"invalid": 400, "scope_denied": 403, "tainted": 403, "kill_switch": 403, "not_found": 404,
-		"item_gone": 409, "conflict": 409, "expired": 410, "secret_detected": 422, "sensitive_category": 422, "cap_exceeded": 422, "payload_mismatch": 422}
+		"item_gone": 409, "conflict": 409, "expired": 410, "secret_detected": 422, "sensitive_category": 422, "cap_exceeded": 422, "payload_mismatch": 422, "filter_limit": 422}
 	codes := ErrorCodes()
 	if len(codes) != len(want) {
 		t.Fatal(codes)

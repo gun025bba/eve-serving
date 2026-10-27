@@ -286,6 +286,15 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	if pc.Actor == "" {
 		pc.Actor = "user"
 	}
+	// An executed action stays 'approved' (no separate status value, no
+	// migration). That state, not the item tombstones, is what blocks a
+	// second Execute: tombstones expire after TombstoneTTL or a Purge, the
+	// action state does not (security Low #52). Checked before Revalidate
+	// and the memory_approve "ok" audit, so a refused replay is not logged as ok.
+	if st, err := ap.ActionStatus(r.Context(), user(r), id); err == nil && st != "pending" {
+		s.writeCode(w, r, "conflict")
+		return
+	}
 	if code := memValidateCode(memory.Revalidate(s.Memory, s.memUID(r), a.Payload, pc)); code != "" {
 		if code == "_internal" {
 			s.memErr(w, r, errors.New("revalidate failed"))
