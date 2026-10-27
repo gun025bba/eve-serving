@@ -29,7 +29,8 @@ var allowV2 = []string{
 	"g4ming laptop 추천", "l33t code 문제 풀이", "pr0 tips for go", "게\u200b이밍 마우스", "게 이 트 웨 이",
 	"ㄱㅔㅇㅣㅁㅣㅇ 노트북", "전 과목 공부", "이 전과 같은 방식", "income tax deadline", "debt ceiling news",
 	"salary negotiation tips article", "prison break 시즌2", "cancer research news", "depression era history", "hindu temple architecture",
-	"엄마랑 영화 봤다", "친구 생일 선물 추천", "동료와 점심 약속", "남친이랑 여행 간다", "아들이 축구를 한다",
+	"민주당 지지율 기사", "국민의힘 전당대회 뉴스", "HIV 검사 기사 읽었어", "성병 예방 캠페인 기사", "장애인 주차구역 위치",
+	"엄마가 성당 바자회 사진 보내줬어", "친구가 교회 카페 추천해줬다", "보수 공사 일정 알려줘", "엄마랑 영화 봤다", "친구 생일 선물 추천", "동료와 점심 약속", "남친이랑 여행 간다", "아들이 축구를 한다",
 }
 
 var denyV2 = []string{
@@ -49,7 +50,8 @@ var denyV2 = []string{
 	"언니가 천주교 신자", "누나는 정당 당원", "할머니가 치매", "아들이 adhd 진단", "my mom has cancer", "my friend is gay",
 	"my brother was in prison", "she is muslim", "he has depression", "엄마 연봉은 5천", "아내가 임신 중이야", "동생 빚이 많아",
 	"나 무\u200b슬림이야", "나 게\u200b이야", "당 뇨 있 어", "우 울 증 진단", "ㄴㅏ ㄱㅔㅇㅣㅇㅑ", "ㅁㅜㅅㅡㄹㄹㅣㅁ이야", "I'm g4y",
-	"I'm a mus1im", "i h4ve diabetes", "my cr3dit score is 600", "전과\u200b가 있어", "여권번호M12345678",
+	"I'm a mus1im", "민주당 지지해", "국민의힘 지지자야", "정의당 찍었어", "나는 보수야", "우울해서 약 먹어", "성병 걸렸어",
+	"장애 3급이야", "시각장애가 있어", "동료가 게이래", "엄마는 민주당 당원", "여권 새로 만들었고 번호는 M12345678 이야", "i h4ve diabetes", "my cr3dit score is 600", "전과\u200b가 있어", "여권번호M12345678",
 }
 
 func TestSensitiveCorpusV2(t *testing.T) {

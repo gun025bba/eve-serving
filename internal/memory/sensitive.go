@@ -31,10 +31,10 @@ var sensitiveCategories = []struct {
 	// (게이트/게이밍/게이지, 이전과/전과목, 추수감사절, 아카이브): they need a
 	// particle, ending or first-person/verb context. Rules also run on the
 	// squashed copy, so no rule relies on whitespace alone.
-	{"health", regexp.MustCompile(`(?i)진단(을|를)?\s*받|질환\s*(이|을|를|가)?\s*(있|앓|진단)|우울증|공황\s*장애|조현병|양극성\s*장애|항우울제|암\s*(투병|환자|진단|수술|이래|이에요|이야|이\s*있|에\s*걸)|에이즈|\bhiv\b|(당뇨|고혈압|저혈압|천식|갑상선\s*(질환|암|기능)|간염|치매|뇌전증|adhd|아토피)\s*(이|가|은|는)?\s*(있|환자|진단|앓|걸렸|판정|이야|이에요|입니다|이다|라서|인데)|(고혈압|저혈압|혈압|당뇨|갑상선|천식|간염|정신과|정신\s*건강의학과|adhd)\s*약\s*(을|를)?\s*(먹|복용)|정신과\s*(에|를|을)?\s*(다녀|다니|다님|다닌|진료\s*받|치료\s*받|상담\s*받)|임신\s*중절|낙태|\bi\s+(have|had)\s+(diabetes|cancer|hiv|aids|depression|adhd|asthma)|\bdiagnosed\b|\bmy\s+(diagnosis|depression|diabetes|cancer)\b|\bschizophreni|\bbipolar\s+disorder\b|\bchemotherapy\b|\bantidepressant`)},
+	{"health", regexp.MustCompile(`(?i)진단(을|를)?\s*받|질환\s*(이|을|를|가)?\s*(있|앓|진단)|우울증|공황\s*장애|조현병|양극성\s*장애|항우울제|암\s*(투병|환자|진단|수술|이래|이에요|이야|이\s*있|에\s*걸)|에이즈|\bhiv\s*(양성|positive|감염|보균|환자|진단|\+)|\bhiv\s*(에\s*)?(걸|감염)|(우울|불안|불면)\S*\s*약\s*(을|를)?\s*(먹|복용)|성병\s*(에|이|을|를)?\s*(걸|감염|있|치료\s*받|진단)|장애\s*\d\s*(급|등급)|(지체|시각|청각|지적|정신|발달|뇌병변|신장)\s*장애\s*(가\s*있|인|야|이야|등급|판정|\d)|장애인\s*(이야|이에요|입니다|이다|등록|이라)|(당뇨|고혈압|저혈압|천식|갑상선\s*(질환|암|기능)|간염|치매|뇌전증|adhd|아토피)\s*(이|가|은|는)?\s*(있|환자|진단|앓|걸렸|판정|이야|이에요|입니다|이다|라서|인데)|(고혈압|저혈압|혈압|당뇨|갑상선|천식|간염|정신과|정신\s*건강의학과|adhd)\s*약\s*(을|를)?\s*(먹|복용)|정신과\s*(에|를|을)?\s*(다녀|다니|다님|다닌|진료\s*받|치료\s*받|상담\s*받)|임신\s*중절|낙태|\bi\s+(have|had)\s+(diabetes|cancer|hiv|aids|depression|adhd|asthma)|\bdiagnosed\b|\bmy\s+(diagnosis|depression|diabetes|cancer)\b|\bschizophreni|\bbipolar\s+disorder\b|\bchemotherapy\b|\bantidepressant`)},
 	{"sexual_orientation", regexp.MustCompile(`(?i)동성애자|성소수자|게이($|[^가-힣]|야|예요|에요|입니다|이다|라서|인데|임|커플)|레즈비언|양성애자|트랜스젠더|성\s*정체성|성적\s*지향|\bgay\b|\blesbian\b|\bbisexual\b|\btransgender\b|sexual\s+orientation`)},
 	{"religion", regexp.MustCompile(`(?i)(내|제|나의|저의)\s*(종교|신앙)|(종교|신앙)(는|은|이|가)\s*(불교|기독교|천주교|개신교|이슬람|가톨릭|원불교|유대교|힌두교)|(불교|기독교|천주교|개신교|이슬람교?|가톨릭|원불교|유대교|힌두교|하나님|하느님|부처님|예수님?|알라)\s*(을|를)?\s*(믿|섬기|신봉)|(교회|성당|사찰|절|모스크)\s*(에|를|을)?\s*(다녀|다님|다닌|다니|나가)|(기독교|천주교|개신교|불교|이슬람|가톨릭|원불교)\s*(신자|인|도)\s*(야|이야|예요|이에요|입니다|이다|인데|이라|임|$)|무슬림\s*(이|이야|이에요|입니다|이다|인데|이라|임)|(나|저)\s*(는|도)?\s*무슬림|신천지|여호와의\s*증인|\bmy\s+(religion|faith)\b|\bi\s*('m|am)\s+(a\s+)?(muslim|christian|catholic|buddhist|jewish|hindu)\b`)},
-	{"politics", regexp.MustCompile(`(?i)(지지|지지하는)\s*정당|정당\s*(지지\s*(해|하|함|했)|가입|당원)|당원이|정치\s*성향|\bpolitical\s+(view|party|affiliation)|\bvoted\s+for\b`)},
+	{"politics", regexp.MustCompile(`(?i)(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)\s*(을|를|에|의|에게)?\s*(지지(해|하|함|했|자|합|한다|하는|해요|합니다)|찍|뽑|투표\s*(했|해|할)|당원|후원)|(나|저)\s*(는|도)?\s*(진보|보수)\s*(야|예요|이에요|입니다|주의자|성향)|(지지|지지하는)\s*정당|정당\s*(지지\s*(해|하|함|했)|가입|당원)|당원이|정치\s*성향|\bpolitical\s+(view|party|affiliation)|\bvoted\s+for\b`)},
 	{"criminal", regexp.MustCompile(`(?i)(^|[^이예])전과\s*(가|자|기록|\d|있|\s있)|범죄\s*기록|(수감|복역)\s*(됐|되었|돼|되어|중이|했|한\s*적)|(교도소|감옥|구치소|소년원)\s*(에서|에)?\s*(출소|나왔|복역|살았|수감|갔다\s*왔|다녀왔)|출소\s*(했|한|하고)|집행유예|유죄\s*판결|\bcriminal\s+record\b|\bconvicted\b|\bfelony\b|\bi\s+(was|went)\s+(in|to)\s+(prison|jail)\b`)},
 	{"union", regexp.MustCompile(`(?i)노조\s*(가입|조합원)|노동조합\s*(가입|조합원)|\bunion\s+member`)},
 	{"ethnicity", regexp.MustCompile(`(?i)(내|제|나의|저의)\s*(인종|민족)|(조선족|고려인|화교|혼혈)\s*(출신|이야|이에요|입니다|이다|인데|이라)|민족\s*출신|\bmy\s+(ethnicity|race)\b`)},
@@ -50,7 +50,7 @@ var thirdPartyRe = regexp.MustCompile(`(?i)(^|[^가-힣])(엄마|아빠|어머�
 
 // ... together with any sensitive term (broader than the self rules,
 // because third-party statements are always refused).
-var thirdPartyTermRe = regexp.MustCompile(`(?i)불교|기독교|천주교|개신교|이슬람|무슬림|가톨릭|교회|성당|신자|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|노조|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
+var thirdPartyTermRe = regexp.MustCompile(`(?i)불교\s*(를|을)?\s*(믿|신자|도)|기독교|천주교|개신교|이슬람|무슬림|가톨릭\s*(신자|믿)|(교회|성당|절|사찰)\s*(에|를|을)?\s*(다녀|다니|다님|나가|열심)|신자|(더불어\s*민주당|민주당|국민의\s*힘|정의당|조국혁신당|개혁신당|진보당|국민의당|녹색당|기본소득당|새누리당|한나라당|자유한국당|미래통합당)|힌두|유대교|당뇨|고혈압|우울증|공황|조현병|치매|정신과|암\s*(투병|환자|진단|이|에)|에이즈|\bhiv\b|투병|게이($|[^가-힣]|야|예요|에요|라|래|인|커플|임)|동성애|레즈|트랜스젠더|성소수자|전과|교도소|감옥|수감|출소|조선족|고려인|혼혈|정당|당원|지지자|노조|연봉|월급|소득|빚|부채|신용\s*(점수|등급)|임신|낙태|\b(muslim|christian|catholic|buddhist|jewish|hindu|gay|lesbian|diabetes|cancer|depression|prison|jail|convicted|salary|debt)\b`)
 
 // foreignIDRe candidates are validated (date + 7th digit 5-8) to avoid
 // matching arbitrary 13-digit numbers.
@@ -147,8 +147,19 @@ func CheckSensitive(text string) error {
 			return &RejectError{Reason: "sensitive_third_party"}
 		}
 	}
+	// passport-number shape anywhere when 여권/passport appears anywhere
+	for _, v := range vs[:2] {
+		if passportWordRe.MatchString(v) && passportNoRe.MatchString(v) {
+			return &RejectError{Reason: "sensitive_gov_id"}
+		}
+	}
 	if validForeignID(vs[0]) || validForeignID(vs[1]) {
 		return &RejectError{Reason: "sensitive_gov_id"}
 	}
 	return nil
 }
+
+var (
+	passportWordRe = regexp.MustCompile(`(?i)여권|passport`)
+	passportNoRe   = regexp.MustCompile(`(?i)(^|[^a-z0-9])[a-z]\d{8}($|[^0-9])`)
+)
