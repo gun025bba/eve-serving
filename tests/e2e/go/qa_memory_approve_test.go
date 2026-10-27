@@ -74,3 +74,33 @@ func proposeAndTokenQuiet(t *testing.T, e *webEnv) (string, string, string) {
 	tok, _ := js(t, b)["confirm_token"].(string)
 	return acts[0].ID, tok, acts[0].PayloadHash
 }
+
+// Round 3 (PR #38 e7e623d): expiry boundary via Server.Now, browser-only reissue/revise.
+func TestQA_Approve_ExpiryBoundaryViaClock(t *testing.T) {
+	for _, c := range []struct {
+		after time.Duration
+		want  int
+	}{{119 * time.Second, 200}, {120 * time.Second, 410}, {10 * time.Minute, 410}} {
+		e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+		base := time.Now()
+		e.srv.Now = func() time.Time { return base }
+		id, tok, ph := proposeAndToken(t, e, "")
+		e.srv.Now = func() time.Time { return base.Add(c.after) }
+		r, b := e.call(t, "alice@example", "POST", "/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`)
+		d, _ := fs.Load(uidOf(t, &e.env, "alice@example"))
+		if r.StatusCode != c.want || (c.want != 200 && len(d.Items) != 0) {
+			t.Errorf("after %v: %d %s items=%d (want %d)", c.after, r.StatusCode, b, len(d.Items), c.want)
+		}
+	}
+}
+
+func TestQA_ReissueReviseAPIKey403(t *testing.T) {
+	e, _ := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, _, _ := proposeAndToken(t, e, "")
+	for _, p := range []string{"/v1/actions/" + id + "/reissue", "/v1/proposals/" + id + "/revise"} {
+		r, m := do(t, "POST", e.ts.URL+p, `{}`, true)
+		if r.StatusCode != 403 {
+			t.Errorf("%s with API key: %d %v", p, r.StatusCode, m)
+		}
+	}
+}
