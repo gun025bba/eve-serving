@@ -94,8 +94,8 @@ type MemoryConfig struct {
 	// off; it is on only when neither is false (both unset -> on). Rollback:
 	// set either to false and restart.
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// EnabledSource records which input decided Enabled (config, env,
-	// config+env or default) for the startup log. Not loaded from YAML.
+	// EnabledSource records which input decided Enabled (config, env or
+	// default) for the startup log. Not loaded from YAML.
 	EnabledSource string `yaml:"-" json:"-"`
 	// DataDir holds one 0600 JSON file per user, named <users.id>.json
 	// (dir 0700; permissions are verified at startup). It must sit outside
@@ -414,24 +414,30 @@ func splitList(v string) []string {
 
 // ResolveMemoryEnabled applies the 5.0.0 "off wins" rule: any explicit false
 // (config or env) turns memory off; otherwise it is on. The returned source
-// names the input that decided the value: "config", "env", "config+env" or
-// "default".
+// names the input that decided the value: "config", "env" or "default"
+// (both false or both true -> "env").
 func ResolveMemoryEnabled(cfg, env *bool) (bool, string) {
 	cfgOff := cfg != nil && !*cfg
 	envOff := env != nil && !*env
 	switch {
 	case cfgOff && envOff:
-		return false, "config+env"
+		return false, "env"
 	case cfgOff:
 		return false, "config"
 	case envOff:
 		return false, "env"
 	case cfg != nil && env != nil:
-		return true, "config+env"
+		return true, "env"
 	case cfg != nil:
 		return true, "config"
 	case env != nil:
 		return true, "env"
 	}
 	return true, "default"
+}
+
+// MemoryResolvedLog returns the single startup log line for the memory flag:
+// msg "memory config resolved" with memory_enabled and memory_enabled_source.
+func MemoryResolvedLog(c Config) (string, []any) {
+	return "memory config resolved", []any{"memory_enabled", c.Memory.Enabled, "memory_enabled_source", c.Memory.EnabledSource}
 }

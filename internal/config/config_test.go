@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,7 +113,7 @@ func TestMemoryEnabledOffWins(t *testing.T) {
 		{"both unset", "max_conc: 1\n", "", true, "default"},
 		{"env unset + config true", "memory:\n  enabled: true\n", "", true, "config"},
 		{"env true + config unset", "max_conc: 1\n", "true", true, "env"},
-		{"both false", "memory:\n  enabled: false\n", "false", false, "config+env"},
+		{"both false", "memory:\n  enabled: false\n", "false", false, "env"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,3 +130,18 @@ func TestMemoryEnabledOffWins(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryResolvedLogLine(t *testing.T) {
+	var buf bytes.Buffer
+	l := slog.New(slog.NewTextHandler(&buf, nil))
+	c := Default()
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(nil, boolp(false))
+	msg, args := MemoryResolvedLog(c)
+	l.Info(msg, args...)
+	out := buf.String()
+	if strings.Count(out, "\n") != 1 || !strings.Contains(out, `msg="memory config resolved" memory_enabled=false memory_enabled_source=env`) {
+		t.Fatalf("log line: %q", out)
+	}
+}
+
+func boolp(b bool) *bool { return &b }

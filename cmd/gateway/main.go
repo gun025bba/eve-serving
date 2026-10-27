@@ -157,7 +157,10 @@ func main() {
 	}
 	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
-	log.Info("memory_flag_resolved", "enabled", cfg.Memory.Enabled, "source", cfg.Memory.EnabledSource, "rule", "off_wins")
+	{
+		msg, args := config.MemoryResolvedLog(cfg)
+		log.Info(msg, args...)
+	}
 	if cfg.Memory.Enabled {
 		if _, ok := st.(store.UserIDResolver); !ok {
 			log.Error("memory_disabled", "err", "store cannot resolve users.id")
