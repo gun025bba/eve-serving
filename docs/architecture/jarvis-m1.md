@@ -87,7 +87,7 @@
 - 일정 제목·메모는 외부인이 넣을 수 있는 **untrusted 입력**이다(초대 메일 등). untrusted로 래핑하고, 브리핑 생성 중에는 쓰기 툴을 노출하지 않는다 → 인젝션이 쓰기로 이어지지 않는다.
 - 로그와 `tool_audit`에는 이벤트 id와 개수만 남긴다. 제목·시간 원문은 남기지 않는다.
 - 쓰기는 확인 카드 + 1회 승인 = 1회 실행 + 멱등 키(EventKit에는 멱등 키가 없으므로 **재시도하지 않는다**).
-- 플래그 요약: [건영 승인 필요] = 리마인더/캘린더 쓰기(계정 동기화로 외부 전파), CalDAV(iCloud/Google)·Google API, 모든 외부 푸시·메일·메신저 전달.
+- 플래그 요약(§10, 건영 직접 확인 대기): [건영 승인 필요] = 리마인더/캘린더 쓰기(계정 동기화로 외부 전파), CalDAV(iCloud/Google)·Google API, 모든 외부 푸시·메일·메신저 전달.
 
 ## 7. 확장 청사진
 - `calendar.add_event`/`update`: 같은 확인 게이트로 verb만 추가(MINOR).
@@ -107,3 +107,22 @@
 1. gateway↔`eve-pim`을 사용자 LaunchAgent의 unix 소켓(전용 그룹 `_evepim` + `getpeereid` uid 검사)으로 연결하는 경계를 승인하는가? 아니면 loopback TCP + 공유 비밀을 원하는가?
 2. 툴 결과에서 일정 메모·참석자·위치를 빼고 제목만 untrusted로 넣는 최소화와, 브리핑 생성 중 쓰기 툴을 노출하지 않는 것으로 인젝션 대응이 충분한가?
 3. 브리핑 스레드에 일정 원문이 `messages`에 남는다. 보존 기간을 따로 둘까(예: 30일 후 자동 삭제), 아니면 일반 스레드 정책을 따를까? 자동 삭제는 데이터 삭제라 건영 승인 대상이다.
+
+## 10. 건영 직접 확인 대기 항목 (PM 전달 2026-10-28 00:41) — **아직 승인 아님**
+아래 셋은 범위에 넣되 **건영 직접 확인 전에는 구현 결과를 켜지 않는다**(기본 off, 코드는 플래그 뒤에 둔다). 위 보안 조건(§1 확인 카드·`interactive` scope·읽기 상한, §2 헬퍼 조건, §6)은 모두 그대로 적용한다.
+
+### 10.1 리마인더·캘린더 쓰기 (iCloud 동기화) — 건영 직접 확인 대기
+- verb: `reminders.add`, `reminders.complete`, `calendar.add_event`(추가). 모두 확인 카드에 실제 값(제목·기한/시각·대상 목록/캘린더)을 표시하고, `interactive` scope로 승인해야 하며 재시도하지 않는다.
+- 쓰기는 EventKit 로컬 저장소에 하지만, macOS가 연결된 계정(iCloud 등)으로 동기화해 **외부로 나간다**. 그래서 `pim.writes_enabled`(서버 설정, 기본 false)를 두고, 건영 확인 후에만 켠다.
+- 삭제 verb는 없다.
+
+### 10.2 외부 전달 (Web Push / 이메일, 사용자 본인에게만) — 건영 직접 확인 대기
+- `Deliverer` 인터페이스에 `webpush`, `email`을 추가한다. 수신자는 **해당 users.id 본인으로 고정**한다(본인이 설정에 등록·검증한 endpoint/주소 1개, 제3자 발송 불가, 모델이 수신자를 정할 수 없음).
+- payload에는 "아침 브리핑이 준비됐어요" 수준만 담는다(일정 원문 없음). 본문은 앱에서 본다(proactive-messaging §2.4 원칙).
+- 설정: `briefing.delivery`(`inapp`(기본) | `webpush` | `email`), 운영 플래그 `GW_OUTBOUND_ENABLED`(기본 false). 끄기 우선.
+- iOS 셸 푸시(APNs)는 무료 계정이라 불가하고, TestFlight 이후 별도로 다룬다.
+
+### 10.3 브리핑 자동 삭제 (제안: 30일 보존) — 건영 직접 확인 대기
+- 브리핑 스레드의 `origin='proactive'`이고 `template_id='morning_briefing'`인 메시지를 생성 후 30일이 지나면 삭제한다(일 1회 job). 다른 스레드나 메모리는 건드리지 않는다.
+- 설정: `briefing.retention_days`(기본 30, 0 = 자동 삭제 안 함). 삭제 건수만 `tool_audit`에 남기고 내용은 남기지 않는다.
+- 데이터 삭제라서 건영 확인 전에는 기능 플래그 `briefing.retention_enabled`(기본 false)로 끈다.
