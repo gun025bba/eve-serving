@@ -84,7 +84,7 @@ func TestRedactLog_TruncatedAndEscaped(t *testing.T) {
 }
 
 func TestRedactLog_FailClosedOverCap(t *testing.T) {
-	big := make([]string, 0, maxPatternsPerUser/4+10)
+	big := make([]string, 0, maxPatternsPerUser) // beyond any real doc: last-resort path
 	for i := 0; i < cap(big); i++ {
 		big = append(big, fmt.Sprintf("항목 번호 %06d 의 긴 내용", i))
 	}

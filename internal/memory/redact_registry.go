@@ -16,9 +16,12 @@ import (
 //   - Texts longer than shingleRunes are registered as overlapping
 //     shingleRunes-rune windows, so a truncated or partial copy of an item is
 //     still masked (redaction does not depend on where a caller cut).
-//   - Per-user cap maxPatternsPerUser. Over the cap the registry FAILS
-//     CLOSED: every free-text log value is masked until the user's set is
-//     back under the cap. There is no shared global cap.
+//   - Per-user cap maxPatternsPerUser. A user whose windows exceed the cap is
+//     re-registered with windows at stride shingleRunes/2 (only that user;
+//     other users keep full windows), which still masks any copy of at least
+//     shingleRunes+shingleRunes/2-1 runes. Only if even that set exceeds the
+//     cap (impossible within MaxItems*MaxTextRunes) does the registry fail
+//     closed for all free-text values.
 const (
 	shingleRunes       = 8
 	maxPatternsPerUser = 20000
@@ -37,7 +40,9 @@ var reg struct {
 	overflow int // users currently over cap
 }
 
-func patternsFor(t string) []string {
+func patternsFor(t string) []string { return patternsStride(t, 1) }
+
+func patternsStride(t string, stride int) []string {
 	t = strings.TrimSpace(t)
 	n := utf8.RuneCountInString(t)
 	if n < minRegisteredRunes {
@@ -48,24 +53,20 @@ func patternsFor(t string) []string {
 	}
 	r := []rune(t)
 	out := make([]string, 0, n-shingleRunes+1)
-	for i := 0; i+shingleRunes <= n; i++ {
+	for i := 0; i+shingleRunes <= n; i += stride {
 		out = append(out, string(r[i:i+shingleRunes]))
+	}
+	if (n-shingleRunes)%stride != 0 {
+		out = append(out, string(r[n-shingleRunes:]))
 	}
 	return out
 }
 
 // setUserTexts replaces uid's registered texts.
 func setUserTexts(uid int64, texts []string) {
-	set := map[string]struct{}{}
-	over := false
-	for _, t := range texts {
-		for _, p := range patternsFor(t) {
-			if len(set) >= maxPatternsPerUser {
-				over = true
-				break
-			}
-			set[p] = struct{}{}
-		}
+	set, over := buildSet(texts, 1)
+	if over {
+		set, over = buildSet(texts, shingleRunes/2)
 	}
 	reg.mu.Lock()
 	defer reg.mu.Unlock()
@@ -80,6 +81,19 @@ func setUserTexts(uid int64, texts []string) {
 	}
 	reg.users[uid] = &userReg{texts: set, overflow: over}
 	reg.dirty = true
+}
+
+func buildSet(texts []string, stride int) (map[string]struct{}, bool) {
+	set := map[string]struct{}{}
+	for _, t := range texts {
+		for _, p := range patternsStride(t, stride) {
+			if len(set) >= maxPatternsPerUser {
+				return set, true
+			}
+			set[p] = struct{}{}
+		}
+	}
+	return set, false
 }
 
 func registerDoc(uid int64, d Doc) {
