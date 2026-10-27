@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/audit"
@@ -37,13 +38,24 @@ func (s *Server) withMemoryTool(defs []any, on bool) []any {
 // sources, the flag stays) and is stripped from API responses.
 const threadTaintKey = "memory_tainted"
 
+// taintFallback holds threads whose sticky flag could not be written
+// (fail-closed, process-local).
+var taintFallback sync.Map
+
 func (s *Server) markThreadTainted(r *http.Request, login, threadID string) {
 	ts, ok := s.Store.(store.ThreadSettingsStore)
 	if !ok || threadID == "" {
 		return
 	}
-	if err := ts.SetThreadSettings(r.Context(), login, threadID, json.RawMessage(`{"`+threadTaintKey+`":true}`)); err != nil {
-		s.Log.Warn("memory_taint_flag_failed", "request_id", rid(r))
+	err := ts.SetThreadSettings(r.Context(), login, threadID, json.RawMessage(`{"`+threadTaintKey+`":true}`))
+	if err != nil {
+		// retry once, then fail closed: remember the thread as tainted in
+		// process memory so proposals stay denied even without the flag.
+		err = ts.SetThreadSettings(r.Context(), login, threadID, json.RawMessage(`{"`+threadTaintKey+`":true}`))
+	}
+	if err != nil {
+		taintFallback.Store(login+"\x00"+threadID, true)
+		s.Log.Error("memory_taint_flag_failed", "request_id", rid(r))
 	}
 }
 
@@ -64,6 +76,9 @@ func (s *Server) historyTainted(r *http.Request, msgs []any, pr *chatPersist) (b
 	}
 	if pr == nil || pr.threadID == "" {
 		return len(reasons) > 0, reasons
+	}
+	if _, ok := taintFallback.Load(user(r) + "\x00" + pr.threadID); ok {
+		reasons = append(reasons, "thread:flag_fallback")
 	}
 	if ts, ok := s.Store.(store.ThreadSettingsStore); ok {
 		raw, err := ts.ThreadSettings(r.Context(), user(r), pr.threadID)
@@ -262,7 +277,7 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 		s.writeCode(w, r, "kill_switch")
 		return
 	}
-	pc := memory.ProposalCtx{Actor: a.Provenance.Actor, Tainted: a.Tainted}
+	pc := memory.ProposalCtx{Actor: a.Provenance.Actor, Tainted: a.Tainted, ActionID: a.ID, ActionCreated: a.CreatedAt}
 	if pc.Actor == "" {
 		pc.Actor = "user"
 	}
