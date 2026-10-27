@@ -14,3 +14,16 @@ func TestSensitive_IndirectVote(t *testing.T) {
 		}
 	}
 }
+
+func TestSensitive_PoliticianAndJamo(t *testing.T) {
+	for _, s := range []string{"이재명 지지해", "나 윤석열 지지함", "한동훈 대표 지지해", "저 이재명 팬이에요", "김 후보 지지해", "민ㅈㅜ당 지지해", "민ㅈㅜ당 찍었어", "국민ㅇㅢ힘 지지해"} {
+		if CheckSensitive(s) == nil {
+			t.Errorf("not blocked: %q", s)
+		}
+	}
+	for _, s := range []string{"이재명 대표 기사 요약해줘", "윤석열 관련 뉴스", "트럼프 관세 정책 설명해줘", "우리 팀장 응원해"} {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("false positive %q: %v", s, err)
+		}
+	}
+}
