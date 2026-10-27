@@ -335,11 +335,11 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 - `PATCH /v1/memory/items/{id}` 오류 전체 목록:
   | HTTP | 본문 | 원인 |
   |---|---|---|
-  | 400 | `invalid` | JSON 아님·객체 아님, 모르는 필드, 타입 오류(`text`·`pinned`·`expires_at`·`if_updated_at`), 빈 텍스트, 형식 오류 |
+  | 400 | `invalid` | JSON 아님·객체 아님, 모르는 필드, 타입 오류(`text`·`pinned`·`expires_at`·`if_updated_at`), 빈 텍스트, 형식 오류, 메모리 블록 마커(`<user_memory>` 변형) 포함 |
   | 404 | `not_found` | 항목 없음(다른 사용자 항목 포함) |
   | 404 | `{"detail":"Not Found"}` | 서버 메모리 off |
   | 409 | `conflict` | `if_updated_at`이 현재 값과 다름 |
-  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터·민감 범주·메모리 블록 마커에 걸림 |
+  | 422 | `secret_detected` | 새 텍스트가 시크릿 필터·민감 범주에 걸림 |
   | 422 | `cap_exceeded` | 300자 초과, 파일 64KB 초과 |
   | 403 | CSRF 오류(기존 형식) | Origin/CSRF 불일치 |
   | 500 | `internal_error` | 감사 쓰기 실패(fail-closed, 파일 변경 없음) 등 |
