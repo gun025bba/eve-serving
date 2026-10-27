@@ -229,3 +229,5 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Private r12 (gate per architect R1, 초성/English-mixed reclassified recall): core 26/27, FP 0/40, recall 0/3.
 - Private r13 (new): core 17/20, FP 0/40, recall 2/10.
 - Gate: FAIL (core 43/47 blocked, FP 0/80).
+
+> 2026-10-27: 4.0.0 cutover (PR #23) has its own plan: `cutover-4.0.0.md`.
