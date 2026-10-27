@@ -243,6 +243,9 @@
 - **조정 상수**: 엔트로피 임계값(`secret.go`)과 토큰 추정(`inject.go`)은 이름 있는 상수다. ROC 실행(§8.5) 뒤 설정으로 옮긴다.
 - **users.id 타입**: `BIGSERIAL`(int64). 파일 키는 `^[0-9]+$` 정규형만 허용하고, 파싱한 뒤 다시 문자열로 만들어 같은지 확인한다. 파일 안의 `user_id`도 요청자 id와 교차 확인한다.
 - **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키가 끝 개행·공백을 포함하거나 서로 다른 바이트가 16개 미만이면 거부한다.
+- **백업 제외 강제 (후속 PR)**: 기동 시 `tmutil isexcluded <data_dir>`로 확인하고, 제외가 확인되지 않으면(`not_excluded`, 또는 macOS가 아니거나 tmutil 오류인 `unknown`) `memory_backup_exclusion_unverified` 경고를 남긴다. 기동은 막지 않으며 자동으로 바꾸지 않는다.
+  - 런북 확인 단계: `sudo tmutil addexclusion -p <data_dir>` 후 `tmutil isexcluded <data_dir>`가 `[Excluded]`인지 확인한다. 기동 로그에 위 경고가 없어야 한다.
+- **감사 키 파일 크기 (#31)**: 1024바이트를 넘으면 잘라 읽지 않고 거부한다.
 - **TODO**: 호모글리프(UTS#39 skeleton) 정규화와 다단 인코딩 디코딩(현재 1단계만).
 - **감사 HMAC 키 생성**: `umask 077; openssl rand -hex 32 > <audit_key_file>`
   - hex만 받는다. 끝의 개행은 하나까지만 제거하고, 그 밖의 공백·개행·hex가 아닌 문자·원시 바이너리는 거부한다.

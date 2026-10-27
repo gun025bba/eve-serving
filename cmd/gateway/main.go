@@ -173,6 +173,11 @@ func main() {
 			os.Exit(1)
 		}
 		srv.Memory, srv.MemoryAuditKey = ms, k
+		if st := memory.BackupExclusion(ms.Dir()); st != memory.BackupExcluded {
+			// Not fatal: the operator must exclude it (runbook: tmutil addexclusion).
+			log.Warn("memory_backup_exclusion_unverified", "status", st,
+				"msg", "memory data_dir is not confirmed excluded from Time Machine; run: sudo tmutil addexclusion -p <data_dir>")
+		}
 		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
 	}
 
