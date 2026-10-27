@@ -35,7 +35,7 @@ const (
 	// public-election / ballot contexts (plus 기호, 도장, generic 투표·선거).
 	voteContexts = `투표용지|사전투표|국민투표|투표|기호|대통령\s?선거|국회의원\s?선거|지방\s?선거|재보궐\s?선거|재보궐|재보선|보궐\s?선거|보궐|대선|총선|지선|선거`
 	// non-public votes / non-election numbered actions: never political.
-	voteExcludes = `반장|동아리|회의|오디션|인기\s?투표|주차|사진|가챠|시험|학생회|반\s?대표|팀\s?대표`
+	voteExcludes = `반장|동아리|회의|동\s?대표|아파트|입주자|오디션|인기\s?투표|주차|사진|가챠|시험|학생회|반\s?대표|팀\s?대표`
 	voteEndings  = `(었|았|음|을|고|겠|다|어( |$|요))`
 )
 
@@ -48,7 +48,9 @@ var (
 	voteEnding   = voteEndings
 	voteNumberRe = regexp.MustCompile(voteCtx + `\S{0,3}( \S{1,6}){0,2}? ?\d+ ?번 ?(에|으로|로)? ?(도장 ?)?((찍|뽑)` + voteEnding + `|했)` +
 		// N번에 도장 찍었어 (number before the 도장 context)
-		`|\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEnding)
+		`|\d+ ?번 ?(에|으로|로)? ?도장 ?찍` + voteEnding +
+		// 국민투표 찬성/반대 + 찍/뽑/했
+		`|국민\s?투표\S{0,3}( \S{1,6}){0,2}? ?(찬성|반대)\S{0,2} ?((찍|뽑)` + voteEnding + `|했|투표\s?했)`)
 
 	// non-election contexts where a numbered vote is not political (security Low).
 	voteExcludeRe = regexp.MustCompile(voteExcludes)
