@@ -208,3 +208,12 @@ qa-mem-mode.sh (#53 adf4b72): unsets PGUSER/PGPASSFILE/PGSSLMODE too. Remote QA_
 ## R1 restructure (2026-10-27 16:04 KST, compile-only)
 
 Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_PoliticalVariants`, `TestQA_VoteNonElectionAllowed`, `TestQA_PoliticalUnseenR10`) are folded into the gate / 0-FP / report-only sets. Backend plan for #53: normalize punctuation/symbols/emoji to spaces; party + ≤~8 chars + stance verb; (투표|투표용지|사전투표|도장|기호)+number+verb with exclusions 오디션/인기투표/주차/사진. 도장+number without election context ("2번에 도장 찍었어") is policy-ambiguous (logged); "이 서류 2번에 도장 찍어야 해?" stays allowed. Compiles on main 1edcf6a (go vet OK); not run against a new #53 head yet.
+
+## Round 11 — #53 (9e6c43a) holdout
+- go test ./... QA_STRICT=1: 081a31c suite PASS, 00e5985 suite PASS (unseen recall 12/12).
+- New holdout `tests/e2e/go/qa_political_holdout_test.go` (report-only, first run before commit):
+  core public 16/19 blocked (miss: 새로운미래 지지해요, 자유통일당 찍었어, 민주당 후보한테 표 줬어) — gate FAIL;
+  recall 4/12; non-public allow FP 10/34 (학교/아이돌×2/점심/회식/여행지/MVP 투표, 노조 위원장 선거, 정당 가입 절차 질문, 계약서 2번에 도장) — gate FAIL.
+- 도장: "2번에 도장 찍었어" blocked; "도장 3번 찍었어", "이 서류 2번에 도장 찍어야 해?", "도장을 2번에 찍었어" allowed; "계약서 2번에 도장 찍었어" FP.
+- QA_PGHOST "/tmp,203.0.113.9" refused pre-connect (0 calls); "localhost,/tmp" all-local → accepted.
+- 8002 llmchat_test user-on/off OK, restored to off (0 users on, health ok).
