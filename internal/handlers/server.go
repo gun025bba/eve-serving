@@ -199,7 +199,13 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		if err != nil {
 			s.M.Auth.WithLabelValues("none", "denied").Inc()
 			// Never log header values or keys; reason + request metadata only.
-			s.Log.Warn("auth_rejected", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "reason", auth.RejectReason(err))
+			reason := auth.RejectReason(err)
+			kv := []any{"request_id", rid(r), "method", r.Method, "path", r.URL.Path, "reason", reason}
+			if errors.Is(err, auth.ErrNoCredentials) {
+				s.Log.Debug("auth_rejected", kv...)
+			} else {
+				s.Log.Warn("auth_rejected", kv...)
+			}
 			s.fail(w, r, authErr(err))
 			return
 		}

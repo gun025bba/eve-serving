@@ -176,3 +176,45 @@ func TestChainStopsOnRejection(t *testing.T) {
 		t.Fatal(id, err)
 	}
 }
+
+func TestPresentButEmptyOrDuplicateHeaders(t *testing.T) {
+	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"alice@github"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(h map[string][]string) *http.Request {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "127.0.0.1:5000"
+		for k, v := range h {
+			r.Header[http.CanonicalHeaderKey(k)] = v
+		}
+		return r
+	}
+	cases := []struct {
+		name string
+		h    map[string][]string
+		want error
+	}{
+		{"empty login + valid key", map[string][]string{HeaderTailscaleLogin: {""}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
+		{"blank login + valid key", map[string][]string{HeaderTailscaleLogin: {"   "}, "Authorization": {"Bearer k1"}}, ErrForbiddenIdentity},
+		{"duplicate login", map[string][]string{HeaderTailscaleLogin: {"alice@github", "alice@github"}}, ErrForbiddenIdentity},
+		{"empty authorization", map[string][]string{"Authorization": {""}}, ErrInvalidKey},
+		{"blank authorization", map[string][]string{"Authorization": {"  "}}, ErrInvalidKey},
+		{"duplicate authorization", map[string][]string{"Authorization": {"Bearer k1", "Bearer k1"}}, ErrInvalidKey},
+	}
+	for _, tc := range cases {
+		if _, err := c.Authenticate(mk(tc.h)); !errors.Is(err, tc.want) {
+			t.Errorf("%s: err %v want %v", tc.name, err, tc.want)
+		}
+	}
+}
+
+func TestChainProviderError(t *testing.T) {
+	boom := errors.New("boom")
+	var a, b int
+	c := Chain{stubAuth{boom, &a}, stubAuth{nil, &b}}
+	_, err := c.Authenticate(httptest.NewRequest("GET", "/", nil))
+	if !errors.Is(err, boom) || b != 0 || RejectReason(err) != "provider_error" {
+		t.Fatalf("err=%v next=%d reason=%s", err, b, RejectReason(err))
+	}
+}
