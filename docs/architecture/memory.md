@@ -245,7 +245,7 @@
 - **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키가 끝 개행·공백을 포함하거나 서로 다른 바이트가 16개 미만이면 거부한다.
 - **민감 범주 거부 목록**: `internal/memory/sensitive.go`. 건강·질병, 성적 지향, 종교, 정치 성향, 범죄 기록, 노조 가입, 인종·민족, 생체·유전 정보는 사용자가 원해도 저장하지 않는다.
   - 한국어·영어 키워드 기반의 최소 목록이다(분류기가 아니라 하한선).
-  - 걸리면 `secret_detected`로 거부하고, 이유는 응답에 넣지 않는다. 항목을 추가·변경하면 보안 검토 대상이다.
+  - 걸리면 `sensitive_category`로 거부하고, 이유는 응답에 넣지 않는다. 항목을 추가·변경하면 보안 검토 대상이다.
   - 금융(소득·부채·신용점수)과 신분증 번호(여권·운전면허·외국인등록번호)도 거부한다.
   - 한국어 규칙은 흔한 단어 속 부분 문자열(게이트·게이밍·게이지, 이전과·전과목, 추수감사절)에 걸리지 않도록 조사·어미·1인칭/동사 문맥을 요구한다. 뉴스·영화·일정·통계 같은 주제 언급은 통과한다.
   - **거부 코드**: 민감 범주 거부는 422 `{"error_code":"sensitive_category"}`, 시크릿 거부는 422 `secret_detected`로 구분한다(매칭 텍스트·세부 범주는 노출하지 않음).
@@ -257,6 +257,16 @@
   - 변형: 정규화 텍스트, 공백·제로폭 제거본, 호환 자모 조합본(ㄱㅔㅇㅣ→게이), 라틴 leet 폴딩본(4→a, 1→i/l 등)에 모두 적용한다.
   - 제3자 언급도 거부한다: "엄마가 당뇨 진단 받았어"처럼 다른 사람의 민감 정보도 저장하지 않는다(주체를 구분하지 않는 보수적 규칙).
   - 회귀 코퍼스: `sensitive_corpus_test.go`(`TestQA_SensitiveCorpus`), `sensitive_corpus_v2_test.go`(각 100+건, 제3자·제로폭·띄어쓰기·호환 자모·leet 포함) — 오탐·미탐 0이어야 한다.
+- **백업 제외 강제 (fail-closed)**: 메모리가 켜져 있으면 기동 시 `CheckBackupPolicy`를 통과해야 한다. 실패하면 `memory_backup_exclusion_refused`를 남기고 종료한다.
+  - macOS: 고정 경로 `/usr/bin/tmutil isexcluded <data_dir>`(PATH 무시)의 출력이 정확히 한 줄 `[Excluded] <data_dir>`이어야 한다. `[Included]`, 다른 경로, 여러 줄, 오류·tmutil 없음(`unknown`)은 모두 거부한다. opt-in으로도 우회할 수 없다.
+  - macOS가 아니면 확인할 수 없으므로 `memory.allow_unverified_backup: true`(`GW_MEMORY_ALLOW_UNVERIFIED_BACKUP=true`)를 명시해야 기동한다(경고 `memory_backup_exclusion_unverified`).
+  - data_dir이 iCloud(`~/Library/Mobile Documents`, `~/Library/CloudStorage`), Dropbox, OneDrive, Google Drive, Box 동기화 폴더 아래면 거부한다.
+  - 서버는 제외 설정을 바꾸지 않는다.
+  - 런북 확인 단계:
+    1. data_dir이 동기화 폴더 밖인지 확인: `realpath <data_dir>`가 위 경로를 포함하지 않아야 한다. 상위 폴더가 iCloud "데스크탑 및 문서" 동기화 대상(`~/Desktop`, `~/Documents`)이 아닌지도 확인한다.
+    2. `sudo tmutil addexclusion -p <data_dir>` 후 `/usr/bin/tmutil isexcluded <data_dir>`가 `[Excluded]`인지 확인한다.
+    3. 기동 로그에 `memory_backup_exclusion_refused`가 없어야 한다.
+- **감사 키 파일 크기 (#31)**: 1024바이트를 넘으면 잘라 읽지 않고 거부한다.
 - **로그 Redactor**: 메모리가 켜지면 로거에 `memory.RedactLog`를 연결한다.
   - `<user_memory` 블록이나 프리앰블이 든 값은 통째로 `[REDACTED:memory]`가 된다.
   - 등록된 시크릿 값과 공용 `SecretPatterns`는 `[REDACTED]`로 가린다.

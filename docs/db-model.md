@@ -293,3 +293,12 @@ pg_restore -h 127.0.0.1 -U <admin> -d <db>_restore --no-owner <backup>.dump
 8. **PII 처리**: 파인튜닝 추출 전 개인정보 마스킹, 백업 암호화 여부.
 9. **검색 인덱스 방식**: 표현식 인덱스 유지 vs generated tsvector 컬럼(랭킹·하이라이트 성능).
 10. **reasoning 보관**: 사고 과정 텍스트를 학습 데이터에 포함할지.
+
+## users.settings (migration 00007)
+
+- `ALTER TABLE users ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'` — additive; existing rows get `{}`.
+- Down: `DROP COLUMN settings` (per-user settings are lost; memory falls back to off).
+- One object with namespaced keys (`{"memory":{"enabled":true}}`). A missing key reads as its default (off).
+  PATCH merges only the named key into its namespace; other namespaces and unknown keys are preserved.
+- Blueprint: future per-user settings go in as new namespaced keys here; split into a table if they grow
+  (many keys, per-key history or indexing needs).

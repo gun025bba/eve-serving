@@ -98,6 +98,10 @@ type MemoryConfig struct {
 	// (dir 0700; permissions are verified at startup). It must sit outside
 	// the backup path: it is not part of the pg backup.
 	DataDir string `yaml:"data_dir" json:"data_dir"`
+	// AllowUnverifiedBackup (GW_MEMORY_ALLOW_UNVERIFIED_BACKUP) is the explicit
+	// opt-in to start on a non-macOS host, where Time Machine exclusion cannot
+	// be verified. It has no effect on macOS (exclusion is always required).
+	AllowUnverifiedBackup bool `yaml:"allow_unverified_backup" json:"allow_unverified_backup"`
 	// InjectCapTokens bounds the prompt block (default 1000, max 2000).
 	InjectCapTokens int `yaml:"inject_cap_tokens" json:"inject_cap_tokens"`
 	// AuditKeyFile is the 0600 HMAC-SHA256 key for item hashes in tool_audit.
@@ -283,6 +287,13 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
 		}
 		c.Memory.Enabled = b
+	}
+	if v := getenv("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP: %w", err)
+		}
+		c.Memory.AllowUnverifiedBackup = b
 	}
 	if v := getenv("GW_PUSH_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)

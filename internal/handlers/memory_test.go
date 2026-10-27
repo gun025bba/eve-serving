@@ -58,6 +58,7 @@ func newMemEnv(t *testing.T, enabled bool, led audit.Ledger) (*env, *memory.File
 	e := &env{seen: seen, mu: mu}
 	e.st = memstore.New()
 	s.Store = e.st
+	enableUserMemory(t, e.st, "alice@example", "bob@example")
 	e.ts = httptest.NewServer(s.Handler())
 	t.Cleanup(e.ts.Close)
 	memSrvMu.Lock()
@@ -385,6 +386,7 @@ func TestMemoryInject_BlockIsEndOfSystemPrompt_Web(t *testing.T) {
 		}
 		e.srv.Memory, e.srv.MemoryAuditKey = fs, []byte(strings.Repeat("k", 32))
 		e.srv.Cfg.Memory.Enabled = true
+		enableUserMemory(t, e.st, "alice@example")
 		memory.Add(fs, uidOf(t, &e.env, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
 		if r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", body); r.StatusCode != 200 {
 			t.Fatalf("%s: %d %s", name, r.StatusCode, b)
@@ -419,5 +421,16 @@ func TestMemoryAPI_SensitiveRejectedWithReasonCode(t *testing.T) {
 	}
 	if d, _ := fs.Load(uidOf(t, e, "alice@example")); len(d.Items) != 0 {
 		t.Fatal("stored")
+	}
+}
+
+// enableUserMemory sets users.settings memory.enabled=true (default is off).
+func enableUserMemory(t *testing.T, st0 store.Store, logins ...string) {
+	t.Helper()
+	st := st0.(store.UserSettingsStore)
+	for _, l := range logins {
+		if _, err := st.MergeUserSettings(context.Background(), l, "memory", []byte(`{"enabled":true}`)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
