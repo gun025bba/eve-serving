@@ -102,7 +102,7 @@ func (s *Server) memErr(w http.ResponseWriter, r *http.Request, err error) {
 	var rej *memory.RejectError
 	switch {
 	case errors.As(err, &rej):
-		s.writeCode(w, r, "secret_detected")
+		s.writeCode(w, r, rejectCode(rej))
 	case errors.Is(err, memory.ErrNotFound):
 		s.writeCode(w, r, "not_found")
 	case errors.Is(err, memory.ErrConflict):
@@ -385,10 +385,20 @@ func (s *Server) reviseMemoryCheck(r *http.Request, id string, itemIDs []string)
 		case errors.Is(err, memory.ErrScheduler):
 			return "scope_denied"
 		case errors.As(err, &rej):
-			return "secret_detected"
+			return rejectCode(rej)
 		default:
 			return "invalid"
 		}
 	}
 	return ""
+}
+
+// rejectCode keeps sensitive-category refusals distinguishable from secret
+// refusals: 422 sensitive_category vs 422 secret_detected. Neither echoes
+// the matched text or the category name (§3.9.4).
+func rejectCode(rej *memory.RejectError) string {
+	if strings.HasPrefix(rej.Reason, "sensitive_") {
+		return "sensitive_category"
+	}
+	return "secret_detected"
 }
