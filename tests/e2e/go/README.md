@@ -19,3 +19,5 @@ Round 3:
 - qa_memory_peruser_test.go updated per architect decision (default off, memory_available only, POST 403 kill_switch while off)
 - Round 4: qa_memory_approve_test.go + TestQA_Approve_NonPending409; qa_sensitive_api_test.go (#34, `internal/handlers/`): 422 sensitive_category; fresh corpus + politics/health
 - `qa_settings_bearer_test.go` (package handlers, PR #43): Bearer PATCH /v1/settings → 403 `scope_denied`, value unchanged; Bearer GET 200; browser-session PATCH 200.
+- `qa_memory_propose_sensitive_test.go` (package handlers, PR #46): propose with sensitive text (third-party health, vote preference) → tool result `{"status":"denied","error_code":"sensitive_category"}`, no `error` key, no card, nothing stored. Vote case also needs #45.
+- `qa_sensitive_fresh_test.go` also has `TestQA_VoteNonElectionAllowed` (strict, #45 6633c65): non-election number + 찍다/뽑다 must pass.

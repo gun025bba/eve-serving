@@ -133,3 +133,23 @@ Known, not a failure: before #34 merges, #38 memory_propose with sensitive text 
 | #41 | c79b7e7 | docs | line-153 stale text removed; error_code only. Still stale: memory.md §9.1 L237-238 ("후속 사용자별", "approve·propose 연결은 후속 PR") |
 
 Note: after #43, `api-memory.spec.js` beforeEach enabling memory via Bearer PATCH /v1/settings gets 403; on-profile E2E needs a browser-session setup step (or pre-enabled test user).
+
+## Round-7 run (2026-10-27, main 1e3d463 = #38/#43/#44 merged)
+
+Each PR tested merged onto main 1e3d463 with all QA Go tests, `QA_STRICT=1`. Failures listed are only cross-PR dependencies.
+
+| PR | Head | Result |
+|---|---|---|
+| #45 | 6633c65 | memory pkg PASS: R1 4/4, `TestQA_VoteNonElectionAllowed` 11/11, fresh FP=0 FN=0. Handlers fail only on #46 items (legacy `error` key; propose sensitive → `secret_detected`) |
+| #46 | 5f7f2bd | R2 PASS; propose sensitive_category PASS for health; vote case needs #45 |
+| #47 | e60a9e2 | PASS (redactor lows: per-user over-cap degrade, register after write, nested unescape) |
+| #48 | 01ea49b | PASS (refuse macOS data_dir under ~/Desktop or ~/Documents) |
+| #49 | 5cbedcb | PASS (secret filter homoglyph fold, 3-level decode) |
+| main+#45..#49+#51 | — | **all PASS** (go test ./internal/... + all QA, strict) |
+| #51 | eb06fc8 | `TestListMessages_LastNOldestToNewest`: main 1e3d463 fails 2/10 (-count=10) and 4/10 (separate runs); #51 0/10 and 0/10 |
+| #41 | 90c656a | §9.1 stale per-user/approve-follow-up text gone; remaining "후속" refers only to encrypted backup (correct). Gaps: Q14 enum (contract L31) lacks `sensitive_category`; PATCH /v1/settings Bearer 403 (#43) not in ui-api-contract |
+| #50 | 6a1d3c8 | script reviewed, **not run**: 8002 is gateway 3.1.1-5-g1c2921b with GW_MEMORY_ENABLED=false, and llmchat_test `users` has no `settings` column (migrations not applied). Needs a test deploy + migration first |
+
+#50 review: DB is a hard-coded constant `llmchat_test` (the guard is a tautology but not overridable; PGHOST/PGPORT env could still redirect psql). No DELETE; it does `INSERT users(login) ON CONFLICT DO NOTHING` (creates the user if absent) outside a transaction, so a failing UPDATE leaves that row.
+
+UI 1.2.0 is on 8002 (`/ui/` appVersion v1.2.0). With EVE_EXPECT_UI_VERSION=1.2.0: api-smoke, api-retry (resume/regenerate), api-search-proactive pass (7); all UI specs (resume, stop/retry, proactive card, settings version) skip without browser identity; login error text not checkable without identity injection.

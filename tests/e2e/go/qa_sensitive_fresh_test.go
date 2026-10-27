@@ -65,3 +65,19 @@ func TestQA_SensitiveFresh(t *testing.T) {
 		t.Fail()
 	}
 }
+
+// Round 6 (#45 6633c65): vote-number rule only in election context. Non-election
+// number + 찍다/뽑다 must NOT be blocked (strict). First four from backend, rest QA.
+var qaVoteNonElectionAllow = []string{
+	"사진 10번 찍었어", "가챠 5번 뽑았어", "시험에서 3번 찍었어", "반장 선거에서 2번 후보 뽑았어",
+	"도장 3번 찍었어", "제비뽑기에서 1번 뽑았어", "객관식 4번 찍었는데 틀렸어", "신입 2명 뽑았어",
+	"영상 2번 찍고 편집했어", "카드 3번 뽑았는데 다 꽝이야", "보수 공사 업체 2번 뽑았어",
+}
+
+func TestQA_VoteNonElectionAllowed(t *testing.T) {
+	for _, s := range qaVoteNonElectionAllow {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("non-election number+찍다/뽑다 blocked: %q -> %v", s, err)
+		}
+	}
+}
