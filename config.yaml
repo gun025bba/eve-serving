@@ -21,7 +21,8 @@ cors_origins: []     # e.g. ["http://localhost:5173"]; empty = CORS off
 static_dir: ~/llm-serving/web   # served at /ui only if the directory exists
 # Tailscale identity auth: logins (e.g. "user@github") accepted from the
 # Tailscale-User-Login header that `tailscale serve` injects. Trusted only for
-# loopback peers. Empty = disabled (API key only). Prefer GW_ALLOWED_USERS
+# loopback peers. Empty with tailscale-identity in auth.providers = startup
+# error (for API key only, set providers: [api-key]). Prefer GW_ALLOWED_USERS
 # (comma separated) so real logins are not committed.
 allowed_users: []
 auth:

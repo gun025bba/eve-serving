@@ -87,8 +87,41 @@ func TestEmptyAllowlistDisabled(t *testing.T) {
 		t.Fatal("enabled")
 	}
 	c := Chain{ts, APIKey{Key: "k1"}}
-	if _, err := c.Authenticate(newReq("127.0.0.1:1", "alice@github", "")); err == nil {
-		t.Fatal("empty allowlist authenticated")
+	if _, err := c.Authenticate(newReq("127.0.0.1:1", "alice@github", "")); !errors.Is(err, ErrForbiddenIdentity) {
+		t.Fatal("empty allowlist + trusted header must be forbidden:", err)
+	}
+	if _, err := c.Authenticate(newReq("127.0.0.1:1", "alice@github", "k1")); !errors.Is(err, ErrForbiddenIdentity) {
+		t.Fatal("empty allowlist + trusted header + key must be forbidden:", err)
+	}
+	if id, err := c.Authenticate(newReq("127.0.0.1:1", "", "k1")); err != nil || id.Provider != ProviderAPIKey {
+		t.Fatal("no header + key:", id, err)
+	}
+}
+
+func TestBuildTailscaleNeedsAllowlist(t *testing.T) {
+	for _, users := range [][]string{nil, {}, {"", "  "}} {
+		if _, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: users}); err == nil {
+			t.Fatalf("allowed_users %q: want startup error", users)
+		}
+	}
+	if _, err := Build([]string{ProviderAPIKey}, Options{APIKey: "k1"}); err != nil {
+		t.Fatal("api-key only must build:", err)
+	}
+}
+
+func TestTailscaleLoopbackAndCommaJoined(t *testing.T) {
+	c, err := Build([]string{ProviderTailscale, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"a@x", "b@y"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-loopback: header ignored, valid key wins as api-key (handler maps to 200).
+	if id, err := c.Authenticate(newReq("100.64.0.9:5000", "mallory@github", "k1")); err != nil || id.Provider != ProviderAPIKey || id.User != "api-key" {
+		t.Fatal("non-loopback + forbidden login + key:", id, err)
+	}
+	for _, v := range []string{"a@x, b@y", "a@x,b@y", "a@x b@y"} {
+		if _, err := c.Authenticate(newReq("127.0.0.1:5000", v, "k1")); !errors.Is(err, ErrForbiddenIdentity) {
+			t.Fatalf("%q: err %v want forbidden", v, err)
+		}
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/queue"
@@ -17,7 +16,7 @@ import (
 
 func TestVersionExposed(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{{"1.1.0", "1.1.0"}, {"", "dev"}} {
-		s := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), Start: time.Now(), Version: tc.in,
+		s := &Server{Cfg: testDefaultCfg(), Key: key, Log: logging.New(io.Discard, logging.INFO), Start: time.Now(), Version: tc.in,
 			M: metrics.New(50), Mem: &metrics.MemSampler{Needle: "no-such-proc-xyz"}, Q: queue.New(1, 1, time.Second)}
 		ts := httptest.NewServer(s.Handler())
 		get := func(path string, authz bool) map[string]any {
