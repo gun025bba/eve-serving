@@ -111,7 +111,7 @@ func (s *Server) memErr(w http.ResponseWriter, r *http.Request, err error) {
 		s.writeCode(w, r, "conflict")
 	case errors.Is(err, memory.ErrTooMany), errors.Is(err, memory.ErrFileTooLarge), errors.Is(err, memory.ErrTooLong):
 		s.writeCode(w, r, "cap_exceeded")
-	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty):
+	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrEmpty), errors.Is(err, memory.ErrMarkup):
 		s.writeCode(w, r, "invalid")
 	case errors.Is(err, memory.ErrUnsafeFile):
 		w.Header().Set("Cache-Control", "no-store")
