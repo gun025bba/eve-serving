@@ -173,6 +173,7 @@ func main() {
 			os.Exit(1)
 		}
 		srv.Memory, srv.MemoryAuditKey = ms, k
+		log.SetRedactor(memory.RedactLog) // memory text and secrets never reach logs
 		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
 	}
 
