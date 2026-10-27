@@ -1,5 +1,7 @@
 # UI ↔ API 계약 — 선톡·메모리 (P1)
 
+> **경계 원칙(인증 독립)**: 기능은 인증 방식에 의존하지 않는다. 기능·라우트는 인증 미들웨어가 요청 컨텍스트에 붙인 principal `{user_id, scopes}`(내부 `users.id`)만 보고 필요한 scope만 검사하며, 쿠키·세션·페어링·Bearer 구분은 인증 계층 안에만 둔다.
+
 상태: 설계(미구현) · 근거: [proactive-messaging.md](proactive-messaging.md)(PM), [memory.md](memory.md)(MEM), `docs/tool-platform.md` §3.2·§10.3(TP), `docs/threads-api.md`
 대상: eve-chat-ui-design `PROACTIVE-MEMORY-SPEC.md`의 열린 질문 Q1–Q18.
 
@@ -310,9 +312,9 @@ PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 ```
 
 - **5.0.0부터** 사용자 `memory.enabled`의 기본값은 **on(true)**이다(4.x는 off). 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 **on으로 읽는다(opt-out)**. 사용자는 설정에서 언제든 끌 수 있고, 끈 뒤의 동작은 아래와 같으며 바뀌지 않는다.
-- **저장 경로는 두 가지다.** (1) 모델 제안(`memory.propose`)은 항목마다 승인 카드를 사용자가 승인해야 저장된다(자동 승인 없음). (2) UI 직접 추가(`POST /v1/memory/items`)는 브라우저 세션에서 사용자 본인이 명시적으로 하는 행동이라 카드가 없다. 그 밖의 저장 경로는 없다.
-- **API 키(Bearer) 접근**: API 키 가상 사용자는 `memory.enabled`가 off로 고정되며 바꿀 수 없다. `/v1/memory*` 라우트는 모두 브라우저 세션(4.0.0부터 페어링으로 발급한 세션 쿠키, 기존 `users.id`에 묶임, 유휴 30일·절대 180일) 전용이고 Bearer 요청은 403 `scope_denied`이다.
-- 5.0.0 go-live 전제 조건(memory.md §14.1): 민감 필터 QA 홀드아웃 통과와 보안 최종 승인(#53, 미충족), #33·#35 머지, #42 fail-closed, #23 cutover 완료(신원 위조 HIGH 해결: TCP 루프백 + 페어링 세션 쿠키, `Tailscale-User-*`는 로그 전용 — identity-transport.md), 첫 사용 안내 시트 구현(`ui.memory_intro_seen=false`면 `memory.propose` 미노출·주입 없음), 서버 설정 allowlist에 `ui.memory_intro_seen` 포함, 감사 HMAC 키 준비(기본 on에서 키가 없거나 틀리면 게이트웨이 전체 기동 거부).
+- **저장 경로는 두 가지다.** (1) 모델 제안(`memory.propose`)은 항목마다 승인 카드를 사용자가 승인해야 저장된다(자동 승인 없음). (2) UI 직접 추가(`POST /v1/memory/items`)는 `interactive` scope를 가진 사용자 본인이 명시적으로 하는 행동이라 카드가 없다. 그 밖의 저장 경로는 없다.
+- **scope 규칙**: `/v1/memory*` 라우트와 `memory.enabled` 변경은 모두 `interactive` scope가 필요하고, 없으면 403 `scope_denied`이다. `interactive`가 없는 principal(현재는 API 키)은 메모리 주입·툴 없이 off로 동작한다. 어떤 자격 증명이 어떤 scope를 받는지는 인증 계층(identity-transport.md)만 정한다.
+- 5.0.0 go-live 전제 조건(memory.md §14.1): 민감 필터 QA 홀드아웃 통과와 보안 최종 승인(#53, 미충족), #33·#35 머지, #42 fail-closed, #23 cutover 완료(신원 위조 HIGH 해결 — identity-transport.md), 첫 사용 안내 시트 구현(`ui.memory_intro_seen=false`면 `memory.propose` 미노출·주입 없음), 서버 설정 allowlist에 `ui.memory_intro_seen` 포함, 감사 HMAC 키 준비(기본 on에서 키가 없거나 틀리면 게이트웨이 전체 기동 거부).
 - 기존 사용자: 업그레이드 전에 키가 없던 사용자(명시적으로 끄지 않은 사용자 전원)는 5.0.0 업그레이드 직후 메모리가 켜진다. 명시적으로 `false`를 저장한 사용자는 그대로 off다.
 - 첫 사용 안내(UI): 메모리가 켜진 사용자에게 **한 번만** 안내 시트를 보여 준다. 안내에는 메모리가 켜졌다는 사실, 모델 제안은 승인 카드로만 저장된다는 점, 설정에서 끄는 방법을 담는다. 표시 여부는 `users.settings`의 `ui.memory_intro_seen`(bool, 기본 false, PATCH 가능)에 기록해 여러 기기에서 한 번만 보이게 한다. 서버가 이 키를 지원하기 전까지 UI는 localStorage만 쓰고 400은 무시한다. 키 추가는 MINOR이며 5.0.0에 함께 넣는다.
 - `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`이면(5.0.0부터 서버 기본값은 **true**, 4.x는 false) `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
@@ -330,7 +332,7 @@ PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 
 #### 3.9.7a 보안 요건 (security Med, 고정)
 
-- approve·revise·reissue는 **브라우저 세션 전용**이다(세션 provider 허용 목록 + CSRF·Origin 검사). Bearer(API 키)는 403 `scope_denied`이다. **자동 승인 경로는 없다**(모델·scheduler·API 키 어느 것도 승인할 수 없음).
+- approve·revise·reissue는 **`interactive` scope 필요**다(+ CSRF·Origin 검사). 없으면 403 `scope_denied`이다. **자동 승인 경로는 없다**(모델·scheduler·API 키 어느 것도 승인할 수 없음).
 - `confirm_token`:
   - (user, action_id, payload_hash)에 바인딩된다.
   - 1회용이다(승인 시 조건부 UPDATE로 소비).
@@ -346,7 +348,7 @@ PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 | HTTP | 본문 | 메모리 상황 |
 |---|---|---|
 | 400 | `{"error_code":"invalid"}` | strict decode 실패, kind·길이·형식 오류 |
-| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 항목 추가·approve·revise, taint, scheduler·Bearer |
+| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 항목 추가·approve·revise, taint, scheduler·`interactive` 없음 |
 | 404 | `{"error_code":"not_found"}` | 항목·제안 없음, 다른 사용자 소유(본문 동일) |
 | 404 | `{"detail":"Not Found"}` | 서버 메모리 off(`GW_MEMORY_ENABLED=false`): `/v1/memory*`·approve 라우트가 등록되지 않아 게이트웨이 기본 404 |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
