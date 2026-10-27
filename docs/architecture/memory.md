@@ -344,6 +344,7 @@
 
 롤백:
 1. **기본 방법**: `config.yaml`에 `memory.enabled: false`를 설정한다. `GW_MEMORY_ENABLED`는 #23의 launchd plist 환경 변수 허용 목록에 없어서, 환경 변수로 끈 설정은 plist를 다시 만들 때 사라질 수 있다.
+   - **끄기 우선 규칙**: 서버 메모리는 `config.yaml`의 `memory.enabled`와 환경 변수 `GW_MEMORY_ENABLED` 중 **하나라도 false면 off**다. 둘 다 false가 아닐 때만 on이다(둘 다 지정하지 않으면 5.0.0 기본값인 on). 어느 쪽도 다른 쪽의 off를 덮어쓰지 못하며, 기동 로그에 적용된 값과 출처를 남긴다.
 2. 게이트웨이 재시작: `launchctl kickstart -k gui/$(id -u)/<gateway-label>`
 3. API는 메모리 도입 전 동작으로 돌아간다(메모리 라우트 404, 도구 정의·주입 없음).
 4. 메모리가 꺼져 있어도 data_dir의 Time Machine 제외(tmutil)는 유지한다.
