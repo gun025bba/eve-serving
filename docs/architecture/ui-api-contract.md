@@ -20,7 +20,7 @@
 | Q5 | 별도 "job 전용 스레드" 종류는 없다. `scheduled_jobs.thread_id`는 nullable: follow-up은 원 스레드, 원 스레드가 없는 job(브리핑·watch)은 **첫 실행 때 서버가 스레드를 하나 만들고**(제목 = `job_name`) 그 id를 `thread_id`에 저장, 이후 실행은 재사용. 보통 Thread라 새 필드 없음(PM §3 갱신, 컬럼 추가만 = MINOR). | MINOR |
 | Q6 | `POST /v1/threads/{id}/read` → 해당 스레드의 미읽음 proactive 메시지를 모두 `read_at=now()`, 응답 `{unread_count:0}`. 다른 사용자 스레드는 **404**. 기존 `POST /v1/messages/{id}/read`도 유지. CSRF·Origin 동일. | MINOR |
 | Q7 | `GET /v1/settings`, `PATCH /v1/settings`(부분 갱신, merge). 키는 §2. 알 수 없는 키·타입·범위 오류는 400(PM S4-4). | MINOR |
-| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17). PATCH로 `system`을 보내면 400. | MINOR |
+| Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_read_only`(Q17), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
 | Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
 | Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
@@ -42,8 +42,8 @@ GET /v1/settings
   "proactive": { "enabled": false,
                  "quiet_hours": {"start": "22:00", "end": "08:00"},
                  "memory_read": false },
-  "memory":    { "enabled": true },
-  "system":    { "proactive_available": false, "tools_available": true, "memory_read_only": false }
+  "memory":    { "enabled": false },
+  "system":    { "proactive_available": false, "tools_available": true, "memory_read_only": false, "memory_available": true }
 }
 ```
 
@@ -52,7 +52,7 @@ GET /v1/settings
 | `proactive.enabled` | bool, false | 사용자 선톡 on/off. `system.proactive_available=false`면 UI 토글 비활성. |
 | `proactive.quiet_hours` | `{"start":"22:00","end":"08:00"}` | 24시간 `HH:MM`. 서버 시간대 **Asia/Seoul** 고정. `end < start`면 자정을 넘김(22:00–08:00). `start == end`는 400. `tz` 필드는 예약(나중에 추가, MINOR). |
 | `proactive.memory_read` | bool, false | 선톡이 메모리를 읽을지(MEM §6, 기본 off). UI는 `memory.enabled=true`일 때만 표시. |
-| `memory.enabled` | bool, true | 메모리 주입 전체 on/off(MEM §3). |
+| `memory.enabled` | bool, **false** | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 false. 실제 적용 = `system.memory_available` AND `memory.enabled`. |
 | `proactive.daily_cap` | **P1에 없음** | 서버 고정 하루 3건. 키는 예약: 나중에 1–3 범위, **낮추기만** 허용(MINOR). P1에 보내면 400(알 수 없는 키). |
 
 - PM §3의 `quiet_start`/`quiet_end`/`daily_cap` 예시는 이 계약(`quiet_hours` 객체, `daily_cap` 미노출)으로 대체한다. PM의 서버 상한(코드 상수)은 그대로.
@@ -285,7 +285,7 @@ tombstone은 API로 노출하지 않는다.
 200  { "status": "executed", "action_id": "01JB...", "result": { "op": "add", "item_ids": ["01JC..."] } }
 ```
 
-- 검사 순서: 본문 400 `invalid`(`confirm_token` 누락·빈 값 포함) → 404 `not_found`(다른 사용자도 본문 동일) → 409 `conflict`(이미 approve·void) → 410 `expired`(제안 또는 토큰 만료) → 422 `payload_mismatch` → 403 `kill_switch`(사용자 `memory.enabled=false`) / `tainted` / `scope_denied` → 실행.
+- 검사 순서: 본문 400 `invalid`(`confirm_token` 누락·빈 값 포함) → 404 `not_found`(다른 사용자도 본문 동일) → 409 `conflict`(이미 approve·void) → 410 `expired`(제안 또는 토큰 만료. 토큰이 틀리거나 재발급으로 대체된 경우도 같은 410 — 토큰 존재 여부를 구분해 노출하지 않는다) → 422 `payload_mismatch` → 403 `kill_switch`(사용자 `memory.enabled=false`) / `tainted` / `scope_denied` → 실행.
 - 실행 시점에 다시 검사한다.
   - add 텍스트는 정규화와 시크릿 필터를 다시 거친다. 걸리면 422 `secret_detected`, 개수·크기 상한은 422 `cap_exceeded`이다.
   - delete 대상이 그사이 사라졌으면 409 `item_gone`이다.
@@ -304,13 +304,17 @@ tombstone은 API로 노출하지 않는다.
 §2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
 
 ```json
-GET   → { ..., "memory": { "enabled": true }, "system": { ..., "memory_read_only": false } }
+GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_read_only": false, "memory_available": true } }
 PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 ```
 
-- 기본값은 true다. 그래도 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `memory` 블록은 응답에 나오지 않고, `memory` 키를 PATCH하면 400 `invalid`이다. 꺼진 상태에서는 기존 응답과 같다.
+- 기본값은 **false**다(키가 없으면 false). 사용자가 켜야 한다.
+- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, `memory` 블록은 응답에 나오지 않으며, `memory` 키를 PATCH하면 400 `invalid`이다. 기존 클라이언트는 새 필드를 무시하면 되므로 하위 호환이다(MINOR).
+- 실제 적용 = `system.memory_available` AND `memory.enabled`. 둘 중 하나라도 false면 주입·`memory.propose`·approve가 모두 꺼진다(approve는 403 `kill_switch`).
+- 저장: `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`). 키는 네임스페이스로 둔다(`memory.*`, `proactive.*`). PATCH는 지정한 키만 해당 네임스페이스에 병합하고 다른 키·모르는 키는 보존한다.
+- 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
-- `system.memory_read_only`는 읽기 전용이다. PATCH로 보내면 400이다.
+- `system.memory_read_only`·`system.memory_available`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다.
 
 #### 3.9.8 메모리 오류 코드 요약
 
@@ -320,7 +324,7 @@ PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 | 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 approve, taint, scheduler |
 | 404 | `{"error_code":"not_found"}` 또는 기존 404 | 항목·제안 없음 / 서버 off이면 라우트 없음(기존 404 그대로) |
 | 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
-| 410 | `expired` | 제안·토큰 만료 |
+| 410 | `expired` | 제안·토큰 만료, 틀리거나 대체된 토큰 |
 | 422 | `secret_detected` / `cap_exceeded` / `payload_mismatch` | 시크릿·민감 범주 / 200개·64KB·300자 / 해시 불일치 |
 | 500 | `{"error":{"code":"internal_error",...}}` | 감사 쓰기 실패 등(fail-closed) |
 | 503 | `{"error":{"code":"memory_read_only",...}}` | 파일 손상·권한 이상, 복구 전까지 쓰기 거부 |
