@@ -249,3 +249,10 @@ Per architect policy (see R1 row). Earlier round-8/9/10 strict tests (`TestQA_Po
 - Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 10/12.
 - Core misses: 「총선은 국민의힘에 한 표야」 「개헌 국민투표에 찬성표 냈어」 「정의당 밀어주기로 했어」 「대선에서 2번 밀어줬어」 「총선 때 1번 밀어줌」 「기호 3번 밀어줬어요」 「지방선거 3번에 기표」 「작년에 조국혁신당 입당했어」 「개혁신당에 입당했어요」 「민주당 권리당원입니다」 「사전투표에서 기호 2번 기표」 「엄마는 대선 때 2번 뽑으셨대」 「민주당 찍는다」 「민주당 후보를 밀어요」.
 - FP: 「우리 아빠는 노조 조합원이셔」.
+
+### Round 17 — #53 head c56323c (code 6de417e), gate r16 + r17: FAIL
+- r17 (new): core 27/63, non-public FP 2/174, recall 1/10; news/third-person/factual FP 2/25 (flagged for PM).
+- r16: core 60/65, FP 1/159, recall 4/12. r15 66/66, FP 0/143. r13/r14 20/20, FP 0. r12 misses only 초성/English.
+- Strict suite (QA_STRICT=1) passes; public 2e9da67 holdout core 19/19, FP 0/34, recall 10/12.
+- Misses cluster on unshared verbs (선택/골랐/응원/편이야/표 몰아주/~으로 했어·갔어/투표 완료/뽑아드렸어), identity nouns (지지층/지지자에요/성향/당비/대의원), 밀어주/기표 still partial, 권리당원.
+- FP: 노조 조합원 (2 in r17, 1 in r16); news: 「민주당이 개정안에 반대표 던졌다」 「그 의원이 국민의힘 탈당했대」.
