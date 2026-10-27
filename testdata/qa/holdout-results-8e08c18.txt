@@ -1,4 +1,4 @@
-Results measured at code head 4c43ef6 (QA_STRICT=1)
+Results measured at code head 8e08c18 (QA_STRICT=1; gofmt-only over 4c43ef6, rerun)
 00e5985: corpus 40 ord FP0 / 25 sens FN0; fresh 24/16 FP0 FN0; unseen 12/15 FP0 FN0
 081a31c: same counts, both gates pass; political unseen recall 12/12
 2e9da67/45f191f holdout (report-only): core 19/19, recall 11/12 (miss: "이번엔 1번 찍었다 아이가", no anchor), allow FP 0/34
