@@ -398,3 +398,39 @@ func TestRateLimitHook(t *testing.T) {
 		t.Fatal(rec.Code, rec.Body.String())
 	}
 }
+
+// PM decision: /ui/ is unauthenticated, so it must serve only the static
+// files on disk, byte-for-byte, with nothing from config or secrets injected.
+func TestUIStaticServesNoData(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	want := map[string]string{"/ui/": "<html>ui</html>", "/ui/styles.css": "body{}", "/ui/app.js": "1"}
+	for p, body := range want {
+		resp, err := http.Get(ts.URL + p) // no Authorization, no cookie
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || string(b) != body {
+			t.Fatalf("%s: %d %q", p, resp.StatusCode, b)
+		}
+		if resp.Header.Get("Set-Cookie") != "" {
+			t.Fatalf("%s set a cookie", p)
+		}
+		var hdr strings.Builder
+		resp.Header.Write(&hdr)
+		if strings.Contains(string(b)+hdr.String(), key) {
+			t.Fatalf("%s leaked the API key", p)
+		}
+	}
+	for _, p := range []string{"/ui/../config.yaml", "/ui/%2e%2e/config.yaml", "/ui/nope.json"} {
+		resp, err := http.Get(ts.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			t.Fatalf("%s served outside static files", p)
+		}
+	}
+}
