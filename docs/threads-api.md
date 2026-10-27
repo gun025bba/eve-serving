@@ -74,6 +74,13 @@ Behaviour
    response `user_message_id` is that existing message; if a failed reply existed it is overwritten in place like
    a regenerate (`message_id` = `replaced_message_id` = the failed reply's id). A `complete` or `generating` reply,
    or different text, always starts a new turn.
+   - **Intentional repeats are merged too**: sending the same sentence again on purpose, before the previous
+     one got a successful reply, is treated as the same turn (one user row). To ask the same thing again as a
+     new turn, wait for the reply to finish (or change the text).
+   - **Concurrent resends**: the check-then-insert is serialized per thread (in-process lock; the gateway runs as
+     a single process), so two identical resends arriving together store one user row and both responses carry
+     the same `user_message_id`. Each request still generates its own reply.
+   - Relies on `ListMessages(limit=2)` returning the two newest messages oldest→newest (fixed by test).
 
 Non-stream response: headers `X-Thread-Id`, `X-Message-Id`, `X-User-Message-Id` (absent on regenerate), and the
 JSON body gains `thread_id`, `message_id`, `user_message_id` (and `replaced_message_id` on regenerate).

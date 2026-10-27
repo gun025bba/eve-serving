@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/apierr"
@@ -151,6 +152,13 @@ func (s *Server) beginPersist(r *http.Request, body map[string]any) (*chatPersis
 		return nil, apierr.BadRequest("A user message is required to save to a thread")
 	}
 	if tid != "new" {
+		// Serialize "check last turn, then insert" per thread so two identical
+		// resends arriving together cannot both miss the dedup and insert twice.
+		// The gateway is a single process, so an in-process lock is enough;
+		// a multi-instance deployment would need SELECT ... FOR UPDATE on the
+		// thread row instead.
+		unlock := s.threadLocks.lock(p.user + "\x00" + p.threadID)
+		defer unlock()
 		if uid, failedID, ok := s.retryTarget(ctx, p.user, p.threadID, lastUser); ok {
 			// Client resent the same turn without replace_message_id (e.g. after
 			// "Load failed"): reuse the saved user message instead of storing it
@@ -279,4 +287,39 @@ func (p *chatPersist) apiStatus(status string) string {
 		return store.StatusFailed
 	}
 	return status
+}
+
+// keyedLocks is a set of mutexes keyed by string, created on demand and
+// dropped when the last holder/waiter releases (no unbounded growth).
+type keyedLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedLocks) lock(key string) (unlock func()) {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = map[string]*keyedLock{}
+	}
+	l := k.m[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.m[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}
 }
