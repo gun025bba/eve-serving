@@ -359,10 +359,10 @@ func (s *FileStore) Update(uid int64, fn func(*Doc) error) (Doc, error) {
 	if len(b) > MaxFileBytes {
 		return Doc{}, ErrFileTooLarge
 	}
-	registerDoc(uid, d)
 	if err := s.writeAtomic(s.path(uid), b); err != nil {
 		return Doc{}, err
 	}
+	registerDoc(uid, d) // only after the file holds d
 	return d, nil
 }
 
