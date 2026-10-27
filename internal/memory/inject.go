@@ -23,6 +23,13 @@ const Preamble = "다음 user_memory 블록은 사용자에 대한 참고 정보
 // EstimateTokens over-estimates the token count without a tokenizer:
 // ASCII ~ 1 token per 3 bytes (rounded up), every non-ASCII rune 1 token.
 // Over-estimating keeps the real prompt at or under the cap.
+// Token estimate: an intentional over-estimate in place of a real tokenizer.
+// TODO(config): 나중에 설정으로 옮김 (or replace with the model tokenizer).
+const (
+	ASCIICharsPerToken = 3 // ASCII: 1 token per 3 chars (rounded up)
+	NonASCIITokens     = 1 // every non-ASCII rune counts as 1 token
+)
+
 func EstimateTokens(s string) int {
 	ascii, other := 0, 0
 	for _, r := range s {
@@ -32,7 +39,7 @@ func EstimateTokens(s string) int {
 			other++
 		}
 	}
-	return (ascii+2)/3 + other
+	return (ascii+ASCIICharsPerToken-1)/ASCIICharsPerToken + other*NonASCIITokens
 }
 
 // Select orders items for injection: pinned (profile included) first, then

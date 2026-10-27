@@ -31,18 +31,46 @@ import (
 // Writes go through CSRF + exact Origin checks in authed(). Item text never
 // reaches logs or audit rows: audit carries ids and an HMAC only.
 
-func (s *Server) memoryOn() bool { return s.Cfg.Memory.Enabled && s.Memory != nil }
+func (s *Server) memoryOn() bool {
+	_, ok := s.Store.(store.UserIDResolver)
+	return s.Cfg.Memory.Enabled && s.Memory != nil && ok
+}
+
+// memUID resolves the authenticated login to users.id, the only key the
+// memory store accepts. On failure it returns 0, which the store rejects
+// with ErrBadUserID before touching disk (-> 500 internal_error).
+func (s *Server) memUID(r *http.Request) int64 {
+	res, ok := s.Store.(store.UserIDResolver)
+	if !ok {
+		return 0
+	}
+	id, err := res.UserID(r.Context(), user(r))
+	if err != nil {
+		s.Log.Error("memory_user_id_failed", "request_id", rid(r), "err", err.Error())
+		return 0
+	}
+	return id
+}
+
+// noStore sets Cache-Control: no-store before the handler runs, so error
+// responses (4xx/5xx) and 204s carry it too, not just success bodies.
+func noStore(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		h(w, r)
+	}
+}
 
 func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	if !s.memoryOn() {
 		return
 	}
-	mux.HandleFunc("GET /v1/memory", s.authed(s.getMemory))
-	mux.HandleFunc("DELETE /v1/memory", s.authed(s.deleteAllMemory))
-	mux.HandleFunc("GET /v1/memory/export", s.authed(s.exportMemory))
-	mux.HandleFunc("POST /v1/memory/items", s.authed(s.addMemoryItem))
-	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(s.patchMemoryItem))
-	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(s.deleteMemoryItem))
+	mux.HandleFunc("GET /v1/memory", s.authed(noStore(s.getMemory)))
+	mux.HandleFunc("DELETE /v1/memory", s.authed(noStore(s.deleteAllMemory)))
+	mux.HandleFunc("GET /v1/memory/export", s.authed(noStore(s.exportMemory)))
+	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.addMemoryItem)))
+	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.patchMemoryItem)))
+	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.deleteMemoryItem)))
 }
 
 func (s *Server) memHMAC(text string) string {
@@ -100,7 +128,7 @@ type memoryView struct {
 }
 
 func (s *Server) loadView(r *http.Request) (memoryView, error) {
-	d, err := s.Memory.Load(user(r))
+	d, err := s.Memory.Load(s.memUID(r))
 	if err != nil {
 		return memoryView{}, err
 	}
@@ -167,7 +195,7 @@ func (s *Server) addMemoryItem(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, errors.New("audit unavailable"))
 		return
 	}
-	it, err := memory.Add(s.Memory, user(r), memory.NewItem{Kind: b.Kind, Text: t, Pinned: b.Pinned, Confidence: "user", ExpiresAt: b.ExpiresAt}, time.Now())
+	it, err := memory.Add(s.Memory, s.memUID(r), memory.NewItem{Kind: b.Kind, Text: t, Pinned: b.Pinned, Confidence: "user", ExpiresAt: b.ExpiresAt}, time.Now())
 	if err != nil {
 		s.memErr(w, r, err)
 		return
@@ -219,7 +247,7 @@ func (s *Server) patchMemoryItem(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, errors.New("audit unavailable"))
 		return
 	}
-	it, err := memory.Edit(s.Memory, user(r), id, p, time.Now())
+	it, err := memory.Edit(s.Memory, s.memUID(r), id, p, time.Now())
 	if err != nil {
 		s.memErr(w, r, err)
 		return
@@ -229,7 +257,7 @@ func (s *Server) patchMemoryItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteMemoryItem(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	d, err := s.Memory.Load(user(r))
+	d, err := s.Memory.Load(s.memUID(r))
 	if err != nil {
 		s.memErr(w, r, err)
 		return
@@ -246,7 +274,7 @@ func (s *Server) deleteMemoryItem(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, errors.New("audit unavailable"))
 		return
 	}
-	if err := memory.Delete(s.Memory, user(r), []string{id}, time.Now()); err != nil {
+	if err := memory.Delete(s.Memory, s.memUID(r), []string{id}, time.Now()); err != nil {
 		s.memErr(w, r, err)
 		return
 	}
@@ -259,7 +287,7 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, errors.New("audit unavailable"))
 		return
 	}
-	if err := s.Memory.Purge(user(r)); err != nil {
+	if err := s.Memory.Purge(s.memUID(r)); err != nil {
 		s.memErr(w, r, err)
 		return
 	}
@@ -278,7 +306,7 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) {
 	if len(msgs) == 0 {
 		return
 	}
-	d, err := s.Memory.Load(user(r))
+	d, err := s.Memory.Load(s.memUID(r))
 	if err != nil {
 		s.Log.Warn("memory_inject_skipped", "request_id", rid(r), "reason", "load_failed")
 		return
@@ -330,7 +358,7 @@ func (s *Server) reviseMemoryCheck(r *http.Request, id string, itemIDs []string)
 		if actor == "" {
 			actor = "user"
 		}
-		err = memory.Revalidate(s.Memory, user(r), p, memory.ProposalCtx{Actor: actor, Tainted: a.Tainted})
+		err = memory.Revalidate(s.Memory, s.memUID(r), p, memory.ProposalCtx{Actor: actor, Tainted: a.Tainted})
 		var rej *memory.RejectError
 		switch {
 		case err == nil:

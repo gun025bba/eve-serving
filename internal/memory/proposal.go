@@ -92,7 +92,7 @@ func action(c ProposalCtx, summary string, payload, view any, now time.Time) (st
 // Only ids present in the user's file are accepted; ambiguous=true shows the
 // candidates as checkboxes (partial selection = revise with item_ids).
 // There is no path that deletes without a card.
-func ForgetProposal(st Store, user string, ids []string, ambiguous bool, c ProposalCtx, now time.Time) (store.Action, error) {
+func ForgetProposal(st Store, uid int64, ids []string, ambiguous bool, c ProposalCtx, now time.Time) (store.Action, error) {
 	if err := c.check(); err != nil {
 		return store.Action{}, err
 	}
@@ -100,7 +100,7 @@ func ForgetProposal(st Store, user string, ids []string, ambiguous bool, c Propo
 	if len(ids) == 0 {
 		return store.Action{}, ErrNoMatch
 	}
-	d, err := st.Load(user)
+	d, err := st.Load(uid)
 	if err != nil {
 		return store.Action{}, err
 	}
@@ -157,7 +157,7 @@ func parsePayload(raw json.RawMessage) (Payload, error) {
 // payload before a revise is accepted (ui-api-contract §3.1): delete ids must
 // still be owned (else ErrNotFound -> 409 item_gone), add text must still
 // pass normalization and the secret filter.
-func Revalidate(st Store, user string, raw json.RawMessage, c ProposalCtx) error {
+func Revalidate(st Store, uid int64, raw json.RawMessage, c ProposalCtx) error {
 	if err := c.check(); err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func Revalidate(st Store, user string, raw json.RawMessage, c ProposalCtx) error
 		}
 		return nil
 	}
-	d, err := st.Load(user)
+	d, err := st.Load(uid)
 	if err != nil {
 		return err
 	}
@@ -192,8 +192,8 @@ func Revalidate(st Store, user string, raw json.RawMessage, c ProposalCtx) error
 // Execute applies an approved memory.propose payload. Callers must have
 // verified the confirm token and that store.PayloadHash(raw) equals the
 // card's payload_hash. The approve endpoint is P1 follow-up work.
-func Execute(st Store, user string, raw json.RawMessage, c ProposalCtx, src *Source, now time.Time) ([]string, error) {
-	if err := Revalidate(st, user, raw, c); err != nil {
+func Execute(st Store, uid int64, raw json.RawMessage, c ProposalCtx, src *Source, now time.Time) ([]string, error) {
+	if err := Revalidate(st, uid, raw, c); err != nil {
 		return nil, err
 	}
 	p, _ := parsePayload(raw)
@@ -202,10 +202,10 @@ func Execute(st Store, user string, raw json.RawMessage, c ProposalCtx, src *Sou
 		for _, it := range p.Items {
 			ids = append(ids, it.ID)
 		}
-		return ids, Delete(st, user, ids, now)
+		return ids, Delete(st, uid, ids, now)
 	}
 	for _, it := range p.Items {
-		n, err := Add(st, user, NewItem{Kind: it.Kind, Text: it.Text, Confidence: "confirmed", Source: src}, now)
+		n, err := Add(st, uid, NewItem{Kind: it.Kind, Text: it.Text, Confidence: "confirmed", Source: src}, now)
 		if err != nil {
 			return ids, err
 		}

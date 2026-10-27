@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,9 +25,9 @@ func newFS(t *testing.T) *FileStore {
 	return fs
 }
 
-func add(t *testing.T, fs *FileStore, user, kind, text string) Item {
+func add(t *testing.T, fs *FileStore, uid int64, kind, text string) Item {
 	t.Helper()
-	it, err := Add(fs, user, NewItem{Kind: kind, Text: text, Confidence: "user"}, time.Now())
+	it, err := Add(fs, uid, NewItem{Kind: kind, Text: text, Confidence: "user"}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +163,8 @@ func TestMemorySecret_FilterErrorFailsClosed(t *testing.T) {
 
 func TestMemory_FilePerms0600(t *testing.T) {
 	fs := newFS(t)
-	add(t, fs, "alice@example", "fact", "고양이를 키운다")
-	fi, err := os.Stat(fs.path("alice@example"))
+	add(t, fs, int64(1), "fact", "고양이를 키운다")
+	fi, err := os.Stat(fs.path(int64(1)))
 	if err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("perm %v %v", fi.Mode().Perm(), err)
 	}
@@ -182,23 +184,23 @@ func TestMemoryFile_RejectsSymlinkWrongOwner(t *testing.T) {
 	fs := newFS(t)
 	target := filepath.Join(t.TempDir(), "x.json")
 	os.WriteFile(target, []byte(`{}`), 0o600)
-	os.Symlink(target, fs.path("alice@example"))
-	if _, err := fs.Load("alice@example"); !errors.Is(err, ErrUnsafeFile) {
+	os.Symlink(target, fs.path(int64(1)))
+	if _, err := fs.Load(int64(1)); !errors.Is(err, ErrUnsafeFile) {
 		t.Fatalf("symlink: %v", err)
 	}
-	os.Remove(fs.path("alice@example"))
-	os.WriteFile(fs.path("alice@example"), []byte(`{}`), 0o644)
-	if _, err := fs.Load("alice@example"); !errors.Is(err, ErrUnsafeFile) {
+	os.Remove(fs.path(int64(1)))
+	os.WriteFile(fs.path(int64(1)), []byte(`{}`), 0o644)
+	if _, err := fs.Load(int64(1)); !errors.Is(err, ErrUnsafeFile) {
 		t.Fatalf("0644: %v", err)
 	}
 }
 
 func TestMemoryFile_UserIDMismatchRejected(t *testing.T) {
 	fs := newFS(t)
-	add(t, fs, "bob@example", "fact", "bob 항목")
-	b, _ := os.ReadFile(fs.path("bob@example"))
-	os.WriteFile(fs.path("alice@example"), b, 0o600) // bob's file under alice's name
-	if _, err := fs.Load("alice@example"); !errors.Is(err, ErrUnsafeFile) {
+	add(t, fs, int64(2), "fact", "bob 항목")
+	b, _ := os.ReadFile(fs.path(int64(2)))
+	os.WriteFile(fs.path(int64(1)), b, 0o600) // bob's file under alice's name
+	if _, err := fs.Load(int64(1)); !errors.Is(err, ErrUnsafeFile) {
 		t.Fatalf("mismatch: %v", err)
 	}
 }
@@ -210,11 +212,11 @@ func TestMemory_AtomicWriteConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			add(t, fs, "alice@example", "fact", "항목 "+strings.Repeat("가", i%5+1))
+			add(t, fs, int64(1), "fact", "항목 "+strings.Repeat("가", i%5+1))
 		}(i)
 	}
 	wg.Wait()
-	d, err := fs.Load("alice@example")
+	d, err := fs.Load(int64(1))
 	if err != nil || len(d.Items) != 40 {
 		t.Fatalf("%d %v", len(d.Items), err)
 	}
@@ -226,50 +228,50 @@ func TestMemory_AtomicWriteConcurrent(t *testing.T) {
 
 func TestMemory_Limits(t *testing.T) {
 	fs := newFS(t)
-	if _, err := Add(fs, "a", NewItem{Kind: "fact", Text: strings.Repeat("가", 301), Confidence: "user"}, time.Now()); !errors.Is(err, ErrTooLong) {
+	if _, err := Add(fs, 1, NewItem{Kind: "fact", Text: strings.Repeat("가", 301), Confidence: "user"}, time.Now()); !errors.Is(err, ErrTooLong) {
 		t.Fatal(err)
 	}
-	if _, err := Add(fs, "a", NewItem{Kind: "nope", Text: "x", Confidence: "user"}, time.Now()); !errors.Is(err, ErrInvalid) {
+	if _, err := Add(fs, 1, NewItem{Kind: "nope", Text: "x", Confidence: "user"}, time.Now()); !errors.Is(err, ErrInvalid) {
 		t.Fatal(err)
 	}
 	for i := 0; i < MaxItems; i++ {
-		add(t, fs, "a", "fact", "항목")
+		add(t, fs, 1, "fact", "항목")
 	}
-	if _, err := Add(fs, "a", NewItem{Kind: "fact", Text: "하나 더", Confidence: "user"}, time.Now()); !errors.Is(err, ErrTooMany) {
+	if _, err := Add(fs, 1, NewItem{Kind: "fact", Text: "하나 더", Confidence: "user"}, time.Now()); !errors.Is(err, ErrTooMany) {
 		t.Fatal(err)
 	}
 }
 
 func TestMemory_DeleteTombstoneAndConflict(t *testing.T) {
 	fs := newFS(t)
-	a := add(t, fs, "u", "fact", "하나")
-	b := add(t, fs, "u", "fact", "둘")
-	if err := Delete(fs, "u", []string{a.ID, "missing"}, time.Now()); !errors.Is(err, ErrNotFound) {
+	a := add(t, fs, 1, "fact", "하나")
+	b := add(t, fs, 1, "fact", "둘")
+	if err := Delete(fs, 1, []string{a.ID, "missing"}, time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
-	if d, _ := fs.Load("u"); len(d.Items) != 2 {
+	if d, _ := fs.Load(1); len(d.Items) != 2 {
 		t.Fatal("partial delete happened")
 	}
-	if err := Delete(fs, "u", []string{a.ID}, time.Now()); err != nil {
+	if err := Delete(fs, 1, []string{a.ID}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	d, _ := fs.Load("u")
+	d, _ := fs.Load(1)
 	if len(d.Items) != 1 || len(d.Tombstones) != 1 || d.Tombstones[0].ID != a.ID {
 		t.Fatalf("%+v", d)
 	}
-	raw, _ := os.ReadFile(fs.path("u"))
+	raw, _ := os.ReadFile(fs.path(1))
 	if strings.Contains(string(raw), "하나") {
 		t.Fatal("deleted text still on disk")
 	}
 	stale := b.UpdatedAt.Add(-time.Second)
 	nt := "셋"
-	if _, err := Edit(fs, "u", b.ID, Patch{Text: &nt, IfUpdatedAt: &stale}, time.Now()); !errors.Is(err, ErrConflict) {
+	if _, err := Edit(fs, 1, b.ID, Patch{Text: &nt, IfUpdatedAt: &stale}, time.Now()); !errors.Is(err, ErrConflict) {
 		t.Fatal(err)
 	}
 	// tombstones older than 8 days are pruned on the next write
 	fs.Now = func() time.Time { return time.Now().Add(9 * 24 * time.Hour) }
-	add(t, fs, "u", "fact", "넷")
-	if d, _ := fs.Load("u"); len(d.Tombstones) != 0 {
+	add(t, fs, 1, "fact", "넷")
+	if d, _ := fs.Load(1); len(d.Tombstones) != 0 {
 		t.Fatal("tombstone not pruned")
 	}
 }
@@ -344,18 +346,18 @@ func TestMemoryInject_JSONEscapedWithNonce(t *testing.T) {
 
 func TestMemory_ForgetPayloadHashBindsItemIDs(t *testing.T) {
 	fs := newFS(t)
-	a := add(t, fs, "u", "fact", "하나")
-	b := add(t, fs, "u", "fact", "둘")
+	a := add(t, fs, 1, "fact", "하나")
+	b := add(t, fs, 1, "fact", "둘")
 	c := ProposalCtx{Actor: "user", ThreadID: "t1"}
-	p1, err := ForgetProposal(fs, "u", []string{b.ID, a.ID}, false, c, time.Now())
+	p1, err := ForgetProposal(fs, 1, []string{b.ID, a.ID}, false, c, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, _ := ForgetProposal(fs, "u", []string{a.ID, b.ID}, false, c, time.Now())
+	p2, _ := ForgetProposal(fs, 1, []string{a.ID, b.ID}, false, c, time.Now())
 	if p1.PayloadHash != p2.PayloadHash || p1.PayloadHash != store.PayloadHash(p1.Payload) {
 		t.Fatal("hash must bind the sorted id set")
 	}
-	p3, _ := ForgetProposal(fs, "u", []string{a.ID}, false, c, time.Now())
+	p3, _ := ForgetProposal(fs, 1, []string{a.ID}, false, c, time.Now())
 	if p3.PayloadHash == p1.PayloadHash {
 		t.Fatal("different ids, same hash")
 	}
@@ -372,30 +374,30 @@ func TestMemory_ForgetPayloadHashBindsItemIDs(t *testing.T) {
 
 func TestMemory_ForgetNeedsDeleteCard(t *testing.T) {
 	fs := newFS(t)
-	a := add(t, fs, "u", "fact", "하나")
+	a := add(t, fs, 1, "fact", "하나")
 	c := ProposalCtx{Actor: "user"}
-	if _, err := ForgetProposal(fs, "u", nil, false, c, time.Now()); !errors.Is(err, ErrNoMatch) {
+	if _, err := ForgetProposal(fs, 1, nil, false, c, time.Now()); !errors.Is(err, ErrNoMatch) {
 		t.Fatal(err)
 	}
-	if _, err := ForgetProposal(fs, "u", []string{"not-mine"}, false, c, time.Now()); !errors.Is(err, ErrNotFound) {
+	if _, err := ForgetProposal(fs, 1, []string{"not-mine"}, false, c, time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
-	card, _ := ForgetProposal(fs, "u", []string{a.ID}, false, c, time.Now())
-	if d, _ := fs.Load("u"); len(d.Items) != 1 {
+	card, _ := ForgetProposal(fs, 1, []string{a.ID}, false, c, time.Now())
+	if d, _ := fs.Load(1); len(d.Items) != 1 {
 		t.Fatal("card creation must not delete")
 	}
-	if _, err := Execute(fs, "u", card.Payload, c, nil, time.Now()); err != nil {
+	if _, err := Execute(fs, 1, card.Payload, c, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := fs.Load("u"); len(d.Items) != 0 || len(d.Tombstones) != 1 {
+	if d, _ := fs.Load(1); len(d.Items) != 0 || len(d.Tombstones) != 1 {
 		t.Fatal("approved card did not delete")
 	}
 }
 
 func TestMemory_ForgetDeniedInTaintedThreadAndScheduler(t *testing.T) {
 	fs := newFS(t)
-	a := add(t, fs, "u", "fact", "하나")
-	if _, err := ForgetProposal(fs, "u", []string{a.ID}, false, ProposalCtx{Actor: "user", Tainted: true}, time.Now()); !errors.Is(err, ErrTainted) {
+	a := add(t, fs, 1, "fact", "하나")
+	if _, err := ForgetProposal(fs, 1, []string{a.ID}, false, ProposalCtx{Actor: "user", Tainted: true}, time.Now()); !errors.Is(err, ErrTainted) {
 		t.Fatal(err)
 	}
 	if _, err := AddProposal("x", "fact", ProposalCtx{Actor: "scheduler"}, time.Now()); !errors.Is(err, ErrScheduler) {
@@ -418,16 +420,157 @@ func TestMemory_ConfirmShowsNormalizedText(t *testing.T) {
 
 func TestMemoryRevise_SubsetAndItemGone(t *testing.T) {
 	fs := newFS(t)
-	a := add(t, fs, "u", "fact", "하나")
-	b := add(t, fs, "u", "fact", "둘")
+	a := add(t, fs, 1, "fact", "하나")
+	b := add(t, fs, 1, "fact", "둘")
 	c := ProposalCtx{Actor: "user"}
-	card, _ := ForgetProposal(fs, "u", []string{a.ID, b.ID}, true, c, time.Now())
+	card, _ := ForgetProposal(fs, 1, []string{a.ID, b.ID}, true, c, time.Now())
 	sub, err := store.FilterItems(card.Payload, []string{b.ID})
-	if err != nil || Revalidate(fs, "u", sub, c) != nil {
+	if err != nil || Revalidate(fs, 1, sub, c) != nil {
 		t.Fatal(err)
 	}
-	Delete(fs, "u", []string{b.ID}, time.Now())
-	if err := Revalidate(fs, "u", sub, c); !errors.Is(err, ErrNotFound) {
+	Delete(fs, 1, []string{b.ID}, time.Now())
+	if err := Revalidate(fs, 1, sub, c); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want item gone, got %v", err)
+	}
+}
+
+func TestMemoryFile_NameIsNumericUserIDOnly(t *testing.T) {
+	fs := newFS(t)
+	add(t, fs, 42, "fact", "x 항목")
+	ents, _ := os.ReadDir(fs.dir)
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	if !slices.Contains(names, "42.json") {
+		t.Fatalf("files: %v", names)
+	}
+	for _, n := range names {
+		if n != "42.json" && n != "42.lock" {
+			t.Fatalf("unexpected file %q", n)
+		}
+	}
+}
+
+func TestMemoryFile_InvalidUserIDRejectedNoDiskAccess(t *testing.T) {
+	fs := newFS(t)
+	for _, id := range []int64{0, -1, -42} {
+		if _, err := fs.Load(id); !errors.Is(err, ErrBadUserID) {
+			t.Fatalf("Load(%d): %v", id, err)
+		}
+		if _, err := Add(fs, id, NewItem{Kind: "fact", Text: "x", Confidence: "user"}, time.Now()); !errors.Is(err, ErrBadUserID) {
+			t.Fatalf("Add(%d): %v", id, err)
+		}
+		if err := fs.Purge(id); !errors.Is(err, ErrBadUserID) {
+			t.Fatalf("Purge(%d): %v", id, err)
+		}
+	}
+	if ents, _ := os.ReadDir(fs.dir); len(ents) != 0 {
+		t.Fatalf("disk touched: %v", ents)
+	}
+}
+
+func TestMemoryFile_ValidNameRejectsTraversal(t *testing.T) {
+	for _, n := range []string{"", "..", "../1", "1/2", "/etc/passwd", "01", "-1", "+1", "1.json", "1 ", "１", "1\x00", "12345678901234567890"} {
+		if validName(n) {
+			t.Fatalf("validName(%q) = true", n)
+		}
+	}
+	for _, n := range []string{"1", "42", "9223372036854775807"} {
+		if !validName(n) {
+			t.Fatalf("validName(%q) = false", n)
+		}
+	}
+}
+
+func TestMemoryOpen_RefusesUnsafeEntriesAtStartup(t *testing.T) {
+	cases := map[string]func(dir string){
+		"wide file":    func(d string) { os.WriteFile(filepath.Join(d, "1.json"), []byte("{}"), 0o644) },
+		"symlink":      func(d string) { os.Symlink("/etc/hostname", filepath.Join(d, "1.json")) },
+		"foreign name": func(d string) { os.WriteFile(filepath.Join(d, "alice.json"), []byte("{}"), 0o600) },
+		"subdir":       func(d string) { os.Mkdir(filepath.Join(d, "2.json"), 0o700) },
+	}
+	for name, mk := range cases {
+		dir := filepath.Join(t.TempDir(), "mem")
+		os.Mkdir(dir, 0o700)
+		mk(dir)
+		if _, err := Open(dir); err == nil {
+			t.Fatalf("%s: Open succeeded", name)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "mem")
+	os.Mkdir(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "7.json"), []byte("{}"), 0o600)
+	if _, err := Open(dir); err != nil {
+		t.Fatalf("clean dir: %v", err)
+	}
+}
+
+func TestMemoryOpen_RefusesSymlinkInParentPath(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	os.Mkdir(real, 0o700)
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+	if _, err := Open(filepath.Join(link, "memory")); err == nil {
+		t.Fatal("symlinked parent accepted")
+	}
+	if _, err := Open(link); err == nil {
+		t.Fatal("symlinked dir accepted")
+	}
+}
+
+func TestMemoryKey_RejectsWeakKeys(t *testing.T) {
+	dir := t.TempDir()
+	write := func(b []byte) string {
+		p := filepath.Join(dir, "k")
+		os.Remove(p)
+		os.WriteFile(p, b, 0o600)
+		return p
+	}
+	good := make([]byte, 32)
+	for i := range good {
+		good[i] = byte(i*7 + 3)
+	}
+	if _, err := ReadKeyFile(write(good)); err != nil {
+		t.Fatalf("good key: %v", err)
+	}
+	for name, b := range map[string][]byte{
+		"repeated":         []byte(strings.Repeat("k", 32)),
+		"pattern":          []byte(strings.Repeat("ab", 32)),
+		"trailing newline": append(append([]byte{}, good...), '\n'),
+		"short":            good[:31],
+	} {
+		if _, err := ReadKeyFile(write(b)); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+}
+
+func TestMemoryPurge_SerializedWithUpdate(t *testing.T) {
+	fs := newFS(t)
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() { defer wg.Done(); Add(fs, 1, NewItem{Kind: "fact", Text: "x", Confidence: "user"}, time.Now()) }()
+		go func() { defer wg.Done(); fs.Purge(1) }()
+	}
+	wg.Wait()
+	if _, err := fs.Load(1); err != nil {
+		t.Fatalf("file corrupted by purge/update race: %v", err)
+	}
+	if _, err := Open(fs.Dir()); err != nil {
+		t.Fatalf("dir left unsafe: %v", err)
+	}
+}
+
+func TestMemoryFileKey_RoundTrip(t *testing.T) {
+	for _, id := range []int64{1, 42, 9223372036854775807} {
+		k, err := fileKey(id)
+		if err != nil || k != strconv.FormatInt(id, 10) {
+			t.Fatalf("%d -> %q %v", id, k, err)
+		}
 	}
 }

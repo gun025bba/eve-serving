@@ -86,8 +86,17 @@ type Config struct {
 // Off by default: when off, the /v1/memory endpoints answer 404 and no
 // memory block is added to prompts, exactly as before.
 type MemoryConfig struct {
+	// Enabled (GW_MEMORY_ENABLED) is the server-wide kill switch. A later
+	// per-user /v1/settings memory.enabled is ANDed with it; this flag
+	// always wins when false.
+	//
+	// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것: until the follow-up PR
+	// wires approve and the memory.propose tool, do not turn this on in any
+	// deployed environment.
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// DataDir holds one 0600 JSON file per user (dir 0700, outside the repo).
+	// DataDir holds one 0600 JSON file per user, named <users.id>.json
+	// (dir 0700; permissions are verified at startup). It must sit outside
+	// the backup path: it is not part of the pg backup.
 	DataDir string `yaml:"data_dir" json:"data_dir"`
 	// InjectCapTokens bounds the prompt block (default 1000, max 2000).
 	InjectCapTokens int `yaml:"inject_cap_tokens" json:"inject_cap_tokens"`

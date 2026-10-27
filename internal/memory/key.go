@@ -26,5 +26,25 @@ func ReadKeyFile(path string) ([]byte, error) {
 	if err != nil || len(b) < 32 {
 		return nil, errors.New("memory: audit key must be at least 32 bytes")
 	}
+	if err := weakKey(b); err != nil {
+		return nil, err
+	}
 	return b, nil
+}
+
+// weakKey rejects obviously bad keys: a trailing newline/whitespace (an
+// editor or `echo` artifact, and a sign the file is text, not random bytes)
+// or too few distinct bytes (e.g. "kkkk…", "abab…").
+func weakKey(b []byte) error {
+	if n := len(b); n > 0 && (b[n-1] == '\n' || b[n-1] == '\r' || b[n-1] == ' ' || b[n-1] == '\t') {
+		return errors.New("memory: audit key ends with whitespace/newline; write raw random bytes")
+	}
+	seen := map[byte]bool{}
+	for _, c := range b {
+		seen[c] = true
+	}
+	if len(seen) < 16 {
+		return errors.New("memory: audit key is too repetitive (fewer than 16 distinct bytes)")
+	}
+	return nil
 }

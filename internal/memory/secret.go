@@ -29,14 +29,27 @@ var (
 	pctRe   = regexp.MustCompile(`%[0-9a-fA-F]{2}`)
 )
 
+// TODO(security): homoglyph folding (UTS#39 skeleton/confusables) is not
+// done; NFKC only covers compatibility forms. Decoding is one level only
+// (URL, base64, hex); nested encodings (e.g. base64 of URL-encoded) are not
+// unwrapped. Both are tracked for the pre-enable list in PR #25.
+
 // Entropy thresholds per character set and run length bucket (memory.md §7,
 // S10-M2/S10-F1). Initial proposal values; the ROC over the §8.5 corpus has
 // not been run yet, so they are deliberately conservative.
+// TODO(config): 나중에 설정으로 옮김 (memory.secret_filter.*), after the ROC run.
 const (
-	hexShortMin = 3.3 // hex 20–31 (must stay < 4.0; 32+ is the hex_key pattern)
-	mixed25     = 4.0 // mixed 25–32
-	mixed33     = 4.3 // mixed 33–48
-	mixed49     = 4.5 // mixed 49+
+	EntropyMinRunLen  = 20  // shorter runs are never checked
+	EntropyHexKeyLen  = 32  // hex this long is rejected outright (hex_key)
+	hexShortMin       = 3.3 // hex 20–31 (must stay < 4.0; 32+ is the hex_key pattern)
+	mixedShortMaxLen  = 24  // mixed 20–24: composition rule
+	mixedShortClasses = 3.6 // ... entropy floor when 3+ char classes present
+	mixed25           = 4.0 // mixed 25–32
+	mixed25Classes    = 3.8
+	mixed33           = 4.3 // mixed 33–48
+	mixed33Classes    = 4.0
+	mixed49           = 4.5 // mixed 49+
+	mixed49Classes    = 4.2
 )
 
 func shannon(s string) float64 {
@@ -79,22 +92,22 @@ func runSuspicious(run string) bool {
 		return false
 	}
 	n := len(core)
-	if n < 20 {
+	if n < EntropyMinRunLen {
 		return false
 	}
 	if hexRe.MatchString(core) {
-		return n >= 32 || shannon(core) >= hexShortMin
+		return n >= EntropyHexKeyLen || shannon(core) >= hexShortMin
 	}
 	switch {
-	case n <= 24:
+	case n <= mixedShortMaxLen:
 		// Mixed 20–24: composition rule instead of entropy (S10-F1 fallback).
-		return hasClasses(core) && shannon(core) >= 3.6
+		return hasClasses(core) && shannon(core) >= mixedShortClasses
 	case n <= 32:
-		return shannon(core) >= mixed25 || (hasClasses(core) && shannon(core) >= 3.8)
+		return shannon(core) >= mixed25 || (hasClasses(core) && shannon(core) >= mixed25Classes)
 	case n <= 48:
-		return shannon(core) >= mixed33 || (hasClasses(core) && shannon(core) >= 4.0)
+		return shannon(core) >= mixed33 || (hasClasses(core) && shannon(core) >= mixed33Classes)
 	default:
-		return shannon(core) >= mixed49 || (hasClasses(core) && shannon(core) >= 4.2)
+		return shannon(core) >= mixed49 || (hasClasses(core) && shannon(core) >= mixed49Classes)
 	}
 }
 
