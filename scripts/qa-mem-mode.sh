@@ -7,6 +7,9 @@
 #   key-bad-space | key-bad-distinct | key-bad-perm   -> rewrite config, restart test gateway, verify
 #   readonly          -> NO restart; gateway must already run in 'on'; chmod user files 0644 in place
 #   readonly-restore  -> NO restart; chmod user files back to 0600
+#   user-on | user-off -> NO restart; set users.settings memory.enabled=true|false for
+#                        QA_USER (login) in the TEST DB only (llmchat_test). Prints only the
+#                        resulting memory.enabled value.
 #
 # Env overrides: QA_DIR (default /private/tmp/eve-qa-mem; must be a real path, no symlinks),
 #                QA_MEM_DIR (default $QA_DIR/mem).
@@ -58,6 +61,16 @@ print("YES" if hit else "no")
 PY
 }
 
+# Sets users.settings memory.enabled for one login in the test DB (values via psql vars).
+user_mem_set() { psql -qtAX -d "$DB" -v ON_ERROR_STOP=1 -v login="$1" -v val="$2" <<'SQL'
+INSERT INTO users (login) VALUES (:'login') ON CONFLICT (login) DO NOTHING;
+UPDATE users SET settings = settings || jsonb_build_object('memory',
+    (CASE WHEN jsonb_typeof(settings->'memory') = 'object' THEN settings->'memory' ELSE '{}'::jsonb END)
+    || jsonb_build_object('enabled', (:'val')::boolean))
+  WHERE login = :'login' RETURNING settings->'memory'->>'enabled';
+SQL
+}
+
 case $MODE in
   readonly|readonly-restore)
     if [ "$MODE" = readonly ]; then
@@ -77,6 +90,13 @@ case $MODE in
       echo "mode=readonly-restore (no restart): writes should succeed again"
     fi
     exit 0;;
+  user-on|user-off)
+    : "${QA_USER:?set QA_USER to the test user login}"
+    [ "$DB" = llmchat_test ] || { echo "refusing: not the test DB" >&2; exit 2; }
+    val=false; [ "$MODE" = user-on ] && val=true
+    got=$(user_mem_set "$QA_USER" "$val") || { echo "$MODE: update failed" >&2; exit 3; }
+    echo "mode=$MODE db=$DB memory.enabled=$got"
+    [ "$got" = "$val" ]; exit;;
   off) EN=false; KEY=key-ok; EXPECT=start;;
   on|auditfail|key-ok) EN=true; KEY=key-ok; EXPECT=start;;
   key-ok-nl) EN=true; KEY=key-ok-nl; EXPECT=start;;
