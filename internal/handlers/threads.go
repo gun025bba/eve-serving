@@ -381,16 +381,10 @@ func (s *Server) exportFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// isAdmin: API-key callers or a paired session whose login is allowlisted.
+// isAdmin: the principal holds the admin scope (granted by the auth layer
+// to the API key and to allowlisted paired sessions).
 func (s *Server) isAdmin(r *http.Request) bool {
-	id, ok := auth.FromContext(r.Context())
-	if !ok {
-		return false
-	}
-	if id.Provider == auth.ProviderAPIKey {
-		return true
-	}
-	return id.Provider == auth.ProviderSession && auth.AllowedLogin(s.Cfg.AllowedUsers, id.User)
+	return hasScope(r, auth.ScopeAdmin)
 }
 
 func (s *Server) deleteFeedback(w http.ResponseWriter, r *http.Request) {

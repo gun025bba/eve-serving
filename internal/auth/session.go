@@ -54,7 +54,7 @@ func (s *Session) Authenticate(r *http.Request) (Identity, error) {
 	if _, ok := s.allowed[strings.ToLower(sess.Login)]; !ok {
 		return Identity{}, ErrForbiddenIdentity
 	}
-	return Identity{User: sess.Login, Provider: ProviderSession, SessionID: sess.ID}, nil
+	return Identity{User: sess.Login, Provider: ProviderSession, SessionID: sess.ID, Scopes: []string{ScopeInteractive, ScopeAdmin}}, nil
 }
 
 // AllowedLogin reports whether login is in the allowlist (case-insensitive).
