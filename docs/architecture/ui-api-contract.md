@@ -52,7 +52,7 @@ GET /v1/settings
 | `proactive.enabled` | bool, false | 사용자 선톡 on/off. `system.proactive_available=false`면 UI 토글 비활성. |
 | `proactive.quiet_hours` | `{"start":"22:00","end":"08:00"}` | 24시간 `HH:MM`. 서버 시간대 **Asia/Seoul** 고정. `end < start`면 자정을 넘김(22:00–08:00). `start == end`는 400. `tz` 필드는 예약(나중에 추가, MINOR). |
 | `proactive.memory_read` | bool, false | 선톡이 메모리를 읽을지(MEM §6, 기본 off). UI는 `memory.enabled=true`일 때만 표시. |
-| `memory.enabled` | bool, **false** | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 false. 실제 적용 = `system.memory_available` AND `memory.enabled`. |
+| `memory.enabled` | bool, **true**(5.0.0부터, 이전 false) | 메모리 주입·제안·승인 on/off(MEM §3). 키가 없으면 true(opt-out). 실제 적용 = `system.memory_available` AND `memory.enabled`. |
 | `proactive.daily_cap` | **P1에 없음** | 서버 고정 하루 3건. 키는 예약: 나중에 1–3 범위, **낮추기만** 허용(MINOR). P1에 보내면 400(알 수 없는 키). |
 
 - PM §3의 `quiet_start`/`quiet_end`/`daily_cap` 예시는 이 계약(`quiet_hours` 객체, `daily_cap` 미노출)으로 대체한다. PM의 서버 상한(코드 상수)은 그대로.
@@ -305,12 +305,15 @@ tombstone은 API로 노출하지 않는다.
 §2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
 
 ```json
-GET   → { ..., "memory": { "enabled": false }, "system": { ..., "memory_available": true } }
-PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
+GET   → { ..., "memory": { "enabled": true }, "system": { ..., "memory_available": true } }
+PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
 ```
 
-- 사용자 `memory.enabled`의 기본값은 **off(false)**다. 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 off로 읽는다. 사용자가 직접 켜야 한다.
-- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
+- **5.0.0부터** 사용자 `memory.enabled`의 기본값은 **on(true)**이다(4.x는 off). 저장 위치는 `users.settings` JSONB(마이그레이션 00007, 기본 `'{}'`)이고, 키가 없으면 **on으로 읽는다(opt-out)**. 사용자는 설정에서 언제든 끌 수 있고, 끈 뒤의 동작은 아래와 같으며 바뀌지 않는다.
+- 기본 on이어도 **저장은 항목마다 승인 카드가 필요하다**(변경 없음). 사용자가 카드를 승인하지 않으면 아무것도 저장되지 않는다.
+- 기존 사용자: 업그레이드 전에 키가 없던 사용자(명시적으로 끄지 않은 사용자 전원)는 5.0.0 업그레이드 직후 메모리가 켜진다. 명시적으로 `false`를 저장한 사용자는 그대로 off다.
+- 청사진(UI): 메모리가 켜진 사용자에게 **한 번만** 안내를 보여 준다(메모리가 켜졌다는 사실, 저장은 승인 카드로만 된다는 점, 설정에서 끄는 방법). 표시 여부는 클라이언트 로컬 또는 `users.settings`의 네임스페이스 키로 기록한다(추가 시 MINOR).
+- `system.memory_available`(bool, 읽기 전용)은 서버 킬스위치다. 서버 `GW_MEMORY_ENABLED=false`이면(5.0.0부터 서버 기본값은 **true**, 4.x는 false) `false`이고, 이때 `memory` 블록은 응답에 나오지 않으며 `memory` 키를 PATCH하면 400 `invalid`이다.
 - 실제 적용 = `system.memory_available` AND `memory.enabled`.
 - 사용자 `memory.enabled=false`(서버는 on)일 때:
   - 허용: `GET /v1/memory`, `GET /v1/memory/export`, `PATCH`·`DELETE /v1/memory/items/{id}`, `DELETE /v1/memory`(읽기·편집·삭제·내보내기).
@@ -321,7 +324,7 @@ PATCH { "memory": { "enabled": true } } → 200 + 전체 설정 객체
 - 청사진: 앞으로의 사용자 설정은 이 컬럼에 네임스페이스 키로 추가한다. 키가 많아지거나 키별 이력·인덱스가 필요하면 별도 테이블로 나눈다.
 - 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
 - `system.*`은 읽기 전용이다. PATCH로 보내면 400 `invalid`이다. (P1 설정 응답에는 `system.memory_read_only`가 없다. 읽기 전용 상태는 쓰기 시 503 `memory_read_only`로만 드러난다. 노출이 필요해지면 MINOR로 추가한다.)
-- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR.
+- SemVer: `system.memory_available`·`memory.enabled` 추가는 MINOR(4.x). **기본값을 on으로 바꾸는 것은 MAJOR(5.0.0)**다. 이유: 사용자가 opt-in하지 않아도 개인 데이터를 저장할 수 있게 되어 보안 경계가 바뀌고, 고정했던 기본 off 계약을 뒤집는다. 롤백·전제 조건은 memory.md §14.
 
 #### 3.9.7a 보안 요건 (security Med, 고정)
 

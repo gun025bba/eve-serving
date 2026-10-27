@@ -150,13 +150,13 @@
 4. 이후 pg_trgm 관련도 선택, 필요 시 pgvector.
 
 ### 9.1 P1 범위와 활성화 청사진
-- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.**
+- **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자별 `memory.enabled`.** 5.0.0부터 둘 다 기본 true다(§14).
 - **P1 저장 정책**: 삭제는 파일 삭제(항목 삭제는 파일에서 제거). 저장 디렉터리는 **백업에서 제외**하고 권한은 **0700**(파일 0600). §7의 사용자별 암호화 백업·crypto-shred는 **후속 단계**이며, 그 전까지 백업이 없으므로 삭제가 곧 영구 삭제다.
 - 감사 기록 쓰기에 실패하면 메모리 쓰기를 거부한다(500, fail-closed). 읽기 전용 상태(§7 손상 복구)에서는 쓰기를 `memory_read_only` 503으로 거부한다(ui-api-contract §3.3).
 - 최종 판단은 보안 담당이 한다.
 - 청사진: 500(`internal_error`)·503(`memory_read_only`)의 `{"error":{...}}` 형식과 메모리 API의 `{"error_code":...}` 형식 통일은 향후 MAJOR 후보다. 지금은 현행 유지.
 
-#### Required before default-on (security decision 2026-10-27)
+#### Required before default-on (security decision 2026-10-27; 5.0.0 전제 조건은 §14)
 기본값을 켜기(default-on) 전에 모두 충족해야 한다.
 - **백업 제외의 기계적 강제**: 저장 디렉터리에 tmutil 백업 제외 설정, 운영 런북의 확인 단계, 제외가 확인되지 않으면 기동 시 경고 로그.
 - **propose/approve 카드와 taint 연결**: 모델의 `memory.propose` → 확인 카드 → approve 경로와 taint 전파가 실제로 연결될 것.
@@ -235,8 +235,8 @@
 
 ## 13. P1 구현 상태 (4.1.0, PR #25)
 
-- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false. 서버 전역 킬스위치이며, 사용자별 `/v1/settings` `memory.enabled`(기본 false, #40)와 **AND**로 묶는다(서버가 false면 항상 off).
-- **연결 완료**: approve 엔드포인트와 `memory.propose` 툴 연결은 #38에서 들어갔다. 서버 기본값은 여전히 off이며, 기본 on 전환은 별도 결정이다.
+- **킬스위치**: `memory.enabled` / `GW_MEMORY_ENABLED` 기본 false(4.x). **5.0.0부터 기본 true**(§14). 서버 전역 킬스위치이며, 사용자별 `/v1/settings` `memory.enabled`(4.x 기본 false #40, 5.0.0부터 기본 true·키 없으면 true)와 **AND**로 묶는다(서버가 false면 항상 off).
+- **연결 완료**: approve 엔드포인트와 `memory.propose` 툴 연결은 #38에서 들어갔다. 4.x 서버 기본값은 off이고, 기본 on 전환은 5.0.0(MAJOR)으로 결정됐다(§14).
 - **파일 키**: `users.id`(Postgres). 파일명은 `<users.id>.json`(락 `<users.id>.lock`)이고 숫자 id 외에는 들어가지 않는다. 양의 int64 정규 10진 표기만 허용하며, 결합한 경로가 data_dir 바로 아래인지 다시 확인한다.
 - **권한**: data_dir 0700, 파일 0600, 소유자는 게이트웨이 계정. 시작할 때 디렉터리와 모든 항목(정규 파일, 0600 이하, 소유자, 이름 형식)을 확인하고, 하나라도 어긋나면 기동을 거부한다(자동 수정하지 않음).
 - **백업 제외 (P1)**: 메모리 파일은 **pg 백업(`pg_dump`, db-model.md §8)에 포함되지 않는다**. data_dir은 **백업 경로 밖**에 둔다. §7의 암호화 백업은 아직 구현되지 않았다. 따라서 P1에서 삭제는 파일 삭제로 즉시 끝나고, 백업 사본이 남지 않는다.
@@ -308,3 +308,36 @@
 - 사용자당 패턴 상한 20,000. 초과한 **그 사용자만** 창 간격을 4자로 넓혀 다시 등록한다(11자 이상 사본은 계속 가려짐). 다른 사용자와 일반 로그는 영향 없음. 그래도 상한을 넘는 경우(실제 문서 한도로는 불가능)에만 자유 텍스트 로그 전체를 `[REDACTED:memory]`로 바꾸는 fail-closed가 된다. 전역 공유 상한은 없다.
 - 로그용 잘라내기(`logTrunc`)는 마스킹 **후** 자른다. `%3C`, `\x3c`, `&#60;`, `&#060;`, `&#X3C;`, `%253C` 등 이스케이프를 안정될 때까지(최대 4회) 해제한 뒤 검사한다. 저장소 파일 쓰기가 성공한 뒤에 레지스트리를 교체한다.
 - 메모리가 켜져 있으면 upstream 유래 오류(upstream_error 코드, 메시지에 upstream 포함, /v1/chat/ 경로)의 detail은 로그에서 `[omitted:memory]`로 생략한다.
+
+## 14. 5.0.0 기본 켜짐 (MAJOR)
+
+건영님 결정(2026-10-27): 개인화 메모리를 **모든 사용자에게 기본 on**으로 5.0.0에 넣는다.
+
+- 서버 `GW_MEMORY_ENABLED` 기본 true, 사용자 `memory.enabled` 기본 true(`users.settings`에 키가 없으면 true, opt-out).
+- **저장은 여전히 항목마다 승인 카드가 필요하다.** 사용자는 설정에서 끌 수 있고, off 동작(ui-api-contract §3.9.7)은 바뀌지 않는다.
+- **SemVer MAJOR**: 사용자 opt-in 없이 개인 데이터를 저장할 수 있게 되어 보안 경계가 바뀌고, 고정했던 기본 off 계약을 뒤집는다.
+- **기존 사용자 영향**: 키가 없는 기존 사용자는 업그레이드 직후 메모리가 켜진다. 명시적으로 끈 사용자(`false` 저장)는 off로 남는다. UI는 처음 한 번 안내(켜졌다는 사실, 승인 카드로만 저장, 끄는 방법)를 보여 준다(청사진).
+
+### 14.1 go-live 전제 조건 (모두 충족해야 기본 on 배포)
+1. 민감 정보 필터가 QA 비공개 홀드아웃을 통과: 핵심 공직 선거 문장(정당 약칭, 동사 변형 포함)을 모두 차단하고, 공직이 아닌 투표(반장·동아리·회의) 오탐 0건. 초성·영어 섞인 문장은 추적만 하고 필수 조건이 아니다.
+2. 보안 담당 최종 승인.
+3. PR #33(백업 제외 강제)과 #35(로그 Redactor) 머지.
+4. 백업 제외 fail-closed(#42) 활성: 제외가 확인되지 않으면 기동 거부.
+
+### 14.2 운영 런북
+
+배포 전:
+1. 감사 키 생성: `umask 077; openssl rand -hex 32 > <audit_key_file>` (hex, 끝 개행 1개까지만 제거, 서로 다른 바이트 12개 이상).
+2. 권한: data_dir 0700, 파일 0600, 소유자는 게이트웨이 계정.
+3. 백업 제외: `sudo tmutil addexclusion -p <data_dir>` 후 `/usr/bin/tmutil isexcluded <data_dir>`가 `[Excluded] <data_dir>`인지 확인.
+4. data_dir이 iCloud·Dropbox·OneDrive·Google Drive·Box 같은 동기화 폴더 안에 있지 않은지 `realpath <data_dir>`로 확인.
+
+배포 확인:
+- 서버(호스트)에서 게이트웨이를 재시작하고 기동 로그에 `memory_backup_exclusion_refused`가 없는지 확인한다. 제외가 확인되지 않으면 기동이 거부되므로 3단계로 돌아간다.
+- `GET /v1/settings`에서 `system.memory_available=true`, 키가 없는 사용자의 `memory.enabled=true`를 확인한다.
+
+롤백:
+1. `GW_MEMORY_ENABLED=false`로 설정하고 게이트웨이를 재시작한다.
+2. 메모리 파일은 디스크에 그대로 남고 건드리지 않는다.
+3. API는 메모리 도입 전 동작으로 돌아간다(메모리 라우트 404, 도구 정의·주입 없음).
+4. 메모리 데이터 삭제는 선택 사항이며 **건영님의 명시적 승인**이 있을 때만 한다.
