@@ -315,7 +315,7 @@
 
 - 서버 `GW_MEMORY_ENABLED` 기본 true, 사용자 `memory.enabled` 기본 true(`users.settings`에 키가 없으면 true, opt-out).
 - **저장 경로는 두 가지다.** (1) 모델 제안(`memory.propose`)은 항목마다 승인 카드를 사용자가 승인해야 저장된다(자동 승인 없음). (2) UI 직접 추가(`POST /v1/memory/items`)는 브라우저 세션에서 사용자 본인이 명시적으로 하는 행동이라 카드가 없다. 그 밖의 저장 경로는 없다.
-- **API 키(Bearer) 접근**: API 키 가상 사용자는 `memory.enabled`가 off로 고정되며 바꿀 수 없다. `/v1/memory*` 라우트는 모두 브라우저 세션(4.0.0부터 페어링으로 발급한 세션 쿠키, 기존 `users.id`에 묶임) 전용이고 Bearer 요청은 403 `scope_denied`이다.
+- **API 키(Bearer) 접근**: API 키 가상 사용자는 `memory.enabled`가 off로 고정되며 바꿀 수 없다. `/v1/memory*` 라우트는 모두 브라우저 세션(4.0.0부터 페어링으로 발급한 세션 쿠키, 기존 `users.id`에 묶임, 유휴 30일·절대 180일) 전용이고 Bearer 요청은 403 `scope_denied`이다.
 - 사용자는 설정에서 끌 수 있고, off 동작(ui-api-contract §3.9.7)은 바뀌지 않는다.
 - **SemVer MAJOR**: 사용자 opt-in 없이 개인 데이터를 저장할 수 있게 되어 보안 경계가 바뀌고, 고정했던 기본 off 계약을 뒤집는다.
 - **기존 사용자 영향**: 키가 없는 기존 사용자는 업그레이드 직후 메모리가 켜진다. 명시적으로 끈 사용자(`false` 저장)는 off로 남는다. UI는 처음 한 번 안내(켜졌다는 사실, 모델 제안은 승인 카드로만 저장, 끄는 방법)를 보여 준다(청사진).
