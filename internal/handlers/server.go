@@ -24,6 +24,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/proxy"
 	"github.com/gun025bba/eve-serving/internal/queue"
+	"github.com/gun025bba/eve-serving/internal/session"
 	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -57,9 +58,12 @@ type Server struct {
 	Up      *proxy.Client
 	Start   time.Time
 	Version string
-	Store   store.Store  // nil = persistence disabled (thread endpoints -> 503)
-	Web     *WebTools    // nil = web tools unavailable (also needs Cfg.Web.Enabled)
-	Audit   audit.Ledger // tool_audit; nil = audit events dropped (tests only; main always sets it)
+	Store   store.Store // nil = persistence disabled (thread endpoints -> 503)
+	// Sessions issues and validates paired browser sessions (4.0.0). nil = no
+	// browser can pair or authenticate (API key only).
+	Sessions *session.Manager
+	Web      *WebTools    // nil = web tools unavailable (also needs Cfg.Web.Enabled)
+	Audit    audit.Ledger // tool_audit; nil = audit events dropped (tests only; main always sets it)
 	// AuditBreaker disables the web tools after repeated audit write/verify
 	// failures (M2 fail-open mitigation). nil = no breaker.
 	AuditBreaker *audit.Breaker
@@ -161,6 +165,8 @@ func authErr(err error) *apierr.Error {
 		return apierr.InvalidKey()
 	case errors.Is(err, auth.ErrForbiddenIdentity):
 		return apierr.ForbiddenIdentity()
+	case errors.Is(err, auth.ErrInvalidSession):
+		return apierr.InvalidSession()
 	default:
 		return apierr.Unauthenticated()
 	}
@@ -179,6 +185,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		s.M.Auth.WithLabelValues(id.Provider, "ok").Inc()
+		w.Header().Set("X-Eve-Version", s.version())
 		r = r.WithContext(auth.WithIdentity(r.Context(), id))
 		if reason := s.csrfCheck(r, id); reason != "" {
 			s.csrfReject(w, r, id, reason)
@@ -191,7 +198,7 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 		sw := &statusWriter{ResponseWriter: w}
 		h(sw, r)
 		s.Log.Info("request", "request_id", rid(r), "method", r.Method, "path", r.URL.Path, "status", sw.status,
-			"user", auth.LogUser(id), "auth_provider", id.Provider, "conn", connKind(r), "ms", time.Since(t0).Milliseconds())
+			"user", auth.LogUser(id), "auth_provider", id.Provider, "ts_login_hint", auth.TailscaleHint(r.Context()), "ms", time.Since(t0).Milliseconds())
 	}
 }
 
@@ -221,7 +228,11 @@ func (s *Server) version() string {
 // Handler returns the full router with middleware (request id, recovery, CORS).
 func (s *Server) Handler() http.Handler {
 	if s.Auth == nil {
-		c, err := auth.Build(s.Cfg.Auth.Providers, auth.Options{APIKey: s.Key, AllowedUsers: s.Cfg.AllowedUsers})
+		o := auth.Options{APIKey: s.Key, AllowedUsers: s.Cfg.AllowedUsers}
+		if s.Sessions != nil {
+			o.Sessions = s.Sessions
+		}
+		c, err := auth.Build(s.Cfg.Auth.Providers, o)
 		if err != nil {
 			panic(err)
 		}
@@ -249,23 +260,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /v1/messages/{id}/feedback", s.persisted(s.deleteFeedback))
 	mux.HandleFunc("GET /v1/feedback/export", s.persisted(s.exportFeedback))
 	mux.HandleFunc("GET /v1/search", s.persisted(s.search))
-	mux.HandleFunc("GET /v1/actions", s.persisted(s.listActions))
-	mux.HandleFunc("POST /v1/actions/{id}/reissue", s.persisted(s.reissueAction))
-	mux.HandleFunc("POST /v1/proposals/{id}/revise", s.persisted(s.reviseProposal))
+	mux.HandleFunc("GET /v1/actions", s.persisted(sessionOnly(s.listActions)))
+	mux.HandleFunc("POST /v1/actions/{id}/reissue", s.persisted(sessionOnly(s.reissueAction)))
+	mux.HandleFunc("POST /v1/proposals/{id}/revise", s.persisted(sessionOnly(s.reviseProposal)))
+	mux.HandleFunc("POST /v1/pair", s.pair)
+	mux.HandleFunc("DELETE /v1/session", s.authed(sessionOnly(s.logout)))
 	mux.HandleFunc("GET /v1/push/vapid-public-key", s.pushed(s.vapidKey))
 	mux.HandleFunc("POST /v1/push/subscriptions", s.pushed(s.subscribePush))
 	mux.HandleFunc("DELETE /v1/push/subscriptions", s.pushed(s.unsubscribePush))
 	mux.HandleFunc("GET /health", s.health)
-	mux.HandleFunc("GET /ready", s.ready)
-	mux.HandleFunc("GET /metrics", s.metrics)
-	mux.HandleFunc("GET /stats", s.stats)
+	// Only /health and POST /v1/pair are unauthenticated (identity-transport.md §6).
+	mux.HandleFunc("GET /ready", s.authed(s.ready))
+	mux.HandleFunc("GET /metrics", s.authed(s.metrics))
+	mux.HandleFunc("GET /stats", s.authed(s.stats))
 	mux.HandleFunc("GET /admin/config", s.authed(s.adminConfig))
 	mux.HandleFunc("POST /admin/log-level", s.authed(s.setLevel))
-	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /openapi.json", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(openAPISpec)
-	})
-	mux.HandleFunc("GET /docs", docs)
+	}))
+	mux.HandleFunc("GET /docs", s.authed(docs))
 	if dir := config.Expand(s.Cfg.StaticDir); dir != "" {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +291,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
 	})
-	return s.withCORS(s.withRecover(s.withRequestID(mux)))
+	return s.withHost(s.withCORS(s.withRecover(s.withRequestID(mux))))
 }
 
 func (s *Server) withRequestID(next http.Handler) http.Handler {
@@ -287,8 +301,9 @@ func (s *Server) withRequestID(next http.Handler) http.Handler {
 			id = newID()
 		}
 		w.Header().Set("X-Request-ID", id)
-		w.Header().Set("X-Eve-Version", s.version())
-		auth.StripUntrusted(r)
+		// Tailscale-User-* never authorizes anything (any local process can
+		// forge it on loopback); keep the login only as a log hint.
+		r = r.WithContext(auth.StripTailscale(r))
 		next.ServeHTTP(w, r.WithContext(contextWith(r, id)))
 	})
 }
@@ -344,7 +359,8 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"status": "ok", "version": s.version(), "uptime_s": int(time.Since(s.Start).Seconds())})
+	// Unauthenticated: exactly {"status":"ok"} (no version, config or DB state).
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
@@ -436,12 +452,4 @@ func docs(w http.ResponseWriter, r *http.Request) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css"></head>
 <body><div id="swagger-ui"></div><script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
 <script>SwaggerUIBundle({url:'/openapi.json',dom_id:'#swagger-ui',persistAuthorization:true});</script></body></html>`)
-}
-
-// connKind reports which listener a request arrived on, for the request log.
-func connKind(r *http.Request) string {
-	if auth.ViaTrustedSocket(r.Context()) {
-		return "unix"
-	}
-	return "tcp"
 }

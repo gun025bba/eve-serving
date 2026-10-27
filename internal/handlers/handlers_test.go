@@ -55,7 +55,7 @@ func fakeUpstream(t *testing.T, delay time.Duration, seen *[]map[string]any, mu 
 }
 
 func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.Server, *strings.Builder) {
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.MinFreeMemGB = upURL, "m1", 0
 	cfg.StaticDir = t.TempDir()
@@ -71,7 +71,7 @@ func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.
 	q := queue.New(cfg.MaxConc, cfg.MaxQueue, time.Duration(cfg.QueueTimeoutS*float64(time.Second)))
 	s := &Server{Cfg: cfg, Key: key, Log: logging.New(lockedWriter{&lmu, logbuf}, logging.INFO), M: m, Mem: &metrics.MemSampler{Needle: "no-such-proc-xyz"}, Q: q,
 		Up: proxy.New(proxy.Options{BaseURL: upURL, ConnectTimeout: time.Second, ReadTimeout: 5 * time.Second, Retries: 0, Backoff: time.Millisecond}), Start: time.Now()}
-	ts := newTrustedServer(s.Handler())
+	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
 	return ts, logbuf
 }
@@ -137,9 +137,15 @@ func TestUpstreamUnavailable(t *testing.T) {
 	if r.StatusCode != 503 || errCode(m) != "upstream_unavailable" {
 		t.Fatal(r.StatusCode, m)
 	}
-	r, _ = do(t, "GET", ts.URL+"/ready", "", false)
+	r, _ = do(t, "GET", ts.URL+"/ready", "", true)
 	if r.StatusCode != 503 {
 		t.Fatal(r.StatusCode)
+	}
+	// Only /health and POST /v1/pair are unauthenticated.
+	for _, p := range []string{"/ready", "/stats", "/metrics", "/openapi.json", "/docs"} {
+		if r, _ := do(t, "GET", ts.URL+p, "", false); r.StatusCode != 401 {
+			t.Fatal(p, r.StatusCode)
+		}
 	}
 }
 
@@ -164,11 +170,11 @@ func TestChatDefaultsAndLog(t *testing.T) {
 	if r.StatusCode != 200 || m["object"] != "list" {
 		t.Fatal(m)
 	}
-	r, m = do(t, "GET", ts.URL+"/ready", "", false)
+	r, m = do(t, "GET", ts.URL+"/ready", "", true)
 	if r.StatusCode != 200 || m["ready"] != true {
 		t.Fatal(m)
 	}
-	r, m = do(t, "GET", ts.URL+"/stats", "", false)
+	r, m = do(t, "GET", ts.URL+"/stats", "", true)
 	if m["window_requests"].(float64) != 1 {
 		t.Fatal(m)
 	}
@@ -232,7 +238,9 @@ func TestQueueing(t *testing.T) {
 	if n[200] != 4 || n[429] != 2 {
 		t.Fatal(n)
 	}
-	resp, _ := http.Get(ts.URL + "/metrics")
+	mreq, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	mreq.Header.Set("Authorization", "Bearer "+key)
+	resp, _ := http.DefaultClient.Do(mreq)
 	b, _ := io.ReadAll(resp.Body)
 	for _, name := range []string{"llm_requests_total", "llm_queue_wait_seconds", "llm_errors_total{code=\"queue_full\"} 2", "llm_inflight_requests 0"} {
 		if !strings.Contains(string(b), name) {
@@ -249,7 +257,7 @@ func TestStaticAndDocs(t *testing.T) {
 		t.Fatal(r.StatusCode, r.Header)
 	}
 	for p, ct := range map[string]string{"/ui/": "text/html", "/ui/styles.css?v=8": "text/css", "/ui/app.js": "text/javascript", "/openapi.json": "application/json", "/docs": "text/html"} {
-		r, _ := http.Get(ts.URL + p)
+		r, _ := do(t, "GET", ts.URL+p, "", strings.HasPrefix(p, "/openapi") || p == "/docs")
 		if r.StatusCode != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), ct) {
 			t.Fatal(p, r.StatusCode, r.Header.Get("Content-Type"))
 		}
@@ -304,7 +312,7 @@ func TestIdentityAuth(t *testing.T) {
 	get := func(path, login, bearer string) (int, map[string]any) {
 		req, _ := http.NewRequest("GET", ts.URL+path, nil)
 		if login != "" {
-			req.Header.Set("Tailscale-User-Login", login)
+			req.Header.Set(testUserHeader, login)
 			browserHeaders(req)
 		}
 		if bearer != "" {
@@ -319,8 +327,7 @@ func TestIdentityAuth(t *testing.T) {
 		json.NewDecoder(resp.Body).Decode(&m)
 		return resp.StatusCode, m
 	}
-	// httptest peers are loopback, like `tailscale serve`.
-	if c, m := get("/whoami", "owner@github", ""); c != 200 || m["provider"] != "tailscale-identity" || m["user"] != "owner@github" {
+	if c, m := get("/whoami", "owner@github", ""); c != 200 || m["provider"] != "session" || m["user"] != "owner@github" {
 		t.Fatal(c, m)
 	}
 	if c, _ := get("/v1/models", "owner@github", ""); c != 200 {
@@ -335,47 +342,40 @@ func TestIdentityAuth(t *testing.T) {
 	if c, m := get("/v1/models", "", "wrong"); c != 401 || errCode(m) != "invalid_api_key" {
 		t.Fatal(c, m)
 	}
-	if !strings.Contains(logbuf.String(), `"user":"owner@github"`) || !strings.Contains(logbuf.String(), `"auth_provider":"tailscale-identity"`) || strings.Contains(logbuf.String(), key) {
+	if !strings.Contains(logbuf.String(), `"user":"owner@github"`) || !strings.Contains(logbuf.String(), `"auth_provider":"session"`) || strings.Contains(logbuf.String(), key) {
 		t.Fatal("log missing identity or leaked key:", logbuf.String())
 	}
-	resp, _ := http.Get(ts.URL + "/metrics")
+	mreq, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	mreq.Header.Set("Authorization", "Bearer "+key)
+	resp, _ := http.DefaultClient.Do(mreq)
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(b), `llm_auth_total{auth_method="tailscale-identity",result="ok"}`) {
+	if !strings.Contains(string(b), `llm_auth_total{auth_method="session",result="ok"}`) {
 		t.Fatal("auth metric missing")
 	}
 }
 
-// Non-loopback peers can't use the header, even if allowlisted.
-func TestIdentityHeaderFromNonLoopback(t *testing.T) {
+// Tailscale-User-* headers never authenticate, from any peer, allowlisted or
+// not, and are stripped before handlers run (4.0.0).
+func TestTailscaleHeaderNeverAuthorizes(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.Upstream, cfg.AllowedUsers = up.URL, []string{"owner@github"}
 	s := &Server{Cfg: cfg, Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
 		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
 	h := s.Handler()
-	for _, remote := range []string{"100.64.1.2:4444", "[fd7a::1]:4444", "192.168.0.5:1"} {
+	for _, remote := range []string{"127.0.0.1:4444", "[::1]:4444", "100.64.1.2:4444", "192.168.0.5:1"} {
 		req := httptest.NewRequest("GET", "/whoami", nil)
 		req.RemoteAddr = remote
 		req.Header.Set("Tailscale-User-Login", "owner@github")
+		req.Header.Set("Tailscale-User-Name", "Owner")
 		browserHeaders(req)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != 401 || !strings.Contains(rec.Body.String(), "unauthenticated") {
 			t.Fatal(remote, rec.Code, rec.Body.String())
 		}
-	}
-	// empty allowlist: header from loopback is not enough
-	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
-	req := httptest.NewRequest("GET", "/whoami", nil)
-	req = viaSocket(req)
-	req.Header.Set("Tailscale-User-Login", "owner@github")
-	browserHeaders(req)
-	rec := httptest.NewRecorder()
-	s2.Handler().ServeHTTP(rec, req)
-	if rec.Code != 401 {
-		t.Fatal(rec.Code)
 	}
 }
 
@@ -386,7 +386,7 @@ func (denyAll) Allow(context.Context, auth.Identity) bool { return false }
 func TestRateLimitHook(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.Upstream = up.URL
 	s := &Server{Cfg: cfg, Key: key, Limiter: denyAll{}, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
 		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}

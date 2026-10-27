@@ -29,7 +29,7 @@ func browserHeaders(r *http.Request) {
 }
 
 func csrfServer(t *testing.T, upURL string, origins []string, logw io.Writer) *Server {
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.Upstream, cfg.Model, cfg.MinFreeMemGB = upURL, "m1", 0
 	cfg.AllowedUsers = []string{"owner@example"}
 	cfg.AllowedOrigins = origins
@@ -109,9 +109,8 @@ func TestCSRF(t *testing.T) {
 				body = strings.NewReader(c.body)
 			}
 			req := httptest.NewRequest(c.method, c.path, body)
-			req = viaSocket(req)
 			if c.tailscale {
-				req.Header.Set("Tailscale-User-Login", "owner@example")
+				req.Header.Set(testUserHeader, "owner@example")
 			}
 			if c.bearer {
 				req.Header.Set("Authorization", "Bearer "+key)
@@ -165,8 +164,7 @@ func TestCSRFEmptyAllowlistFailsClosed(t *testing.T) {
 		t.Fatal("no startup warning:", logbuf.String())
 	}
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{}`))
-	req = viaSocket(req)
-	req.Header.Set("Tailscale-User-Login", "owner@example")
+	req.Header.Set(testUserHeader, "owner@example")
 	browserHeaders(req)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

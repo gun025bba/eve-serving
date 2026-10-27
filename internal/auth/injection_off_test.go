@@ -8,7 +8,7 @@ import (
 )
 
 func TestInjectionNotCompiledIn(t *testing.T) {
-	err := CheckInjection(InjectionCheck{Env: "e2e", Host: "127.0.0.1", TCPEnabled: true, Users: []string{"e2e@example.test"}})
+	err := CheckInjection(InjectionCheck{Env: "e2e", Host: "127.0.0.1", Users: []string{"e2e@example.test"}})
 	if err == nil || !strings.Contains(err.Error(), "-tags e2e") {
 		t.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func TestInjectionNotCompiledIn(t *testing.T) {
 }
 
 func TestLogUserPseudonymizesTestIdentity(t *testing.T) {
-	if got := LogUser(Identity{User: "a@x", Provider: ProviderTailscale}); got != "a@x" {
+	if got := LogUser(Identity{User: "a@x", Provider: ProviderSession}); got != "a@x" {
 		t.Fatal(got)
 	}
 	got := LogUser(Identity{User: "e2e-alice@example.test", Provider: ProviderTestIdentity})

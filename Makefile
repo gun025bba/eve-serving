@@ -9,6 +9,7 @@ PORT     ?= 8001
 .PHONY: build test test-race test-integration migrate vet fmt run clean
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/gateway
+	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/eve-gw ./cmd/eve-gw
 test:
 	go test ./...
 test-race:

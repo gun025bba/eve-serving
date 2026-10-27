@@ -56,8 +56,7 @@ func (e *penv) do(as, method, path, body string) *httptest.ResponseRecorder {
 	} else {
 		req = httptest.NewRequest(method, path, nil)
 	}
-	req = viaSocket(req)
-	req.Header.Set("Tailscale-User-Login", as)
+	req.Header.Set(testUserHeader, as)
 	browserHeaders(req)
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
@@ -234,8 +233,7 @@ func TestActionReissue_CSRFAndExactOrigin(t *testing.T) {
 	a := e.proposal(t, alice, false)
 	for _, o := range []string{"", "null", testOrigin + ".evil", "https://evil.example.test"} {
 		req := httptest.NewRequest("POST", "/v1/actions/"+a.ID+"/reissue", nil)
-		req = viaSocket(req)
-		req.Header.Set("Tailscale-User-Login", alice)
+		req.Header.Set(testUserHeader, alice)
 		req.Header.Set(HeaderEveRequest, "1")
 		if o != "" {
 			req.Header.Set("Origin", o)
@@ -451,8 +449,7 @@ func TestCORS_TokenEndpointsAndActionsNoAllowHeaders(t *testing.T) {
 	for _, p := range []string{"/v1/actions", "/v1/actions/" + a.ID + "/reissue", "/v1/proposals/" + a.ID + "/revise"} {
 		for _, m := range []string{"OPTIONS", "GET", "POST"} {
 			req := httptest.NewRequest(m, p, nil)
-			req = viaSocket(req)
-			req.Header.Set("Tailscale-User-Login", alice)
+			req.Header.Set(testUserHeader, alice)
 			browserHeaders(req)
 			if m == "OPTIONS" {
 				req.Header.Set("Access-Control-Request-Method", "POST")

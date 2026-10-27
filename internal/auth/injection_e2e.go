@@ -61,20 +61,9 @@ func CheckInjection(c InjectionCheck) error {
 	case "", "prod":
 		return fail("GW_ENV must be set and not prod (got %q)", c.Env)
 	}
-	if !c.TCPEnabled {
-		return fail("needs the TCP listener")
-	}
 	h := strings.Trim(c.Host, "[]")
 	if ip := net.ParseIP(h); !(h == "localhost" || (ip != nil && ip.IsLoopback())) {
 		return fail("bind host %q is not loopback", c.Host)
-	}
-	if c.UnixSocket != "" {
-		return fail("GW_UNIX_SOCKET must be unset")
-	}
-	for _, p := range c.Providers {
-		if p == ProviderTailscale {
-			return fail("tailscale-identity provider must be disabled")
-		}
 	}
 	if c.DBURL != "" {
 		u, err := url.Parse(c.DBURL)

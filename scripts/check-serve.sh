@@ -4,11 +4,11 @@
 # funnel is off, and this node has no funnel capability. Otherwise exit 1
 # (2 = could not read state). Changes nothing.
 #
-#   scripts/check-serve.sh                                   # 4.0.0: unix:/opt/eve-gw/run/gw.sock
+#   scripts/check-serve.sh                                   # 4.0.0: same loopback target
 #   EXPECT=http://127.0.0.1:8000 scripts/check-serve.sh      # before cutover (3.x)
 # Env: EXPECT, TAILSCALE (CLI path), SERVE_JSON / STATUS_JSON (files instead of the CLI, for tests).
 set -u
-EXPECT="${EXPECT:-unix:/opt/eve-gw/run/gw.sock}"
+EXPECT="${EXPECT:-http://127.0.0.1:8000}"
 TS="${TAILSCALE:-tailscale}"
 tmp=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmp"' EXIT

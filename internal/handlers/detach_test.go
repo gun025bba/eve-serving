@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/proxy"
@@ -44,7 +43,7 @@ func newDetachEnv(t *testing.T, n int, step time.Duration, mod ...func(*Server))
 	canceled := make(chan struct{}, 4)
 	up := slowUpstream(t, n, step, canceled)
 	t.Cleanup(up.Close)
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
@@ -55,7 +54,7 @@ func newDetachEnv(t *testing.T, n int, step time.Duration, mod ...func(*Server))
 	for _, f := range mod {
 		f(s)
 	}
-	e.ts = newTrustedServer(s.Handler())
+	e.ts = httptest.NewServer(s.Handler())
 	t.Cleanup(e.ts.Close)
 	return e, canceled
 }
@@ -92,7 +91,7 @@ func readEvents(t *testing.T, r io.Reader, stopAfter int) []sseEv {
 func TestDisconnectMidStreamStillCompletes(t *testing.T) {
 	e, canceled := newDetachEnv(t, 20, 30*time.Millisecond)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"count"}],"thread_id":"new"}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -119,7 +118,7 @@ func TestDisconnectMidStreamStillCompletes(t *testing.T) {
 
 	// Resume from seq 4: replays the rest and ends with [DONE].
 	rq, _ := http.NewRequest("GET", e.ts.URL+"/v1/threads/"+tid+"/messages/"+mid+"/stream", nil)
-	rq.Header.Set("Tailscale-User-Login", "alice@example")
+	rq.Header.Set(testUserHeader, "alice@example")
 	rq.Header.Set("Last-Event-ID", "4")
 	rr, err := http.DefaultClient.Do(rq)
 	if err != nil || rr.StatusCode != 200 {
@@ -214,7 +213,7 @@ func storeMsg(tid, status string) store.Message {
 func openStream(t *testing.T, e *env, who, body string, n int) (*http.Response, []sseEv) {
 	t.Helper()
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(body))
-	req.Header.Set("Tailscale-User-Login", who)
+	req.Header.Set(testUserHeader, who)
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -274,7 +273,7 @@ func TestCancelGeneration(t *testing.T) {
 	path := "/v1/threads/" + tid + "/messages/" + mid + "/cancel"
 	// CSRF: write without the browser headers is rejected
 	req, _ := http.NewRequest("POST", e.ts.URL+path, nil)
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	if r, _ := http.DefaultClient.Do(req); r.StatusCode != 403 {
 		t.Fatal("csrf", r.StatusCode)
 	}
@@ -363,7 +362,7 @@ func TestSubscriberCap(t *testing.T) {
 	path := e.ts.URL + "/v1/threads/" + tid + "/messages/" + mid + "/stream"
 	get := func() *http.Response {
 		rq, _ := http.NewRequest("GET", path, nil)
-		rq.Header.Set("Tailscale-User-Login", "alice@example")
+		rq.Header.Set(testUserHeader, "alice@example")
 		r, err := http.DefaultClient.Do(rq)
 		if err != nil {
 			t.Fatal(err)
