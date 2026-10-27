@@ -26,10 +26,19 @@ make build           # bin/gateway 빌드 (버전은 git 태그에서 주입)
 make run             # 로컬 실행 (기본 127.0.0.1:8001)
 ```
 
+로컬 개발 시작 주의: 기본 `auth.providers`에 `tailscale-identity`가 있는데 `allowed_users`가 비어 있으면
+게이트웨이가 **기동을 거부**합니다(#58). 둘 중 하나를 지정하세요.
+
+```bash
+GW_AUTH_PROVIDERS=api-key make run                 # API 키만 (로컬 개발 권장)
+GW_ALLOWED_USERS=<login>@github make run           # Tailscale 신원 인증까지 테스트할 때
+```
+
 서버 배포(launchd):
 
 ```bash
 git pull --ff-only && make build
+deploy/check-auth-env.sh <path-to-gateway.plist> [<config.yaml>] || exit 1   # 빈 허용 목록 → 크래시 루프 방지
 launchctl bootout   gui/$(id -u)/<gateway-label>
 launchctl bootstrap gui/$(id -u) <path-to-gateway.plist>
 curl -s http://127.0.0.1:<port>/health     # "version" 확인

@@ -405,14 +405,15 @@ func TestIdentityHeaderFromNonLoopback(t *testing.T) {
 	}
 	// Empty allowlist with tailscale-identity configured: startup failure.
 	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("empty allowlist with tailscale-identity must fail at startup")
-			}
-		}()
-		s2.Handler()
-	}()
+	if _, err := s2.HandlerE(); err == nil {
+		t.Fatal("empty allowlist with tailscale-identity must fail at startup")
+	}
+	s3 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
+	rec = httptest.NewRecorder()
+	s3.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/v1/models", nil)) // must not panic
+	if rec.Code != 503 {
+		t.Fatal("misconfigured auth must fail closed with 503:", rec.Code)
+	}
 }
 
 type denyAll struct{}

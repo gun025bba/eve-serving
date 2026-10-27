@@ -250,11 +250,29 @@ func (s *Server) version() string {
 }
 
 // Handler returns the full router with middleware (request id, recovery, CORS).
+// If the auth chain cannot be built (e.g. tailscale-identity with an empty
+// allowlist) it logs the error and returns a fail-closed handler that answers
+// 503 to every request; it never panics. Startup code should prefer
+// HandlerE and exit on error (cmd/gateway builds the chain itself and exits).
 func (s *Server) Handler() http.Handler {
+	h, err := s.HandlerE()
+	if err != nil {
+		if s.Log != nil {
+			s.Log.Error("auth_config_invalid", "error", err.Error())
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "gateway auth misconfigured", http.StatusServiceUnavailable)
+		})
+	}
+	return h
+}
+
+// HandlerE is Handler but returns the auth configuration error instead.
+func (s *Server) HandlerE() (http.Handler, error) {
 	if s.Auth == nil {
 		c, err := auth.Build(s.Cfg.Auth.Providers, auth.Options{APIKey: s.Key, AllowedUsers: s.Cfg.AllowedUsers})
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		s.Auth = c
 	}
@@ -311,7 +329,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
 	})
-	return s.withCORS(s.withRecover(s.withRequestID(mux)))
+	return s.withCORS(s.withRecover(s.withRequestID(mux))), nil
 }
 
 func (s *Server) withRequestID(next http.Handler) http.Handler {

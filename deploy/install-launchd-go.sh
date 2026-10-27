@@ -35,6 +35,15 @@ render() { # label host logname
   chmod 600 "$out"; echo "wrote $out"
 }
 render com.llmserving.gateway 127.0.0.1 gateway
+# Since #58 tailscale-identity with an empty allowlist is a startup error, and
+# launchd would crash-loop the gateway. Refuse to leave such a plist in place.
+gw="$dir/com.llmserving.gateway.plist"
+cfg="${GW_CONFIG:-$HOME/llm-serving/config.yaml}"; [ -f "$cfg" ] || cfg=""
+if ! "$(dirname "$0")/check-auth-env.sh" "$gw" ${cfg:+"$cfg"}; then
+  if [ -f "$gw.prev" ]; then mv "$gw.prev" "$gw"; echo "restored previous $gw" >&2; else rm -f "$gw"; fi
+  echo "set ALLOWED_USERS=<login> (or GW_AUTH_PROVIDERS=api-key in the plist/config) and re-run" >&2
+  exit 1
+fi
 if [ -n "${BIND_IP:-}" ]; then
   render com.llmserving.gateway-ts "$BIND_IP" gateway-ts
 else
@@ -46,5 +55,4 @@ else
   fi
 fi
 [ -z "$DATABASE_URL" ] && echo "note: no GW_DATABASE_URL in $DB_ENV -> persistence disabled" >&2
-[ -z "$ALLOWED_USERS" ] && echo "note: ALLOWED_USERS empty -> tailscale-identity auth disabled (API key only)" >&2
 exit 0
