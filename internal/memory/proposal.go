@@ -19,12 +19,16 @@ const (
 	ScopeWrite         = "memory.write"
 	ProposalTTL        = 24 * time.Hour
 
-	// Static card verbs for memory.propose (Q19). The proposal kind is
-	// chosen by the server (AddProposal / ForgetProposal), never by model
-	// args, so each kind has its own fixed verb.
+	// Static card verbs for memory.propose (Q19, one verb per call). The
+	// proposal kind is chosen by the server (AddProposal / ForgetProposal),
+	// never by model args, so each call's card has one fixed verb.
 	VerbAdd    = tools.VerbAdd
 	VerbForget = tools.VerbDelete
 )
+
+// ProposeVerbs is memory.propose's code-defined manifest entry: the allowed
+// card verbs (Q19). The tool stays single (PM decision); each call uses one.
+var ProposeVerbs = []string{VerbAdd, VerbForget}
 
 var (
 	ErrTainted   = errors.New("memory: denied in tainted thread")

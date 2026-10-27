@@ -3,7 +3,7 @@ version: 1.0.0
 description: "Read the main text of a web page. Only URLs returned by web_search in this answer, or URLs the user wrote, are allowed."
 scopes: [web.read]
 side_effect: read
-verb: run
+verbs: [run]
 taint_output: true
 egress: [public_web]
 secrets: []

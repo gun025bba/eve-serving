@@ -13,6 +13,7 @@ import (
 
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/proxy"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 // memToolEnv: web env whose upstream first calls memory_propose with args
@@ -424,6 +425,22 @@ func TestMemoryTool_CardVerbStatic(t *testing.T) {
 	chatAuto(t, e2)
 	if v, n := cardVerb(t, e2); n != 1 || v != memory.VerbForget {
 		t.Fatalf("forget card verb %q (cards %d)", v, n)
+	}
+}
+
+// Q19 = one verb per call: memory.propose stays one tool whose manifest
+// lists add and delete, and every card verb is within that list.
+func TestMemoryTool_ManifestAllowedVerbs(t *testing.T) {
+	if err := tools.ValidateVerbs(memory.ProposeVerbs); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(memory.ProposeVerbs, ",") != "add,delete" {
+		t.Fatal(memory.ProposeVerbs)
+	}
+	for _, v := range []string{memory.VerbAdd, memory.VerbForget} {
+		if !tools.AllowsVerb(memory.ProposeVerbs, v) {
+			t.Errorf("%q not in manifest verbs", v)
+		}
 	}
 }
 

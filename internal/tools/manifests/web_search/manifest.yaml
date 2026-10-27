@@ -3,7 +3,7 @@ version: 1.0.0
 description: "Search the web for current information. Returns numbered results (title, url, snippet). Call web_fetch on a result URL to read the page."
 scopes: [web.read]
 side_effect: read
-verb: run
+verbs: [run]
 taint_output: true
 egress: [search_engine]
 secrets: []
