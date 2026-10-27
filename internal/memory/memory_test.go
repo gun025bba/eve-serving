@@ -598,14 +598,20 @@ func TestMemoryKey_ParseKeyCriteria(t *testing.T) {
 	rnd := make([]byte, 32)
 	rand.Read(rnd)
 	hex32 := hex.EncodeToString(rnd)
+	// Fixed raw binary (0x80..0xBF): never whitespace or newline, so the
+	// "not hex" reason is deterministic (random bytes could contain \n).
+	bin := make([]byte, 64)
+	for i := range bin {
+		bin[i] = byte(0x80 + i)
+	}
 	cases := []struct{ name, in, wantErr string }{
 		{"hex 64 chars", hex32, ""},
 		{"hex 64 chars + newline", hex32 + "\n", ""},
 		{"uppercase hex", strings.ToUpper(hex32), ""},
 		{"hex 32 chars (16 bytes)", hex32[:32], "32 hex chars"},
 		{"hex 32 chars + newline", hex32[:32] + "\n", "32 hex chars"},
-		{"raw binary 32 bytes", string(rnd), "not hex"},
-		{"raw binary 64 bytes", string(append(append([]byte{}, rnd...), rnd...)), "not hex"},
+		{"raw binary 32 bytes", string(bin[:32]), "not hex"},
+		{"raw binary 64 bytes", string(bin), "not hex"},
 		{"inner space", hex32[:32] + " " + hex32[32:], "whitespace"},
 		{"trailing space", hex32 + " ", "whitespace"},
 		{"CRLF", hex32 + "\r\n", "whitespace"},
