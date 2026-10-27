@@ -287,3 +287,12 @@ func Snippet(text, q string, width int) string {
 	}
 	return b.String()
 }
+
+// UserSettingsStore persists users.settings (namespaced JSONB keys). Optional.
+type UserSettingsStore interface {
+	// UserSettings returns the raw settings object ("{}" when unset).
+	UserSettings(ctx context.Context, login string) (json.RawMessage, error)
+	// MergeUserSettings shallow-merges patch into settings[ns] (other
+	// namespaces and unknown keys are preserved) and returns the result.
+	MergeUserSettings(ctx context.Context, login, ns string, patch json.RawMessage) (json.RawMessage, error)
+}

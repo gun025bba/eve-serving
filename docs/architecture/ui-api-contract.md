@@ -200,6 +200,135 @@ iPhone PWA가 백그라운드로 가면 SSE가 끊긴다. 저장되는 채팅(`t
 - **클라이언트 권장 흐름**: `eve.meta`에서 `message_id`와 마지막 `id`를 저장 → `visibilitychange`로 돌아오거나 스트림이 끊기면 `.../stream`에 `Last-Event-ID`로 재연결(또는 목록을 다시 불러 `status`가 `generating`이면 재연결, `complete`면 그대로 표시).
 - **마이그레이션**: `00006_message_generating.sql` — `messages.status` CHECK에 `generating`,`failed` 추가(확장만). Down은 두 값을 `incomplete`로 되돌린다.
 
+### 3.9 메모리 API 응답 스키마 (memory.md §4, MINOR)
+
+구현 기준은 gateway 4.1.0(PR #25)이며, 후속 PR에서 approve·설정이 더해진다. 모든 경로는 **최종 활성화 = `GW_MEMORY_ENABLED` AND 사용자 `memory.enabled`**일 때만 동작한다.
+- 서버 킬스위치가 꺼져 있으면 `/v1/memory*`와 메모리 approve는 라우트가 없고, 기존과 바이트 단위로 같은 404를 낸다(§3.7). 기존 응답은 바뀌지 않는다.
+- 서버는 켜져 있고 사용자 `memory.enabled=false`이면: 조회·편집·삭제·export는 그대로 동작한다(사용자가 지울 수 있어야 함). 주입과 `memory.propose`는 하지 않고, 메모리 제안 approve는 403 `kill_switch`.
+- 모든 응답에 `Cache-Control: no-store`가 붙고 CORS 허용 헤더는 없다(§3.6). 본문은 로그에 남기지 않는다.
+- 쓰기는 CSRF + 정확한 Origin 검사가 필요하다. 사용자는 인증 컨텍스트로만 정한다(경로·본문에 user 필드 없음).
+
+#### 3.9.1 공통 객체
+
+```json
+// memory item
+{ "id": "01JB...", "kind": "preference", "text": "아침 브리핑은 짧게", "pinned": false,
+  "confidence": "user", "source": {"thread_id": "01J...", "message_id": "01J..."},
+  "created_at": "2026-10-27T05:00:00Z", "updated_at": "2026-10-27T05:00:00Z", "expires_at": null }
+```
+
+| 필드 | 타입 | 규칙 |
+|---|---|---|
+| `id` | string (ULID) | 서버 생성 |
+| `kind` | `profile` \| `preference` \| `fact` \| `task` | 그 밖의 값은 400 `invalid` |
+| `text` | string | 저장된 정규화 텍스트(NFKC, 제어·zero-width 제거), 최대 300자 |
+| `pinned` | bool | `profile`은 기본 true |
+| `confidence` | `user` \| `confirmed` | UI 직접 입력 = `user`, 카드 승인 = `confirmed` |
+| `source` | object, 생략 가능 | 카드 승인으로 만든 항목에만 있다 |
+| `expires_at` | RFC 3339 \| null | `task`는 기본 30일 |
+
+tombstone은 API로 노출하지 않는다.
+
+#### 3.9.2 조회 — `GET /v1/memory`, `GET /v1/memory/export`
+
+```json
+200
+{ "object": "memory", "updated_at": "2026-10-27T05:00:00Z", "items": [ <memory item>, ... ] }
+```
+- 파일이 없으면 `updated_at: null`, `items: []`.
+- export는 본문이 같고 `Content-Disposition: attachment; filename="memory.json"`이 붙는다. `tool_audit`에 `memory_export`로 기록한다(본문 없음).
+- 만료된 항목도 목록에 보인다(UI가 만료 표시). 주입에서만 빠진다.
+
+#### 3.9.3 직접 편집 — UI 전용
+
+| 요청 | 본문 (strict, 모르는 필드 400) | 성공 |
+|---|---|---|
+| `POST /v1/memory/items` | `{kind, text, pinned?, expires_at?}` | 201 + memory item |
+| `PATCH /v1/memory/items/{id}` | `{text?, pinned?, expires_at?\|null, if_updated_at?}` | 200 + memory item |
+| `DELETE /v1/memory/items/{id}` | 없음 | 204, 본문 없음 |
+| `DELETE /v1/memory` | 없음 | 204, 본문 없음 (파일 삭제) |
+
+- `if_updated_at`이 현재 값과 다르면 409 `conflict`.
+- 감사에는 item id와 텍스트의 HMAC만 남는다(`memory_add`·`memory_edit`·`memory_delete`·`memory_delete_all`, `via=ui`).
+
+#### 3.9.4 제안 카드 — `memory.propose` (SSE confirmation)
+
+모델의 `memory.propose`는 바로 쓰지 않는다. 확인 카드(§3.5, TP §10.3)를 만든다.
+- 모델에게는 `{"status":"pending_confirmation","action_id":"..."}`만 돌려준다.
+- **taint**: 스레드에 웹·툴 출력이 들어온 뒤의 제안은 카드를 만들지 않는다. SSE 거부 카드는 `{"status":"denied","error_code":"tainted"}`이다. scheduler 제안은 `scope_denied`이다.
+
+```json
+{ "object": "chat.completion.confirmation", "action_id": "01JB...", "thread_id": "01J...", "message_id": "01J...",
+  "tool": "memory.propose", "tool_version": "1", "scopes": ["memory.write"],
+  "payload_hash": "sha256:...", "provenance": {"actor": "user", "job_id": null, "job_name": null},
+  "tainted": false, "status": "pending",
+  "expires_at": "2026-10-28T05:00:00Z", "created_at": "2026-10-27T05:00:00Z",
+  "summary": "메모리에 추가",
+  "payload_view": { "op": "add", "items": [{"text": "아침 브리핑은 짧게", "kind": "preference"}], "ambiguous": false } }
+```
+
+- `payload_view.op`는 `add` 또는 `delete`이다(Q11).
+  - add 항목에는 `id`가 없고, 정규화 후 실제로 저장될 텍스트를 보여준다.
+  - delete 항목에는 `id`, `text`, `kind`, `updated_at`이 있다.
+- `"잊어줘"` = delete 카드. 매칭이 여럿이거나 모호하면 `ambiguous: true`로 후보를 체크박스로 보여준다. 일부만 지우려면 revise(§3.9.6)를 쓴다.
+  - 매칭이 없으면 카드를 만들지 않고, 모델이 답한다(Q16).
+  - **카드 없이 지우는 경로는 없다.**
+- 스타일: delete는 위험(danger) 스타일, add는 기본 스타일이다(Q13).
+- 시크릿 필터나 민감 범주에 걸리면 SSE 거부 카드 `{"status":"denied","error_code":"secret_detected"}`만 보낸다. 매칭 내용은 보내지 않는다.
+
+#### 3.9.5 승인 — `POST /v1/actions/{id}/approve`
+
+토큰은 `POST /v1/actions/{id}/reissue`로 받는다(§3.5.4).
+
+```json
+요청 { "confirm_token": "<reissue 응답의 토큰>", "payload_hash": "sha256:..." }
+200  { "status": "executed", "action_id": "01JB...", "result": { "op": "add", "item_ids": ["01JC..."] } }
+```
+
+- 검사 순서: 본문 400 `invalid`(`confirm_token` 누락·빈 값 포함) → 404 `not_found`(다른 사용자도 본문 동일) → 409 `conflict`(이미 approve·void) → 410 `expired`(제안 또는 토큰 만료) → 422 `payload_mismatch` → 403 `kill_switch`(사용자 `memory.enabled=false`) / `tainted` / `scope_denied` → 실행.
+- 실행 시점에 다시 검사한다.
+  - add 텍스트는 정규화와 시크릿 필터를 다시 거친다. 걸리면 422 `secret_detected`, 개수·크기 상한은 422 `cap_exceeded`이다.
+  - delete 대상이 그사이 사라졌으면 409 `item_gone`이다.
+- `pending→approved`는 조건부 UPDATE 1행이다. 같은 approve를 다시 보내면 409 `conflict`이다.
+- 감사 기록이 실패하면 500 `internal_error`(파일 변경 없음), 읽기 전용이면 503 `memory_read_only`이다.
+
+#### 3.9.6 부분 선택 — `POST /v1/proposals/{id}/revise`
+
+§3.1·§3.5.4와 같다. `{ "item_ids": ["01JB...", ...] }` → 새 confirmation 객체 전체(토큰 포함).
+- 메모리 제안은 successor 페이로드에 생성 검사를 다시 적용한다.
+  - 대상 항목이 없어졌으면 409 `item_gone`이다.
+  - taint는 `tainted`, scheduler는 `scope_denied`, 시크릿은 `secret_detected`로 거부한다.
+
+#### 3.9.7 사용자 설정 — `memory.enabled`
+
+§2의 `GET /v1/settings` / `PATCH /v1/settings`를 쓴다. 메모리 전용 설정 엔드포인트는 따로 만들지 않는다.
+
+```json
+GET   → { ..., "memory": { "enabled": true }, "system": { ..., "memory_read_only": false } }
+PATCH { "memory": { "enabled": false } } → 200 + 전체 설정 객체
+```
+
+- 기본값은 true다. 그래도 서버 `GW_MEMORY_ENABLED=false`(기본)이면 `memory` 블록은 응답에 나오지 않고, `memory` 키를 PATCH하면 400 `invalid`이다. 꺼진 상태에서는 기존 응답과 같다.
+- 변경은 `tool_audit` security 이벤트로 before/after 불리언만 남긴다.
+- `system.memory_read_only`는 읽기 전용이다. PATCH로 보내면 400이다.
+
+#### 3.9.8 메모리 오류 코드 요약
+
+| HTTP | 본문 | 메모리 상황 |
+|---|---|---|
+| 400 | `{"error_code":"invalid"}` | strict decode 실패, kind·길이·형식 오류 |
+| 403 | `{"error_code":"kill_switch"}` / `tainted` / `scope_denied` | 사용자 off에서 approve, taint, scheduler |
+| 404 | `{"error_code":"not_found"}` 또는 기존 404 | 항목·제안 없음 / 서버 off이면 라우트 없음(기존 404 그대로) |
+| 409 | `conflict` / `item_gone` | `if_updated_at` 불일치·이미 결정됨 / 삭제 대상 사라짐 |
+| 410 | `expired` | 제안·토큰 만료 |
+| 422 | `secret_detected` / `cap_exceeded` / `payload_mismatch` | 시크릿·민감 범주 / 200개·64KB·300자 / 해시 불일치 |
+| 500 | `{"error":{"code":"internal_error",...}}` | 감사 쓰기 실패 등(fail-closed) |
+| 503 | `{"error":{"code":"memory_read_only",...}}` | 파일 손상·권한 이상, 복구 전까지 쓰기 거부 |
+
+- 500과 503은 기존 게이트웨이 오류 형식(`error` 객체)을 쓰고, `error_code` 단일 필드 형식이 아니다(현재 구현 그대로).
+- UI는 `error.code`를 읽어 고정 문구로 보여준다.
+
+
 ## 4. 확장 메모 (청사진)
 - **job 스레드 표시(Q5)**: 목록에서 job이 만든 스레드를 구분해야 하면 Thread에 `job_id`를 노출(MINOR). P1은 메시지 `provenance`·`template_kind`로 충분.
 - **매칭 없음 신호(Q16)**: 필요하면 SSE `tool_result`에 `status:"no_match"`를 노출(MINOR).

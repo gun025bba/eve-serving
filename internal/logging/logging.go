@@ -47,6 +47,18 @@ type Logger struct {
 	w     io.Writer
 	level atomic.Int32
 	now   func() time.Time
+	red   atomic.Pointer[func(string) string]
+}
+
+// SetRedactor installs a function applied to the message and every string
+// field value before the line is written (nil removes it). Non-string values
+// are formatted first when a redactor is set, so nothing bypasses it.
+func (l *Logger) SetRedactor(f func(string) string) {
+	if f == nil {
+		l.red.Store(nil)
+		return
+	}
+	l.red.Store(&f)
 }
 
 func New(w io.Writer, lv Level) *Logger {
@@ -61,6 +73,20 @@ func (l *Logger) Level() Level      { return Level(l.level.Load()) }
 func (l *Logger) Log(lv Level, msg string, kv ...any) {
 	if lv < l.Level() {
 		return
+	}
+	if rp := l.red.Load(); rp != nil {
+		red := *rp
+		msg = red(msg)
+		kv = append([]any(nil), kv...)
+		for i := 1; i < len(kv); i += 2 {
+			switch v := kv[i].(type) {
+			case string:
+				kv[i] = red(v)
+			case nil, bool, int, int32, int64, uint, uint32, uint64, float32, float64, time.Duration, time.Time:
+			default:
+				kv[i] = red(fmt.Sprint(v))
+			}
+		}
 	}
 	var b strings.Builder
 	b.WriteString(`{"ts":`)

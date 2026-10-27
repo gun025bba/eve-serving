@@ -24,14 +24,22 @@ func ReadKeyFile(path string) ([]byte, error) {
 	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
 		return nil, errors.New("memory: audit key file not owned by the gateway account")
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, 4096))
+	if fi.Size() > MaxKeyFileBytes {
+		return nil, errors.New("memory: audit key file rejected: larger than 1024 bytes")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, MaxKeyFileBytes+1))
 	if err != nil {
 		return nil, errors.New("memory: audit key file unreadable")
+	}
+	if len(raw) > MaxKeyFileBytes { // grew after Stat: reject, never truncate (#31)
+		return nil, errors.New("memory: audit key file rejected: larger than 1024 bytes")
 	}
 	return ParseKey(raw)
 }
 
 const (
+	// MaxKeyFileBytes: a larger key file is rejected, not truncated (#31).
+	MaxKeyFileBytes = 1024
 	// MinKeyBytes: minimum decoded key length (64 hex chars).
 	MinKeyBytes = 32
 	// MinDistinctBytes: minimum distinct byte values in the decoded key.
