@@ -187,3 +187,19 @@ func (s *Store) PushSubscriptionOwner(endpoint string) string {
 	}
 	return ""
 }
+
+func (s *Store) ApproveAction(_ context.Context, user, id, tokenSHA256 string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, err := s.owned(user, id)
+	if err != nil {
+		return err
+	}
+	if a.Status != "pending" || a.TokenSHA256 == nil || *a.TokenSHA256 != tokenSHA256 ||
+		a.TokenExpiresAt == nil || !now.Before(*a.TokenExpiresAt) || !now.Before(a.ExpiresAt) {
+		return store.ErrConflict
+	}
+	a.Status = "approved"
+	a.TokenSHA256, a.TokenExpiresAt = nil, nil
+	return nil
+}

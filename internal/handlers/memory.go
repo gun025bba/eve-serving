@@ -71,6 +71,8 @@ func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.addMemoryItem)))
 	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.patchMemoryItem)))
 	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.deleteMemoryItem)))
+	// Approve exists only while memory is on (off: same 404 as before).
+	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(noStore(s.approveAction)))
 }
 
 func (s *Server) memHMAC(text string) string {

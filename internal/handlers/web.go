@@ -17,6 +17,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/config"
+	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/policy/domains"
 	"github.com/gun025bba/eve-serving/internal/search"
 	_ "github.com/gun025bba/eve-serving/internal/search/brave"   // registers "brave" (stub, disabled)
@@ -348,6 +349,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 		out.event(res)
 	}
+	memTainted := s.memoryOn() && s.historyTainted(r, clean, pr)
 	rounds := 0
 	var final upMsg
 	var lastResp map[string]any
@@ -415,7 +417,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = tools.ToolDefs()
+			b["tools"] = s.withMemoryTool(tools.ToolDefs())
 			b["tool_choice"] = "auto"
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
 			if ferr != nil {
@@ -462,6 +464,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
+				if c.name == memory.ToolName && s.memoryOn() {
+					// Any web result already in this request taints the proposal.
+					res := s.runMemoryPropose(r, pr, c.args, memTainted || len(sess.Calls) > 0, out.event)
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
 				emitCall(rc)
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
