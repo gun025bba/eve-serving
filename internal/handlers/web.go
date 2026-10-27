@@ -352,7 +352,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	}
 	var memTaint []string
 	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
-	pimTools := s.pimToolsFor(r.Context(), user(r))
+	pimTools := append(s.pimToolsFor(r.Context(), user(r)), s.pimWriteToolsFor(r.Context(), user(r))...)
 	var pimCalls []string // pim results are untrusted: they taint memory proposals
 	if memUser {
 		_, memTaint = s.historyTainted(r, clean, pr)
@@ -472,7 +472,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
 				if pim.IsTool(c.name) {
-					res := s.runPimTool(r, pimTools, c.name, c.args)
+					// A write proposal after web/pim results in this turn is allowed,
+					// but its card is marked tainted and shows the exact values.
+					pimTainted := len(pimCalls) > 0 || len(sess.Calls) > 0 || len(sess.Sources) > 0
+					res := s.runPimTool(r, pr, pimTools, c.name, c.args, pimTainted, out.event)
 					pimCalls = append(pimCalls, "request:call:"+c.name)
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue

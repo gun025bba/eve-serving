@@ -63,6 +63,10 @@ func noStore(h http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) memoryRoutes(mux *http.ServeMux) {
 	if !s.memoryOn() {
+		// Approve is also needed for Jarvis write cards (#70), and only then.
+		if s.Cfg.Pim.WritesOn() {
+			mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(s.browserOnly(noStore(s.approveAction))))
+		}
 		return
 	}
 	// 4.0.0: every memory route and approve are browser-session only

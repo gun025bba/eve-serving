@@ -49,3 +49,27 @@ directory; CI runs it on a GitHub-hosted macOS runner (job `pim-helper`).
    `deploy/launchd/com.eve.pim.plist.template` (`__HOME__`, `__SOCKET_DIR__`)
    into `~/Library/LaunchAgents/`, `launchctl bootstrap gui/$(id -u) …`.
 4. Approve the Calendar and Reminders TCC prompts once.
+
+## Gateway write verbs (#70) — both switches off by default
+
+The gateway can offer two write verbs, `reminders_add` and `reminders_complete`
+(scope `reminders.write`). They need **two independent switches**, both off by default:
+
+| Switch | Where | Effect |
+|---|---|---|
+| `GW_PIM_WRITES_ENABLED=true` (needs `GW_PIM_ENABLED=true`) | gateway env / `pim.writes_enabled` | the owner's model may *propose* a write |
+| `--writes-enabled` | helper LaunchAgent arguments | the helper executes `add_reminder` / `complete_reminder` |
+
+Reminders sync to the Mac's linked accounts (iCloud etc.), so enabling either switch is an
+owner decision (explicit approval); `install-pim.sh` never sets them.
+
+Flow: the model call only creates a `pending_actions` card whose `payload_view` shows the exact
+title / due / list (for complete: the reminder's current title). Nothing is written until the owner
+approves it in a browser session (`POST /v1/actions/{id}/approve`, `interactive` scope; an API key
+gets 403 `scope_denied`). Approve re-checks the gates, re-validates the payload, writes an audit row
+(fail-closed), claims the card (one winner) and makes exactly one helper call. A definite refusal
+(`writes_disabled`, `not_found`, `permission_denied`, connect failure) releases the card; an unknown
+outcome (timeout, dropped connection) leaves it consumed and answers `502` with `outcome_unknown:true`,
+because EventKit has no idempotency key and a retry could create a duplicate. Logs and audit rows
+carry only the method (`add_reminder` / `complete_reminder`), a count and an error code.
+Authorization uses the principal's scope and `users.id` only, never the way the request authenticated.

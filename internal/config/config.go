@@ -145,7 +145,16 @@ type PimConfig struct {
 	// Reminders the helper reads (EventKit = one login user). Every other
 	// user never sees the tools.
 	OwnerUserID int64 `yaml:"owner_user_id"`
+	// WritesEnabled (GW_PIM_WRITES_ENABLED, #70) additionally offers the
+	// write verbs reminders_add / reminders_complete, still only through an
+	// approved confirmation card. Off by default, and effective only while
+	// Enabled is on (see WritesOn). The helper must also be started with
+	// --writes-enabled; the two switches are independent and both default off.
+	WritesEnabled bool `yaml:"writes_enabled"`
 }
+
+// WritesOn reports whether the write verbs may be offered and executed.
+func (p PimConfig) WritesOn() bool { return p.Enabled && p.WritesEnabled }
 
 // BriefingConfig is the server-wide switch for the morning briefing (#71).
 // Off by default: the briefing.* settings are not readable or writable and
@@ -358,6 +367,13 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_PIM_ENABLED: %w", err)
 		}
 		c.Pim.Enabled = b
+	}
+	if v := getenv("GW_PIM_WRITES_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_WRITES_ENABLED: %w", err)
+		}
+		c.Pim.WritesEnabled = b
 	}
 	if v := getenv("GW_PIM_SOCKET_PATH"); v != "" {
 		c.Pim.SocketPath = v

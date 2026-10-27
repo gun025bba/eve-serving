@@ -31,11 +31,13 @@ var registry = func() *tools.Registry {
 	return r
 }()
 
-// Names lists the read tools in a fixed order.
+// Names lists the read tools in a fixed order (write verbs: WriteNames).
 func Names() []string { return []string{ToolListEvents, ToolListReminders} }
 
-// IsTool reports whether name is a pim tool.
-func IsTool(name string) bool { return name == ToolListEvents || name == ToolListReminders }
+// IsTool reports whether name is a pim tool (read or write verb).
+func IsTool(name string) bool {
+	return name == ToolListEvents || name == ToolListReminders || IsWriteTool(name)
+}
 
 // Manifest returns the validated manifest for a pim tool.
 func Manifest(name string) (*tools.Manifest, bool) { return registry.Get(name) }

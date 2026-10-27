@@ -74,6 +74,16 @@ func TestClientRequestsMatchHelperContract(t *testing.T) {
 	if _, err := c.ListReminders(t.Context(), &due, false); err != nil {
 		t.Fatal(err)
 	}
+	// write verbs (#70): the lines the Swift parser must accept as well
+	if err := c.AddReminder(t.Context(), "우유 사기", &due, "장보기"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddReminder(t.Context(), "제목만", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CompleteReminder(t.Context(), "r1"); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Join(*got, "") != string(want) {
 		t.Fatalf("client lines differ from contract:\n%s\nwant:\n%s", strings.Join(*got, ""), want)
 	}
@@ -219,5 +229,150 @@ func TestManifestsAndDefs(t *testing.T) {
 	}
 	if m, _ := Manifest(ToolListEvents); m.Scopes[0] != "calendar.read" {
 		t.Fatal(m.Scopes)
+	}
+}
+
+func TestClientWriteRequestsAndErrors(t *testing.T) {
+	c, got := fakeHelper(t, okResp(`{"reminder":{"id":"r1","title":"x","due":null,"list":"l","done":false}}`))
+	due := time.Date(2026, 10, 29, 9, 0, 0, 0, seoul)
+	if err := c.AddReminder(t.Context(), "우유 사기", &due, "장보기"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddReminder(t.Context(), "제목만", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CompleteReminder(t.Context(), "r1"); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"v":1,"id":"g1","method":"add_reminder","params":{"title":"우유 사기","due":"2026-10-29T09:00:00+09:00","list":"장보기"}}
+{"v":1,"id":"g2","method":"add_reminder","params":{"title":"제목만"}}
+{"v":1,"id":"g3","method":"complete_reminder","params":{"id":"r1"}}
+`
+	if strings.Join(*got, "") != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(*got, ""), want)
+	}
+
+	// definite refusals: not executed, outcome known
+	for helperErr, code := range map[string]string{"writes_disabled": CodeWritesDisabled, "not_found": CodeNotFound, "permission_denied": CodePermissionDenied, "invalid_request": CodeUnavailable} {
+		c, _ := fakeHelper(t, func(req map[string]any) string {
+			return fmt.Sprintf(`{"v":1,"id":%q,"ok":false,"error":%q}`, req["id"], helperErr)
+		})
+		err := c.AddReminder(t.Context(), "x", nil, "")
+		if CodeOf(err) != code || OutcomeUnknown(err) {
+			t.Fatal(helperErr, err)
+		}
+	}
+	// connect failure: certainly not sent
+	c = NewClient(filepath.Join(t.TempDir(), "missing.sock"))
+	if err := c.AddReminder(t.Context(), "x", nil, ""); CodeOf(err) != CodeUnavailable || OutcomeUnknown(err) {
+		t.Fatal(err)
+	}
+	// helper-internal failure, garbage reply and a timeout: outcome unknown
+	c, _ = fakeHelper(t, func(req map[string]any) string {
+		return fmt.Sprintf(`{"v":1,"id":%q,"ok":false,"error":"internal"}`, req["id"])
+	})
+	if err := c.AddReminder(t.Context(), "x", nil, ""); !OutcomeUnknown(err) || CodeOf(err) != CodeUnavailable {
+		t.Fatal(err)
+	}
+	c, _ = fakeHelper(t, func(map[string]any) string { return "not json" })
+	if err := c.CompleteReminder(t.Context(), "r1"); !OutcomeUnknown(err) {
+		t.Fatal(err)
+	}
+	a, b := net.Pipe()
+	t.Cleanup(func() { a.Close(); b.Close() })
+	go func() { bufio.NewReader(b).ReadString('\n') }()
+	c = &Client{Timeout: 50 * time.Millisecond, Dial: func(context.Context) (net.Conn, error) { return a, nil }}
+	if err := c.AddReminder(t.Context(), "x", nil, ""); !OutcomeUnknown(err) || CodeOf(err) != CodeTimeout {
+		t.Fatal(err)
+	}
+}
+
+func TestProposeAddValidation(t *testing.T) {
+	p, err := ProposeAdd(`{"title":"  우유 사기 ","due":"2026-10-29T09:00:00+09:00","list":"장보기"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view map[string]any
+	json.Unmarshal(p.View, &view)
+	if view["title"] != "우유 사기" || view["verb"] != "add" || p.Tool != ToolAddReminder {
+		t.Fatal(string(p.View))
+	}
+	if _, err := ParsePayload(ToolAddReminder, p.Payload); err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string]string{
+		"missing title": `{}`, "not json": `x`, "number title": `{"title":5}`, "tab": "{\"title\":\"a\\tb\"}",
+		"extra key": `{"title":"x","id":"1"}`, "date only": `{"title":"x","due":"2026-10-29"}`,
+		"empty list": `{"title":"x","list":""}`, "long list": `{"title":"x","list":"` + strings.Repeat("a", 101) + `"}`,
+		"jwt":      `{"title":"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkw.SflKxwRJSMeKKF2QT4fwpM"}`,
+		"password": `{"title":"wifi password: hunter2"}`,
+	} {
+		if _, err := ProposeAdd(args); CodeOf(err) != CodeInvalidArgs {
+			t.Fatal(name, err)
+		}
+	}
+}
+
+func TestParsePayloadStrict(t *testing.T) {
+	for name, tc := range map[string]struct{ tool, raw string }{
+		"wrong method":   {ToolAddReminder, `{"method":"complete_reminder","title":"x"}`},
+		"unknown field":  {ToolAddReminder, `{"method":"add_reminder","title":"x","notes":"y"}`},
+		"add with id":    {ToolAddReminder, `{"method":"add_reminder","title":"x","id":"r1"}`},
+		"complete no id": {ToolCompleteReminder, `{"method":"complete_reminder","title":"x"}`},
+		"other tool":     {"calendar_list_events", `{"method":"add_reminder","title":"x"}`},
+	} {
+		if _, err := ParsePayload(tc.tool, json.RawMessage(tc.raw)); err == nil {
+			t.Fatal(name)
+		}
+	}
+	if _, err := ParsePayload(ToolCompleteReminder, json.RawMessage(`{"method":"complete_reminder","id":"r1","title":"t","list":"l"}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type listOnly struct{ rs []Reminder }
+
+func (l listOnly) ListEvents(context.Context, time.Time, time.Time) (Events, error) {
+	return Events{}, nil
+}
+func (l listOnly) ListReminders(context.Context, *time.Time, bool) (Reminders, error) {
+	return Reminders{Reminders: l.rs}, nil
+}
+
+func TestProposeCompleteLooksUpOpenReminder(t *testing.T) {
+	rd := listOnly{[]Reminder{{ID: "r1", Title: "t1", List: "l"}, {ID: "r2", Title: "t2", Done: true}}}
+	p, err := ProposeComplete(t.Context(), rd, `{"id":"r1"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view map[string]any
+	json.Unmarshal(p.View, &view)
+	if view["title"] != "t1" || view["verb"] != "update" {
+		t.Fatal(string(p.View))
+	}
+	for _, args := range []string{`{"id":"r2"}`, `{"id":"nope"}`} { // done or unknown
+		if _, err := ProposeComplete(t.Context(), rd, args); CodeOf(err) != CodeNotFound {
+			t.Fatal(args, err)
+		}
+	}
+	if _, err := ProposeComplete(t.Context(), rd, `{"id":"r1","x":1}`); CodeOf(err) != CodeInvalidArgs {
+		t.Fatal(err)
+	}
+	if _, err := ProposeComplete(t.Context(), nil, `{"id":"r1"}`); CodeOf(err) != CodeUnavailable {
+		t.Fatal(err)
+	}
+}
+
+func TestWriteManifestsLoad(t *testing.T) {
+	for _, n := range WriteNames() {
+		m, ok := Manifest(n)
+		if !ok || m.SideEffect != "write" || len(m.Scopes) != 1 || m.Scopes[0] != ScopeWrite {
+			t.Fatal(n, m)
+		}
+	}
+	for _, n := range Names() {
+		if IsWriteTool(n) {
+			t.Fatal("read set contains a write verb", n)
+		}
 	}
 }
