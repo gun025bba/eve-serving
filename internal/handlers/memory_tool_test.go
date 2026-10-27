@@ -227,3 +227,15 @@ func TestMemoryTool_SecretDenied(t *testing.T) {
 		t.Fatal(res)
 	}
 }
+
+func TestMemoryTool_ApproveBearer403(t *testing.T) {
+	e, fs := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	id, tok, ph := proposeAndToken(t, e, "")
+	r, m := do(t, "POST", e.ts.URL+"/v1/actions/"+id+"/approve", `{"confirm_token":"`+tok+`","payload_hash":"`+ph+`"}`, true)
+	if r.StatusCode != 403 {
+		t.Fatal(r.StatusCode, m)
+	}
+	if d, _ := fs.Load(uidOf(t, &e.env, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("api key approved")
+	}
+}

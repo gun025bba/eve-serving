@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/audit"
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/store"
 )
@@ -137,6 +138,11 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 // approveAction: POST /v1/actions/{id}/approve {confirm_token, payload_hash}.
 // Registered only while memory is on; only memory.propose cards execute.
 func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
+	// Browser session only (CSRF-checked); API keys can never approve (§3.9).
+	if id, _ := auth.FromContext(r.Context()); id.Provider == auth.ProviderAPIKey {
+		s.writeCode(w, r, "scope_denied")
+		return
+	}
 	var b struct {
 		ConfirmToken string `json:"confirm_token"`
 		PayloadHash  string `json:"payload_hash"`
