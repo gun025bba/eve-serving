@@ -39,7 +39,12 @@ func (s *Server) withMemoryTool(defs []any, on bool) []any {
 const threadTaintKey = "memory_tainted"
 
 // taintFallback holds threads whose sticky flag could not be written
-// (fail-closed, process-local).
+// (fail-closed, process-local). Known limit (security Low #44): this set is
+// not persisted, so it is lost on restart. After a restart taint is
+// re-derived from persisted state (web sources, proactive messages, tool
+// history); only a thread whose sole taint signal was a failed flag write
+// in the previous process loses it. Persisting would need the same DB that
+// just failed, so it is documented rather than added.
 var taintFallback sync.Map
 
 func (s *Server) markThreadTainted(r *http.Request, login, threadID string) {
@@ -372,12 +377,19 @@ func memValidateCode(err error) string {
 // by authed); a Bearer API key gets 403 scope_denied. Nothing auto-approves.
 func (s *Server) denyAPIKey(w http.ResponseWriter, r *http.Request) bool {
 	// allowlist, not denylist: only browser-session providers may confirm.
-	if id, _ := auth.FromContext(r.Context()); !browserSessionProviders[id.Provider] {
+	if !isBrowserSession(r) {
 		s.writeCode(w, r, "scope_denied")
 		return true
 	}
 	return false
 }
 
-// browserSessionProviders may approve/revise/reissue (CSRF-checked by authed).
+// browserSessionProviders is the one allowlist for browser-session-only
+// endpoints: approve/revise/reissue and PATCH /v1/settings (CSRF-checked by
+// authed). API keys (Bearer) are never on it.
 var browserSessionProviders = map[string]bool{auth.ProviderTailscale: true}
+
+func isBrowserSession(r *http.Request) bool {
+	id, _ := auth.FromContext(r.Context())
+	return browserSessionProviders[id.Provider]
+}
