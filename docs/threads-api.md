@@ -69,6 +69,11 @@ Behaviour
 4. Regenerate (`replace_message_id`): no new user message; the reply **overwrites the same message id**
    (content, reasoning, model, params, usage, latency, status, metadata), keeps `created_at`, sets `updated_at`,
    and **clears its feedback**. Response `message_id` = the replaced id, `user_message_id` = null.
+5. Resend without `replace_message_id` (3.1.1+): if the thread's last user message has the **same text** and has
+   no reply after it, or only one `failed` reply (incl. `error_code: cancelled`), no new user row is stored. The
+   response `user_message_id` is that existing message; if a failed reply existed it is overwritten in place like
+   a regenerate (`message_id` = `replaced_message_id` = the failed reply's id). A `complete` or `generating` reply,
+   or different text, always starts a new turn.
 
 Non-stream response: headers `X-Thread-Id`, `X-Message-Id`, `X-User-Message-Id` (absent on regenerate), and the
 JSON body gains `thread_id`, `message_id`, `user_message_id` (and `replaced_message_id` on regenerate).
