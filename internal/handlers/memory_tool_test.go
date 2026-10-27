@@ -365,3 +365,14 @@ func TestMemValidateCode_Sensitive(t *testing.T) {
 		t.Fatalf("got %q (%v)", got, err)
 	}
 }
+
+func TestMemoryTool_SensitiveDenied(t *testing.T) {
+	e, _ := memToolEnv(t, true, `{"op":"add","text":"민주당 지지해"}`, false)
+	chatAuto(t, e)
+	if res := lastToolResult(e); strings.TrimSpace(res) != `{"error_code":"sensitive_category","status":"denied"}` {
+		t.Fatal(res)
+	}
+	if acts, _ := e.st.ListPendingActions(t.Context(), "alice@example"); len(acts) != 0 {
+		t.Fatal("card created")
+	}
+}

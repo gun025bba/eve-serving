@@ -179,7 +179,7 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 	case errors.Is(err, memory.ErrScheduler):
 		return deny("scope_denied")
 	case errors.As(err, &rej):
-		return deny("secret_detected")
+		return deny(rejectCode(rej))
 	case errors.Is(err, memory.ErrTooLong), errors.Is(err, memory.ErrTooMany):
 		return deny("cap_exceeded")
 	default:
