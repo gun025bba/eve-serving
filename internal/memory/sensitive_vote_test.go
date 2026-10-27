@@ -56,3 +56,33 @@ func TestSensitive_VoteRound9(t *testing.T) {
 		}
 	}
 }
+
+// Architect policy (#53): every core public-election disclosure blocks;
+// non-public votes have zero false positives. QA round 10 shapes included.
+func TestSensitive_PoliticsPolicyR10(t *testing.T) {
+	block := []string{
+		"대선 때 3번 뽑았음", "총선에서 2번 찍음", "지방선거에서 1번 찍었어", "지선 때 2번 뽑았어", "재보궐선거에서 3번 찍었다",
+		"국민투표에서 1번 찍었어", "선거에서 2번 찍었어", "기호 2번 찍었어", "기호 3번 찍고 왔어", "기호 1번 뽑겠다",
+		"사전투표 때 1번에 했어", "이번 투표는 1번에 찍었다", "투표용지에 1번 찍었어", "2번에 도장 찍었어", "투표는 2번에 했어",
+		"정의당·지지해", "민주당/지지함", "국민의힘~ 찍었음", "진보당? 지지자야", `"개혁신당" 지지해`, "'조국혁신당' 찍었어",
+		"국민의힘 👍 지지", "녹색당 지지자임", "우리 아빠는 국민의힘 지지자야", "이재명 찍었어", "한동훈 지지함",
+	}
+	allow := []string{
+		"반장 투표는 2번에 했어", "반장 선거에서 2번 찍었어", "동아리 회장 선거에서 1번 찍었어", "회의에서 투표 2번 했어",
+		"오디션 투표 1번에 했어", "인기투표 3번 찍었어", "학생회장 선거 1번 뽑았어", "투표 2번 해도 돼?", "투표는 2번 해야 돼?",
+		"이 서류 2번에 도장 찍어야 해?", "사진 10번 찍었어", "주차 기호 2번에 찍힌 차", "후보 2번이 누구야?",
+		"조국혁신당 의석수 몇 석이야?", "정의당 새 대표 기사 요약해줘", "정의당·녹색당 합당 뉴스 요약해줘",
+		"민주당/국민의힘 의석수 비교해줘", "민주당 지지율 기사 요약해줘", "기호 1번 후보 토론 영상", "팀 대표 뽑았어",
+		"지지대 2번 다시 박았어", "투표용지 디자인 바뀌었대",
+	}
+	for _, s := range block {
+		if CheckSensitive(s) == nil {
+			t.Errorf("not blocked: %q", s)
+		}
+	}
+	for _, s := range allow {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("false positive %q: %v", s, err)
+		}
+	}
+}
