@@ -11,7 +11,7 @@ import (
 )
 
 func okCheck() InjectionCheck {
-	return InjectionCheck{Env: "e2e", Host: "127.0.0.1", TCPEnabled: true, DBURL: "postgres://u@127.0.0.1:5432/llmchat_test?sslmode=disable",
+	return InjectionCheck{Env: "e2e", Host: "127.0.0.1", DBURL: "postgres://u@127.0.0.1:5432/llmchat_test?sslmode=disable",
 		ProdUsers: []string{"real@example.com"}, Providers: []string{ProviderAPIKey}, Users: []string{"e2e-alice@example.test"}}
 }
 
@@ -20,16 +20,14 @@ func TestCheckInjectionRefusals(t *testing.T) {
 		t.Fatal(CheckInjection(err))
 	}
 	cases := map[string]func(*InjectionCheck){
-		"env unset":       func(c *InjectionCheck) { c.Env = "" },
-		"env prod":        func(c *InjectionCheck) { c.Env = "PROD" },
-		"non-loopback":    func(c *InjectionCheck) { c.Host = "0.0.0.0" },
-		"tailnet bind":    func(c *InjectionCheck) { c.Host = "100.64.0.1" },
-		"tcp off":         func(c *InjectionCheck) { c.TCPEnabled = false },
-		"prod db":         func(c *InjectionCheck) { c.DBURL = "postgres://u@127.0.0.1:5432/llmchat?sslmode=disable" },
-		"overlap":         func(c *InjectionCheck) { c.Users = append(c.Users, "REAL@example.com") },
-		"tailscale on":    func(c *InjectionCheck) { c.Providers = []string{ProviderTailscale, ProviderAPIKey} },
-		"unix socket set": func(c *InjectionCheck) { c.UnixSocket = "/tmp/x/gw.sock" },
-		"no test users":   func(c *InjectionCheck) { c.Users = nil },
+		"env unset":    func(c *InjectionCheck) { c.Env = "" },
+		"env prod":     func(c *InjectionCheck) { c.Env = "PROD" },
+		"non-loopback": func(c *InjectionCheck) { c.Host = "0.0.0.0" },
+		"wildcard v6":  func(c *InjectionCheck) { c.Host = "::" },
+		"prod db":      func(c *InjectionCheck) { c.DBURL = "postgres://u@127.0.0.1:5432/llmchat?sslmode=disable" },
+		"overlap":      func(c *InjectionCheck) { c.Users = append(c.Users, "REAL@example.com") },
+
+		"no test users": func(c *InjectionCheck) { c.Users = nil },
 	}
 	for name, mut := range cases {
 		c := okCheck()

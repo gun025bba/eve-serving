@@ -14,7 +14,6 @@ import (
 
 	policydata "github.com/gun025bba/eve-serving/deploy/policy"
 	"github.com/gun025bba/eve-serving/internal/audit"
-	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/policy/domains"
@@ -103,7 +102,7 @@ func newWebEnv(t *testing.T, enabled bool) *webEnv {
 	seen, mu := &[]map[string]any{}, &sync.Mutex{}
 	up := webUpstream(seen, mu)
 	t.Cleanup(up.Close)
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
@@ -120,7 +119,7 @@ func newWebEnv(t *testing.T, enabled bool) *webEnv {
 	s.Web = &WebTools{Domains: pol, Search: e.fs, Fetch: e.ff, Rate: tools.NewRateLimiter(map[string]int{"search": 100, "fetch": 100})}
 	e.st = memstore.New()
 	s.Store = e.st
-	e.ts = newTrustedServer(s.Handler())
+	e.ts = httptest.NewServer(s.Handler())
 	t.Cleanup(e.ts.Close)
 	return e
 }
@@ -173,7 +172,7 @@ func TestWebOffPathUnchanged(t *testing.T) {
 func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 	e := newWebEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"go 1.27 나왔어?"}]}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -312,7 +311,7 @@ func TestWebForceStreamAndThreadSetting(t *testing.T) {
 		t.Fatal(string(b))
 	}
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"thread_id":"`+tid+`","messages":[{"role":"user","content":"go news"}]}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -396,7 +395,7 @@ func TestWebDomainBlockAuditedCountOnly(t *testing.T) {
 	e := newWebEnv(t, true)
 	e.fs.extra = []search.Result{{Title: "short", URL: "https://bit.ly/abc"}, {Title: "ip", URL: "http://0177.0.0.1/"}}
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"q"}]}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -55,7 +55,7 @@ jobs:
           echo "default binary: $(wc -l < nm-default.txt) symbols, 0 e2e symbols; e2e binary: $(grep -c e2eIdentity nm-e2e.txt) e2e symbol(s)"
           if grep -a -q 'X-Eve-Test-Identity' gw-default; then echo "e2e header string in default binary"; exit 1; fi
           # the default binary refuses to start with the injection flag
-          echo ci-key > k; set +e
+          echo ci-key > k; chmod 600 k; set +e
           out=$(GW_LOG_FILE=$PWD/gw.log GW_TEST_IDENTITY_INJECTION=true ./gw-default -config /nonexistent.yaml -key-file k -port 18999 2>&1); rc=$?
           set -e
           echo "$out"

@@ -23,14 +23,19 @@ func TestGenerationHubBytesValidated(t *testing.T) {
 	}
 }
 
-func TestTCPDisabledNeedsSocket(t *testing.T) {
-	env := map[string]string{"GW_TCP_DISABLED": "true"}
-	if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
-		t.Fatal("tcp_disabled without socket accepted")
+func TestLegacyIdentityConfigRefused(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"GW_TCP_DISABLED": "true"},
+		{"GW_UNIX_SOCKET": "/tmp/x/gw.sock"},
+		{"GW_AUTH_PROVIDERS": "tailscale-identity,api-key"},
+	} {
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+			t.Fatalf("%v accepted", env)
+		}
 	}
-	env["GW_UNIX_SOCKET"] = "/tmp/x/gw.sock"
+	env := map[string]string{"GW_ALLOWED_HOSTS": "gw.example.test, localhost", "GW_SESSION_PEPPER_FILE": "/x/pepper"}
 	c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] })
-	if err != nil || !c.TCPDisabled || c.UnixSocket != "/tmp/x/gw.sock" {
-		t.Fatal(c.TCPDisabled, err)
+	if err != nil || len(c.AllowedHosts) != 2 || c.SessionPepperFile != "/x/pepper" || c.Auth.Providers[0] != "session" {
+		t.Fatal(c.AllowedHosts, c.SessionPepperFile, c.Auth.Providers, err)
 	}
 }

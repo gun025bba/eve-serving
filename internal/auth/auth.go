@@ -19,8 +19,10 @@ import (
 
 // Identity is an authenticated caller. It never contains secrets.
 type Identity struct {
-	User     string `json:"user"`     // e.g. tailnet login; "api-key" for key callers
+	User     string `json:"user"`     // users.login of a paired session; "api-key" for key callers
 	Provider string `json:"provider"` // registered provider name
+	// SessionID is the sessions.id for ProviderSession (0 otherwise).
+	SessionID int64 `json:"-"`
 }
 
 var (
@@ -30,6 +32,8 @@ var (
 	ErrInvalidKey = errors.New("invalid api key")
 	// ErrForbiddenIdentity: an identity was presented but is not allowed.
 	ErrForbiddenIdentity = errors.New("identity not allowed")
+	// ErrInvalidSession: a session cookie was presented but is unknown, expired or revoked.
+	ErrInvalidSession = errors.New("invalid session")
 )
 
 // Authenticator authenticates a request.
@@ -41,7 +45,8 @@ type Authenticator interface {
 type Options struct {
 	APIKey       string
 	AllowedUsers []string
-	TestUsers    []string // e2e identity injection allowlist (-tags e2e only)
+	TestUsers    []string         // e2e identity injection allowlist (-tags e2e only)
+	Sessions     SessionValidator // paired browser sessions; nil = none accepted
 }
 
 // Constructor builds a provider from Options.
@@ -136,8 +141,20 @@ func FromContext(ctx context.Context) (Identity, bool) {
 	return id, ok
 }
 
-// LoadKey reads and trims the key file. The key is never logged.
+// LoadKey reads and trims the key file. The key is never logged. Startup is
+// refused (fail-closed) unless the file is a regular file with mode 0600 or
+// stricter.
 func LoadKey(path string) (string, error) {
+	st, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("api key file %s must be a regular file (not a symlink) with mode 0600 (got %#o)", path, st.Mode().Perm())
+	}
+	if !ownedBySelf(st) {
+		return "", fmt.Errorf("api key file %s must be owned by the gateway's own uid", path)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

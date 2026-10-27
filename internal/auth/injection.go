@@ -11,14 +11,12 @@ const ProviderTestIdentity = "test-identity"
 
 // InjectionCheck carries what the e2e startup gate inspects.
 type InjectionCheck struct {
-	Env        string   // GW_ENV
-	Host       string   // TCP bind host
-	TCPEnabled bool     // TCP listener on
-	DBURL      string   // database URL ("" = no database)
-	ProdUsers  []string // the Tailscale allowlist (allowed_users)
-	Providers  []string // configured auth providers
-	UnixSocket string   // GW_UNIX_SOCKET
-	Users      []string // GW_TEST_IDENTITY_USERS
+	Env       string   // GW_ENV
+	Host      string   // TCP bind host
+	DBURL     string   // database URL ("" = no database)
+	ProdUsers []string // the prod allowlist (allowed_users)
+	Providers []string // configured auth providers
+	Users     []string // GW_TEST_IDENTITY_USERS
 }
 
 // LogUser returns the user id to write to logs: injected test identities are
