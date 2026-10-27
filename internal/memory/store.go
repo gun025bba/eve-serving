@@ -314,6 +314,7 @@ func (s *FileStore) Load(uid int64) (Doc, error) {
 	if d.Tombstones == nil {
 		d.Tombstones = []Tombstone{}
 	}
+	registerDoc(uid, d)
 	return d, nil
 }
 
@@ -356,6 +357,7 @@ func (s *FileStore) Update(uid int64, fn func(*Doc) error) (Doc, error) {
 	if len(b) > MaxFileBytes {
 		return Doc{}, ErrFileTooLarge
 	}
+	registerDoc(uid, d)
 	if err := s.writeAtomic(s.path(uid), b); err != nil {
 		return Doc{}, err
 	}
@@ -418,6 +420,7 @@ func (s *FileStore) Purge(uid int64) error {
 		return err
 	}
 	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	ReleaseUser(uid) // release log-mask texts with the file
 	err = os.Remove(s.path(uid))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -452,6 +455,9 @@ func Clean(text string) (string, error) {
 	}
 	if HasBlockMarker(t) {
 		return "", ErrMarkup
+	}
+	if err := CheckSensitive(t); err != nil {
+		return "", err
 	}
 	return t, nil
 }

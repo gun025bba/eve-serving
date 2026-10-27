@@ -671,7 +671,7 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 		s.markThreadTainted(r.WithContext(c), pr.user, pr.threadID) // sticky, independent of memory state
 	}
 	if err := ws.SaveWebRun(c, pr.user, pr.msgID, calls, srcs); err != nil {
-		s.Log.Error("web_persist_failed", "request_id", rid(r), "message_id", pr.msgID, "error", trunc(err.Error(), 200))
+		s.Log.Error("web_persist_failed", "request_id", rid(r), "message_id", pr.msgID, "error", logTrunc(err.Error(), 200))
 	}
 }
 
@@ -688,7 +688,7 @@ func (s *Server) RunWebRetention(ctx context.Context, interval time.Duration) {
 		defer cancel()
 		n, err := ws.PurgeWebHistory(c, time.Now().Add(-time.Duration(days)*24*time.Hour))
 		if err != nil {
-			s.Log.Error("web_retention_failed", "error", trunc(err.Error(), 200))
+			s.Log.Error("web_retention_failed", "error", logTrunc(err.Error(), 200))
 			return
 		}
 		s.M.WebPurged.Add(float64(n))

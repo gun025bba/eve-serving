@@ -243,6 +243,20 @@
 - **조정 상수**: 엔트로피 임계값(`secret.go`)과 토큰 추정(`inject.go`)은 이름 있는 상수다. ROC 실행(§8.5) 뒤 설정으로 옮긴다.
 - **users.id 타입**: `BIGSERIAL`(int64). 파일 키는 `^[0-9]+$` 정규형만 허용하고, 파싱한 뒤 다시 문자열로 만들어 같은지 확인한다. 파일 안의 `user_id`도 요청자 id와 교차 확인한다.
 - **경로·락·키**: data_dir 경로(부모 포함)에 심볼릭 링크가 있으면 기동을 거부한다. Purge도 Update와 같은 flock을 잡는다. 감사 HMAC 키가 끝 개행·공백을 포함하거나 서로 다른 바이트가 16개 미만이면 거부한다.
+- **민감 범주 거부 목록**: `internal/memory/sensitive.go`. 건강·질병, 성적 지향, 종교, 정치 성향, 범죄 기록, 노조 가입, 인종·민족, 생체·유전 정보는 사용자가 원해도 저장하지 않는다.
+  - 한국어·영어 키워드 기반의 최소 목록이다(분류기가 아니라 하한선).
+  - 걸리면 `sensitive_category`로 거부하고, 이유는 응답에 넣지 않는다. 항목을 추가·변경하면 보안 검토 대상이다.
+  - 금융(소득·부채·신용점수)과 신분증 번호(여권·운전면허·외국인등록번호)도 거부한다.
+  - 한국어 규칙은 흔한 단어 속 부분 문자열(게이트·게이밍·게이지, 이전과·전과목, 추수감사절)에 걸리지 않도록 조사·어미·1인칭/동사 문맥을 요구한다. 뉴스·영화·일정·통계 같은 주제 언급은 통과한다.
+  - **거부 코드**: 민감 범주 거부는 422 `{"error_code":"sensitive_category"}`, 시크릿 거부는 422 `secret_detected`로 구분한다(매칭 텍스트·세부 범주는 노출하지 않음).
+  - **정책(단일 규칙)**: 민감 범주의 자기 진술(1인칭·문두 암묵 1인칭)은 **거부**한다. "경고 후 허용" 경로는 없으며 확인 카드도 만들지 않는다. 제3자(가족·지인·동료·he/she 등)를 주어/소유자로 하는 문장에 민감 용어가 함께 나오면 표현과 무관하게 **항상 거부**한다(`sensitive_third_party`, 예: "엄마가 불교를 믿어").
+  - 정치: 정당명(민주당·국민의힘·정의당 등) + 지지/찍다/뽑다/당원/지지자/후원, 1인칭 진보·보수 진술. "지지율"·"전당대회" 같은 뉴스 언급은 통과.
+  - 건강 추가: 우울·불안·불면 + 약 복용, 성병 감염·치료, 장애 등급·유형 진술. HIV는 양성·감염·진단 같은 자기 진술만(검사 기사 언급은 통과).
+  - 제3자 규칙에서 교회·성당은 장소 언급만으로는 걸리지 않고 다님·신자 등 신앙 진술이 있어야 한다.
+  - 금융·신분증: 소득/연봉/부채는 1인칭 또는 문두 금액 진술만, 여권번호 형태(영문 1자+숫자 8자리)는 문장 어디에든 "여권"/passport가 있을 때 거부, 외국인등록번호(하이픈 없는 13자리)는 생년월일 유효성+7번째 자리 5–8 검증 후 거부한다. hiv는 단어 경계(`\bhiv\b`).
+  - 변형: 정규화 텍스트, 공백·제로폭 제거본, 호환 자모 조합본(ㄱㅔㅇㅣ→게이), 라틴 leet 폴딩본(4→a, 1→i/l 등)에 모두 적용한다.
+  - 제3자 언급도 거부한다: "엄마가 당뇨 진단 받았어"처럼 다른 사람의 민감 정보도 저장하지 않는다(주체를 구분하지 않는 보수적 규칙).
+  - 회귀 코퍼스: `sensitive_corpus_test.go`(`TestQA_SensitiveCorpus`), `sensitive_corpus_v2_test.go`(각 100+건, 제3자·제로폭·띄어쓰기·호환 자모·leet 포함) — 오탐·미탐 0이어야 한다.
 - **백업 제외 강제 (fail-closed)**: 메모리가 켜져 있으면 기동 시 `CheckBackupPolicy`를 통과해야 한다. 실패하면 `memory_backup_exclusion_refused`를 남기고 종료한다.
   - macOS: 고정 경로 `/usr/bin/tmutil isexcluded <data_dir>`(PATH 무시)의 출력이 정확히 한 줄 `[Excluded] <data_dir>`이어야 한다. `[Included]`, 다른 경로, 여러 줄, 오류·tmutil 없음(`unknown`)은 모두 거부한다. opt-in으로도 우회할 수 없다.
   - macOS가 아니면 확인할 수 없으므로 `memory.allow_unverified_backup: true`(`GW_MEMORY_ALLOW_UNVERIFIED_BACKUP=true`)를 명시해야 기동한다(경고 `memory_backup_exclusion_unverified`).
@@ -256,7 +270,12 @@
 - **로그 Redactor**: 메모리가 켜지면 로거에 `memory.RedactLog`를 연결한다.
   - `<user_memory` 블록이나 프리앰블이 든 값은 통째로 `[REDACTED:memory]`가 된다.
   - 등록된 시크릿 값과 공용 `SecretPatterns`는 `[REDACTED]`로 가린다.
-  - 메시지와 모든 필드 값(문자열이 아닌 값은 문자열로 만든 뒤)에 적용한다. 꺼져 있으면 로그는 바뀌지 않는다.
+  - 메시지, 키 이름, 모든 필드 값에 적용한다. `[]byte`는 텍스트로, error는 `Error()`, Stringer는 `String()`, map·slice·struct는 JSON으로 만든 뒤 가린다.
+  - Redactor는 메모리 설정과 관계없이 항상 설치한다. 메모리 데이터가 없으면 메모리 마스크는 걸리지 않는다.
+  - 매칭 전에 `\u003c`·`&lt;`·`\"` 같은 이스케이프를 푼다. 블록 없이 항목 줄 형태(`{"kind":..,"text":..}`)만 있어도 블록으로 취급한다.
+  - 메모리 항목 텍스트(Load·Update·Clean 후보)는 프로세스 메모리에 등록되고(최대 5만 개, 2자 이상), 블록 밖(오류 문자열, `text` 필드)에 나와도 `[REDACTED:memory]`로 가린다. 짧은 항목은 일반 로그 단어까지 가릴 수 있다(과잉 마스킹 허용).
+  - 값마다 4096바이트로 자른다. `http.Server.ErrorLog`도 로거(Redactor)를 거친다. 복구되지 않은 고루틴 패닉의 런타임 stderr 출력은 막을 수 없다.
+  - 메모리가 켜지면 업스트림 오류 본문(`Upstream NNN: ...`)은 로그에 `[omitted:memory]`로 남긴다. 클라이언트 응답은 그대로다.
 - **TODO**: 호모글리프(UTS#39 skeleton) 정규화와 다단 인코딩 디코딩(현재 1단계만).
 - **감사 HMAC 키 생성**: `umask 077; openssl rand -hex 32 > <audit_key_file>`
   - hex만 받는다. 끝의 개행은 하나까지만 제거하고, 그 밖의 공백·개행·hex가 아닌 문자·원시 바이너리는 거부한다.
@@ -279,3 +298,11 @@
   `expired`; hash mismatch → 422 `payload_mismatch`; non-memory card →
   `scope_denied`; deleted item → 409 `item_gone`. Audit `memory_approve` is
   fail-closed; status moves to existing `approved` (no migration); replay → 404.
+
+### 로그 마스크 레지스트리 (#39 보안 리뷰 반영)
+
+- 사용자별 집합: 저장된 항목만 등록한다(거부된 후보는 등록하지 않음). Update/Load 시 그 사용자의 집합을 현재 항목으로 **교체**하므로 삭제된 항목은 해제되고, Purge는 사용자 집합을 제거한다.
+- 매칭은 전 사용자 패턴에 대한 Aho-Corasick 한 번. 8자보다 긴 항목은 8자 창(shingle)으로 등록해 잘린 사본도 가린다.
+- 사용자당 패턴 상한 20,000. 초과 시 **fail-closed**: 해당 사용자 집합이 상한 아래로 돌아올 때까지 자유 텍스트 로그 값(64바이트 초과, 공백 또는 비ASCII 포함)을 모두 `[REDACTED:memory]`로 바꾼다. 전역 공유 상한은 없다.
+- 로그용 잘라내기(`logTrunc`)는 마스킹 **후** 자른다. `%3C`, `\x3c`, `&#60;` 이스케이프도 해제 후 검사한다.
+- 메모리가 켜져 있으면 upstream 유래 오류(upstream_error 코드, 메시지에 upstream 포함, /v1/chat/ 경로)의 detail은 로그에서 `[omitted:memory]`로 생략한다.

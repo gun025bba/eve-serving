@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	stdlog "log"
 	"net"
 	"net/http"
 	"os"
@@ -92,6 +93,7 @@ func main() {
 		fatal("log_level: %v", err)
 	}
 	log := logging.New(lf, lv)
+	log.SetRedactor(memory.RedactLog) // always: secrets and memory text never reach logs
 
 	m := metrics.New(cfg.StatsWindow)
 	q := queue.New(cfg.MaxConc, cfg.MaxQueue, secs(cfg.QueueTimeoutS))
@@ -182,7 +184,6 @@ func main() {
 		} else if st != memory.BackupExcluded {
 			log.Warn("memory_backup_exclusion_unverified", "status", st, "msg", "non-macOS host; allow_unverified_backup opt-in in effect")
 		}
-		log.SetRedactor(memory.RedactLog) // memory text and secrets never reach logs
 		log.Info("memory_enabled", "inject_cap_tokens", cfg.Memory.InjectCapTokens)
 	}
 
@@ -192,7 +193,8 @@ func main() {
 	}
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
-	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	hs := &http.Server{Addr: addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
+		ErrorLog: stdlog.New(log.Writer(logging.WARN, "http_server_error"), "", 0)} // through the redactor
 	sysEvent := func(ev, status string, detail map[string]string) {
 		ctx, c := context.WithTimeout(context.Background(), 5*time.Second)
 		defer c()

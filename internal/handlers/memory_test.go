@@ -406,6 +406,24 @@ func TestMemoryInject_BlockIsEndOfSystemPrompt_Web(t *testing.T) {
 	}
 }
 
+func TestMemoryAPI_SensitiveRejectedWithReasonCode(t *testing.T) {
+	e, fs := newMemEnv(t, true, &failLedger{})
+	for _, txt := range []string{"나 무슬림이야", "당뇨 있어", "엄마가 불교를 믿어"} {
+		r, b := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"`+txt+`"}`)
+		if r.StatusCode != 422 || strings.TrimSpace(string(b)) != `{"error_code":"sensitive_category"}` {
+			t.Fatalf("%s: %d %s", txt, r.StatusCode, b)
+		}
+	}
+	// secret rejections stay distinguishable
+	r, b := e.call(t, "alice@example", "POST", "/v1/memory/items", `{"kind":"fact","text":"api key sk-abcdefghijklmnopqrstuv"}`)
+	if r.StatusCode != 422 || strings.TrimSpace(string(b)) != `{"error_code":"secret_detected"}` {
+		t.Fatal(r.StatusCode, string(b))
+	}
+	if d, _ := fs.Load(uidOf(t, e, "alice@example")); len(d.Items) != 0 {
+		t.Fatal("stored")
+	}
+}
+
 // enableUserMemory sets users.settings memory.enabled=true (default is off).
 func enableUserMemory(t *testing.T, st0 store.Store, logins ...string) {
 	t.Helper()

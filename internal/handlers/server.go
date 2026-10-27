@@ -121,15 +121,29 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	var e *apierr.Error
 	if !errors.As(err, &e) {
 		s.M.Errs.WithLabelValues("internal_error").Inc()
-		s.Log.Error("internal_error", "request_id", rid(r), "path", r.URL.Path, "error", trunc(err.Error(), 300))
+		s.Log.Error("internal_error", "request_id", rid(r), "path", r.URL.Path, "error", logTrunc(err.Error(), 300))
 		writeJSON(w, 500, apierr.Body("internal_error", "Internal gateway error", "server_error", rid(r)))
 		return
 	}
 	s.M.Errs.WithLabelValues(e.Code).Inc()
 	s.M.Reqs.WithLabelValues(r.URL.Path, fmt.Sprint(e.Status)).Inc()
 	s.M.Recent.Add(metrics.Sample{OK: false, Code: e.Code})
-	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", e.Message)
+	detail := e.Message
+	// Upstream bodies (and anything relayed from them) may echo the injected
+	// block: omit the detail for every upstream-derived error, not only the
+	// "Upstream " prefix.
+	if s.memoryOn() && (e.Code == "upstream_error" || strings.Contains(detail, "Upstream") ||
+		strings.Contains(detail, "upstream") || strings.HasPrefix(r.URL.Path, "/v1/chat/")) {
+		detail = "[omitted:memory]" // upstream body may echo the injected block
+	}
+	s.Log.Warn("request_error", "request_id", rid(r), "path", r.URL.Path, "status", e.Status, "code", e.Code, "detail", detail)
 	writeJSON(w, e.Status, apierr.Body(e.Code, e.Message, e.Type, rid(r)))
+}
+
+// logTrunc redacts BEFORE truncating, so a cut can never split a
+// registered memory text or a secret into an unmatched prefix.
+func logTrunc(s string, n int) string {
+	return trunc(memory.RedactLog(s), n)
 }
 
 func trunc(s string, n int) string {
