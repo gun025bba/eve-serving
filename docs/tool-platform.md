@@ -47,6 +47,7 @@ exposure: {modes: [auto, force], max_per_turn: 3}
 ```
 - `egress`: 루프백은 레지스트리에 등록된 내부 엔드포인트(검색 엔진) 하나만 허용, 사설·링크로컬·tailnet 대역과 IP 리터럴은 스키마에서 거부(§13 정규화 재사용).
 - `verb`(필수): 확인 카드 `payload_view.verb`의 유일한 출처. enum `add|update|send|delete|run`, 배포 시 고정. 모델 출력으로 바꿀 수 없고 자유 텍스트 label 없음. 위험 스타일은 verb가 아니라 scopes로 정한다. 값 추가는 MINOR, UI는 모르는 값을 `run`으로 처리(ui-api-contract.md Q19). 테스트: 모든 매니페스트의 verb 유효성(CI 실패), 모델 args로 verb 변경 불가.
+  - 구현: enum은 `internal/tools/verb.go`의 `tools.Verbs`(`add,update,send,delete,run`), 매니페스트 로드 시 누락·무효면 기동 실패. web_search/web_fetch는 `run`. YAML 매니페스트가 없는 `memory.propose`는 서버가 고르는 제안 종류별 정적 상수(`add`→`add`, 잊기→`delete`, `memory.VerbAdd`/`VerbForget`). 이 필드 도입 전에 만든 카드에는 `verb`가 없으며 UI는 `run`으로 처리한다.
 - 매니페스트는 JSON Schema로 검증, **미지정 필드 거부**(`additionalProperties:false`). 잘못된/누락 매니페스트 거부 단위 테스트.
 
 ### 1.2 툴 인자 스키마

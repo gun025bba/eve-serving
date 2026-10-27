@@ -397,3 +397,48 @@ func TestMemoryApprove_ReplayAfterTombstoneGoneBlocked(t *testing.T) {
 		t.Fatal("resurrected", d.Items)
 	}
 }
+
+func cardVerb(t *testing.T, e *webEnv) (string, int) {
+	t.Helper()
+	acts, _ := e.st.ListPendingActions(t.Context(), "alice@example")
+	if len(acts) == 0 {
+		return "", 0
+	}
+	var v map[string]any
+	if err := json.Unmarshal(acts[0].PayloadView, &v); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := v["verb"].(string)
+	return s, len(acts)
+}
+
+// Q19: payload_view.verb comes only from the server's static verb.
+func TestMemoryTool_CardVerbStatic(t *testing.T) {
+	e, _ := memToolEnv(t, true, `{"op":"add","text":"고양이를 키운다"}`, false)
+	chatAuto(t, e)
+	if v, n := cardVerb(t, e); n != 1 || v != memory.VerbAdd {
+		t.Fatalf("add card verb %q (cards %d)", v, n)
+	}
+	e2, fs := memToolEnv(t, true, `{"op":"forget","query":"고양이"}`, false)
+	memory.Add(fs, uidOf(t, &e2.env, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
+	chatAuto(t, e2)
+	if v, n := cardVerb(t, e2); n != 1 || v != memory.VerbForget {
+		t.Fatalf("forget card verb %q (cards %d)", v, n)
+	}
+}
+
+// Q19 (2): model args carrying verb / payload_view never change the card verb.
+func TestMemoryTool_ModelCannotSetVerb(t *testing.T) {
+	for _, args := range []string{
+		`{"op":"add","text":"고양이를 키운다","verb":"send"}`,
+		`{"op":"add","text":"고양이를 키운다","payload_view":{"verb":"delete"}}`,
+	} {
+		e, _ := memToolEnv(t, true, args, false)
+		chatAuto(t, e)
+		// Strict args schema: the extra field is rejected and no card is
+		// made, so a model-chosen verb is never stored.
+		if v, n := cardVerb(t, e); n != 0 {
+			t.Fatalf("%s: card created with verb %q", args, v)
+		}
+	}
+}

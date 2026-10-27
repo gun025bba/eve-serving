@@ -23,7 +23,7 @@
 | Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
 | Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
-| Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
+| Q11 | `memory.propose` `payload_view`: `{verb:"add"\|"delete", op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
 | Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. 보안 규칙은 §3.2. | MINOR |
 | Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 스코프 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
 | Q19 | 확인 카드 `payload_view.verb`: 고정 enum `add`\|`update`\|`send`\|`delete`\|`run`. **서버가 툴 매니페스트의 정적 `verb` 필드(배포 시 정의, TP §1.1)로만 채운다.** 모델 출력·툴 인자·사용자 입력으로는 바꿀 수 없고, 자유 텍스트 label은 없다. UI가 verb → 한국어 버튼 문구를 매핑하고, **모르는 값은 `run`으로 처리**(전방 호환). **위험 스타일은 verb가 아니라 Q13의 scopes 규칙** 그대로. enum 값 추가는 MINOR. 테스트: (1) 모든 매니페스트 툴이 유효한 `verb`를 선언(누락·무효 시 CI 실패), (2) 모델 출력이 `verb`를 바꾸는 경로 없음(모델 args에 `verb`/`payload_view`를 넣어도 카드 verb = 매니페스트 값). | MINOR |
@@ -265,7 +265,7 @@ tombstone은 API로 노출하지 않는다.
   "tainted": false, "status": "pending",
   "expires_at": "2026-10-28T05:00:00Z", "created_at": "2026-10-27T05:00:00Z",
   "summary": "메모리에 추가",
-  "payload_view": { "op": "add", "items": [{"text": "아침 브리핑은 짧게", "kind": "preference"}], "ambiguous": false } }
+  "payload_view": { "verb": "add", "op": "add", "items": [{"text": "아침 브리핑은 짧게", "kind": "preference"}], "ambiguous": false } }
 ```
 
 - `payload_view.op`는 `add` 또는 `delete`이다(Q11).
