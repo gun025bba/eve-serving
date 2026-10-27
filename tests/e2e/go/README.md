@@ -15,3 +15,5 @@ Round 3:
 - qa_memory_approve_test.go (#38): + expiry boundary via Server.Now (119s ok, 120s 410), reissue/revise API key 403
 - qa_memory_peruser_test.go (#40, `internal/handlers/`): A on / B off isolation, memory_available tracks global flag
 - qa_backup_policy_test.go (#42, `internal/memory/`): CheckBackupPolicy tmutil output / sync-dir edge cases
+- qa_memory_killswitch_tool_test.go (#38+#40, `internal/handlers/`): user off ⇒ propose / approve 403 kill_switch (needs both PRs)
+- qa_memory_peruser_test.go updated per architect decision (default off, memory_available only, POST 403 kill_switch while off)

@@ -41,7 +41,7 @@ Legend: **A** = API spec on 8002 (`specs/api-memory.spec.js`), **G** = Go test (
 | M17 | Isolation: other identity cannot read/patch/delete (404) | G (black-box needs 2 identities) | — |
 | M18 | 잊어줘 card: forget needs delete card bound to item ids (payload hash); revise subset; deleted item → 409 item_gone; denied in tainted thread / scheduler | G `TestMemory_Forget*`, `TestMemoryRevise_*`; A revise 409 when a card exists | on |
 | M19 | CSRF on memory writes (browser identity) | G `TestMemoryAPI_OriginCSRF`; A skipped until identity injection | — |
-| M20 | Settings toggle (per-user `/v1/settings memory.enabled`, ANDed with server flag) | **Not in P1** (doc: follow-up). Spec is `test.fixme` | — |
+| M20 | Per-user `memory.enabled` (PR #40), ANDed with server flag. Architect decision 2026-10-27: default **off**; settings expose `system.memory_available` only, no `memory_read_only` field (read-only = 503 `memory_read_only`); user off ⇒ POST items / propose / approve **403 `kill_switch`**, GET / PATCH item / DELETE / export work | API spec `M20` (on profile; enables the test user once in beforeEach) + Go `qa_memory_peruser_test.go`, `qa_memory_killswitch_tool_test.go` (needs #38+#40) | see below |
 | M21 | Delete-all / export | A | on |
 
 ## Profiles needed on 8002 (backend restarts via `scripts/qa-mem-mode.sh <profile>`; QA never edits config)
@@ -91,3 +91,16 @@ First run failed 27 tests: on macOS `t.TempDir()` lives under `/var/folders` (sy
 | key-bad-short / binary / space / distinct / perm | refuse with "32 hex chars", "not hex", "contains whitespace", "only 11 distinct bytes", "must be a 0600 regular file" |
 | key leak | no key hex found in gateway-test logs for any fixture |
 End state: off, `/v1/memory` 404, GRANT INSERT verified (`has_table_privilege = t`).
+
+## M20 contract run (#40 cb233e6, 2026-10-27)
+
+Go QA in a temp worktree (#40 alone, and #40 merged with #38 locally for the tool tests):
+
+| Test | Result |
+|---|---|
+| TestQA_MemoryDefaultOff | PASS |
+| TestQA_SettingsFieldsContract (memory_available, no memory_read_only, PATCH system.* 400) | PASS |
+| TestQA_PerUserMemoryIsolation: injection isolation, GET/PATCH/DELETE/export while off | PASS |
+| TestQA_PerUserMemoryIsolation: POST /v1/memory/items while off → 403 kill_switch | **FAIL (known, handed to backend)**: 201, item stored |
+| TestQA_KillSwitch_ProposeDenied (#38+#40) | **FAIL (known)**: tool hidden, model call gets `unknown tool`, not `kill_switch` |
+| TestQA_KillSwitch_ApproveDenied (#38+#40) | PASS (403 kill_switch, nothing written) |

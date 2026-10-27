@@ -17,7 +17,13 @@ test.beforeEach(async ({ request }) => {
     routesPresent = r.status() !== 404;
   }
   if (P !== 'off') test.skip(!routesPresent, 'memory endpoints not present on this gateway (P1 not deployed or memory disabled)');
+  // Contract: per-user memory.enabled defaults to off. Turn it on once for the test user (if /v1/settings exists).
+  if (P !== 'off' && userEnabled === undefined) {
+    const r = await request.patch('/v1/settings', { headers: auth(), data: { memory: { enabled: true } } });
+    userEnabled = r.status() === 200;
+  }
 });
+let userEnabled;
 test('gateway version matches EVE_EXPECT_GW_VERSION', async ({ request }) => {
   const want = process.env.EVE_EXPECT_GW_VERSION; test.skip(!want, 'EVE_EXPECT_GW_VERSION not set');
   expect((await (await request.get('/health')).json()).version).toBe(want);
@@ -102,8 +108,41 @@ test('M8 audit write failure → 500 fail-closed, item not stored', async ({ req
   if (l.status() === 200) expect(await l.text()).not.toContain(`${TAG} audit`);
 });
 
-test.fixme('M20 settings toggle: per-user /v1/settings memory.enabled ANDed with server flag', async () => {
-  // Not part of P1 (docs/architecture/memory.md: per-user /v1/settings is a follow-up). Enable when it ships.
+// M20 per architect decision: default off; settings expose system.memory_available only
+// (read-only is signaled solely by 503 memory_read_only); user off => POST items / propose / approve 403 kill_switch,
+// GET / PATCH item / DELETE / export still work. propose and approve need the model / a browser session: Go tests cover them.
+test.describe('M20 per-user memory.enabled (on)', () => {
+  test('settings: memory_available true, no memory_read_only field', async ({ request }) => {
+    only('on');
+    const r = await request.get('/v1/settings', { headers: hdr() });
+    test.skip(r.status() === 404, '/v1/settings not deployed (PR #40)');
+    expect(r.status()).toBe(200); expect(r.headers()['cache-control']).toBe('no-store');
+    const j = await r.json();
+    expect(j.system.memory_available).toBe(true);
+    expect(JSON.stringify(j)).not.toContain('memory_read_only');
+    expect((await request.patch('/v1/settings', { headers: hdr(), data: { system: { memory_read_only: true } } })).status()).toBe(400);
+  });
+  test('user off: POST item 403 kill_switch; list/edit/export/delete work; back on', async ({ request }) => {
+    only('on');
+    test.skip(!userEnabled, '/v1/settings not deployed (PR #40)');
+    const a = await request.post('/v1/memory/items', { headers: hdr(), data: { kind: 'preference', text: `${TAG} 설정 토글` } });
+    expect(a.status()).toBe(201); const id = (await a.json()).id;
+    try {
+      const off = await request.patch('/v1/settings', { headers: hdr(), data: { memory: { enabled: false } } });
+      expect(off.status()).toBe(200); expect((await off.json()).memory.enabled).toBe(false);
+      const w = await request.post('/v1/memory/items', { headers: hdr(), data: { kind: 'fact', text: `${TAG} off write` } });
+      expect(w.status()).toBe(403); expect(await w.text()).toContain('kill_switch');
+      expect((await request.get('/v1/memory', { headers: hdr() })).status()).toBe(200);
+      expect((await request.get('/v1/memory/export', { headers: hdr() })).status()).toBe(200);
+      expect((await request.patch(`/v1/memory/items/${id}`, { headers: hdr(), data: { pinned: true } })).status()).toBe(200);
+      expect((await request.delete(`/v1/memory/items/${id}`, { headers: hdr() })).status()).toBe(204);
+      const l = await request.get('/v1/memory', { headers: hdr() });
+      expect(await l.text()).not.toContain(`${TAG} off write`);
+    } finally {
+      await request.delete(`/v1/memory/items/${id}`, { headers: hdr() });
+      await request.patch('/v1/settings', { headers: hdr(), data: { memory: { enabled: true } } });
+    }
+  });
 });
 test('M19 CSRF on memory writes (browser identity)', async () => {
   test.skip(process.env.EVE_BROWSER_IDENTITY !== '1', 'needs browser identity injection — covered by Go TestMemoryAPI_OriginCSRF');
