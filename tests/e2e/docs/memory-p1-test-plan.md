@@ -153,3 +153,27 @@ Each PR tested merged onto main 1e3d463 with all QA Go tests, `QA_STRICT=1`. Fai
 #50 review: DB is a hard-coded constant `llmchat_test` (the guard is a tautology but not overridable; PGHOST/PGPORT env could still redirect psql). No DELETE; it does `INSERT users(login) ON CONFLICT DO NOTHING` (creates the user if absent) outside a transaction, so a failing UPDATE leaves that row.
 
 UI 1.2.0 is on 8002 (`/ui/` appVersion v1.2.0). With EVE_EXPECT_UI_VERSION=1.2.0: api-smoke, api-retry (resume/regenerate), api-search-proactive pass (7); all UI specs (resume, stop/retry, proactive card, settings version) skip without browser identity; login error text not checkable without identity injection.
+
+## Round-8 run (2026-10-27, main 64a4c4c = #41/#45-#49/#51 merged)
+
+Each PR merged onto main, `go test ./...` + all QA Go tests, `QA_STRICT=1`.
+
+| PR | Head | Result |
+|---|---|---|
+| #52 | b25a1e7 | Bearer PATCH /v1/settings 403 `scope_denied`, session PATCH 200 (shared `isBrowserSession` allowlist with approve/revise/reissue); `TestQA_TombstoneNotReAdded` PASS (Execute skips IDs in `d.Tombstones`). Only fail: benign "팀 대표 뽑았어" blocked on main (fixed by #53) |
+| #53 | 0125334 | **FAIL (R1 regression)**: "기호 2번 찍었어" and "기호2번 찍었어" / "기호 ２번 찍었어" / "기호 2 번 찍었어요" now pass `CheckSensitive`; all four were blocked on main. Jamo "민ㅈㅜ당 지지해", spacing, zero-width and benign controls are fine. Own tests (64-variant cap, data-dir fail-closed, over-cap gauge) pass. Tombstone QA fails alone only because #52 is not in its base |
+| main+#52+#53 | — | Same R1 failure only; everything else PASS |
+| #50 | 011acfc | Static: INSERT removed, `psql -1` single transaction, exit 3 if `users.settings` is missing or the user is missing (verified live: unknown login → rc 3, no row created). Still: the `[ "$DB" = llmchat_test ]` guard is always true and there is no PGHOST/PGPORT check. #53's copy adds a server-reported check (`current_database()`, local `inet_server_addr()`, port = QA_PGPORT default 5432), which fixes the PGHOST/PGPORT point. Minor: the column check does not filter `table_schema` |
+
+### 8002 memory E2E (gateway 3.1.1-79-g64a4c4c, llmchat_test goose 7, UI v1.2.0)
+
+Script: the 011acfc copy (#50 not merged). QA user login `api-key`. `api-memory.spec.js` no longer PATCHes settings with Bearer (403 since #43); user toggle is out of band, new profile `useroff`.
+
+| Step | Result |
+|---|---|
+| Full API regression, server off (EVE_EXPECT_UI_VERSION=1.2.0) | 19 passed (before and after the memory runs) |
+| `on` + user off (`useroff`) | 3/3: POST 403 `kill_switch`; list/export 200; PATCH/DELETE not kill-switched (404 for unknown id); Bearer PATCH settings 403 |
+| `on` + `user-on` (`on`) | 9/9: CRUD, no-store, secret 422, settings `memory_available` true, no `memory_read_only` |
+| `user-off` again (`useroff`) | 3/3 |
+| server `off` + user on | 6/6; POST items 404 (server switch wins) |
+| Restore | user-off → `off`; 0 users with memory on, GW_MEMORY_ENABLED=false, health OK. No data deleted except the spec's own items |

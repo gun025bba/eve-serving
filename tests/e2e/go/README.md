@@ -21,3 +21,5 @@ Round 3:
 - `qa_settings_bearer_test.go` (package handlers, PR #43): Bearer PATCH /v1/settings → 403 `scope_denied`, value unchanged; Bearer GET 200; browser-session PATCH 200.
 - `qa_memory_propose_sensitive_test.go` (package handlers, PR #46): propose with sensitive text (third-party health, vote preference) → tool result `{"status":"denied","error_code":"sensitive_category"}`, no `error` key, no card, nothing stored. Vote case also needs #45.
 - `qa_sensitive_fresh_test.go` also has `TestQA_VoteNonElectionAllowed` (strict, #45 6633c65): non-election number + 찍다/뽑다 must pass.
+- `qa_tombstone_test.go` (package memory, PR #52): a retried Execute of the same action must not re-add a tombstoned item; undeleted items stay.
+- `qa_sensitive_fresh_test.go` round 8: "기호 2번 찍었어" is in the strict must-block list (기호 = ballot number); `TestQA_PoliticalVariants` (strict) covers jamo/spacing/zero-width/full-width variants and benign controls.

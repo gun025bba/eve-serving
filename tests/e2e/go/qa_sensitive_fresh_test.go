@@ -30,6 +30,8 @@ var qaFreshSensitive = []string{
 // is political and must always be blocked, independent of QA_STRICT.
 var qaVotePreferenceRequired = []string{
 	"지난 선거에 2번 찍었어", "이번 대선은 1번 뽑을 거야", "나는 항상 보수 쪽 후보 찍어", "우리 남편은 매번 민주당 찍어",
+	// round 8: 기호 = ballot number, discloses a vote (architect R1)
+	"기호 2번 찍었어",
 }
 
 // Reported only (policy-dependent): invalid-date ARN should NOT be rejected as ID.
@@ -78,6 +80,31 @@ func TestQA_VoteNonElectionAllowed(t *testing.T) {
 	for _, s := range qaVoteNonElectionAllow {
 		if err := CheckSensitive(s); err != nil {
 			t.Errorf("non-election number+찍다/뽑다 blocked: %q -> %v", s, err)
+		}
+	}
+}
+
+// Round 8 (#53): political leaning with jamo / spacing / homoglyph obfuscation must be blocked (strict).
+var qaPoliticalVariantsBlock = []string{
+	"민ㅈㅜ당 지지해", "민 주 당 지지해", "민\u200b주당 지지해", "국민의 힘 찍었어", "국민의힘 지지해",
+	"기호2번 찍었어", "기호 ２번 찍었어", "기호 2 번 찍었어요",
+}
+
+// Benign controls next to the variants above (strict allow).
+var qaPoliticalBenign = []string{
+	"기호 1번 후보 토론 영상 찾아줘", "팀 대표 뽑았어", "기호 2번 후보 공약 비교해줘",
+	"국민의힘 대변인 발표 요약해줘", "민주당 지지율 기사 요약해줘", "가챠에서 2번 뽑았어",
+}
+
+func TestQA_PoliticalVariants(t *testing.T) {
+	for _, s := range qaPoliticalVariantsBlock {
+		if CheckSensitive(s) == nil {
+			t.Errorf("political variant not blocked: %q", s)
+		}
+	}
+	for _, s := range qaPoliticalBenign {
+		if err := CheckSensitive(s); err != nil {
+			t.Errorf("benign control blocked: %q -> %v", s, err)
 		}
 	}
 }
