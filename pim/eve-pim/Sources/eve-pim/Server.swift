@@ -63,7 +63,7 @@ func serve(_ o: Options, dispatcher: Dispatcher) -> Never {
     addr.sun_family = sa_family_t(AF_UNIX)
     let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
     guard path.utf8.count < maxLen else { fail("socket path too long") }
-    withUnsafeMutablePointer(to: &addr.sun_path) { p in
+    _ = withUnsafeMutablePointer(to: &addr.sun_path) { p in
         p.withMemoryRebound(to: CChar.self, capacity: maxLen) { strncpy($0, path, maxLen - 1) }
     }
     let old = umask(0o117) // socket created as 0660
