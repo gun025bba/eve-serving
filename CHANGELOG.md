@@ -27,8 +27,11 @@
 ### Added
 - Setting `ui.memory_intro_seen` (bool, default false; PATCH from a browser session only).
 - **Deploys no longer need a sudo password (optional step the host owner must approve and run himself).** Changes a
-  privilege boundary: one root-owned entrypoint may run via sudo without a password, only for releases signed with a
-  pinned key. Install, removal and design: `deploy/nopasswd/README.md`.
+  privilege boundary: one root-owned entrypoint may run via sudo without a password, only for fixed verbs
+  (`deploy`, `deploy-web`, `rollback`, `rollback-web`) and only for releases signed **by CI** (Sigstore keyless, identity pinned to the
+  reusable `deploy-sign.yml` at `main`, verified offline). No key is generated or kept anywhere; the one-time install is a single line.
+  Releases: tag `vX.Y.Z` -> `release.yml`; the UI (eve-web) uses the same reusable workflow. Design, threat model and the repository
+  settings it relies on: `docs/deploy-signing.md`; install and removal: `deploy/nopasswd/README.md`.
 
 ## 4.0.0 (unreleased)
 

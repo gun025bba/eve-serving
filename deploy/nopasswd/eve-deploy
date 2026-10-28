@@ -196,7 +196,7 @@ manifest_shape() { # $1 file $2 kind: size/line limits, line charset, only known
   allowed=" $MF_COMMON "; [ "$kind" = gateway ] && allowed=" $MF_COMMON $MF_GATEWAY "
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n + 1)); [ "$n" -le 30 ] || return 1
-    [[ "$line" =~ ^[a-z][a-z0-9.-]*=[A-Za-z0-9_./:+@-]*$ ]] || return 1
+    [[ "$line" =~ ^[a-z][a-z0-9._-]*=[A-Za-z0-9_./:+@-]*$ ]] || return 1
     key=${line%%=*}
     case "$allowed" in *" $key "*) ;; *) return 1;; esac
     case "$seen" in *" $key "*) return 1;; esac
