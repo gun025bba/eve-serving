@@ -1,4 +1,4 @@
-# Tag a commit that is on main (or release/X.Y.Z) as vX.Y.Z -> this builds darwin/arm64 gateway + eve-gw, signs the manifest keylessly
+# Tag the CURRENT TIP of main as vX.Y.Z (any other commit is refused) -> this builds darwin/arm64 gateway + eve-gw, signs the manifest keylessly
 # and publishes the three files (MANIFEST, .sigstore.json, .tar) as a GitHub release. No key, no secret, no laptop.
 name: release
 on:

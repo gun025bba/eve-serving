@@ -1,4 +1,4 @@
-# Copy to gun025bba/eve-web/.github/workflows/release.yml (the UI repo). Tag a commit on main as vX.Y.Z -> a CI-signed UI bundle is
+# Copy to gun025bba/eve-web/.github/workflows/release.yml (the UI repo). Tag the CURRENT TIP of main as vX.Y.Z (any other commit is refused) -> a CI-signed UI bundle is
 # published, which the Mac installs with:  /usr/local/libexec/eve/fetch web X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy-web
 # The signing workflow is the one in the gateway repo (single trust root); eve-web only calls it.
 name: release

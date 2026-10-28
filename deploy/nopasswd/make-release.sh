@@ -3,7 +3,7 @@
 # no key material is involved anywhere. The MANIFEST is the ONLY thing that is signed; it carries the sha256 of the tar and of
 # every file inside it, so a signature on the MANIFEST covers all artifacts.
 #
-#   make-release.sh --kind gateway --version X.Y.Z --git-sha <40 hex> --repo owner/name --ref refs/tags/vX.Y.Z --branch <main|release/X.Y.Z> \
+#   make-release.sh --kind gateway --version X.Y.Z --git-sha <40 hex> --repo owner/name --ref refs/tags/vX.Y.Z --branch main \
 #                   --schema N --gateway <file> [--eve-gw <file>] --out <dir>
 #   make-release.sh --kind web     ... --web-dir <checkout> [--web-exclude <ERE>] --out <dir>
 #
@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
     --ref) REF=${2:-}; shift 2;; --branch) BRANCH=${2:-}; shift 2;; --schema) SCHEMA=${2:-}; shift 2;;
     --gateway) GW=${2:-}; shift 2;; --eve-gw) EG=${2:-}; shift 2;; --web-dir) WEBDIR=${2:-}; shift 2;;
     --web-exclude) EXCL=${2:-}; shift 2;; --out) OUT=${2:-}; shift 2;;
-    --fixture) FIXTURE=1; shift;;       # CI test fixtures only: any ref/branch name (the verifier rejects such a manifest in production)
+    --fixture) FIXTURE=1; shift;;       # used ONLY by deploy-sign-fixture.yml (never by deploy-sign.yml): any ref/branch name (the verifier rejects such a manifest in production)
     *) die "unknown argument: $1";;
   esac
 done
@@ -34,7 +34,7 @@ if [ "$FIXTURE" = 1 ]; then
   [[ "$REF" =~ ^refs/[A-Za-z0-9/_.-]+$ ]] && [[ "$BRANCH" =~ ^[A-Za-z0-9/_.-]+$ ]] || die "bad --ref/--branch"
 else
   [ "$REF" = "refs/tags/v$VER" ] || die "--ref must be refs/tags/v$VER"
-  [[ "$BRANCH" =~ ^(main|release/(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8}))$ ]] || die "--branch must be main or release/X.Y.Z"
+  [ "$BRANCH" = main ] || die "--branch must be main"
 fi
 [ -n "$OUT" ] || die "--out is required"
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P) || die "cannot create --out"

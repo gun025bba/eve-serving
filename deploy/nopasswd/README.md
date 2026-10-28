@@ -28,10 +28,10 @@ Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/e
 
 ## Releasing (no one touches a key)
 
-1. Merge to `main` (or a `release/X.Y.Z` branch). 2. Tag that commit `vX.Y.Z` and push the tag.
+1. Merge to `main`. 2. Tag the **current tip of main** `vX.Y.Z` and push the tag (any other commit is refused; there are no `release/*` branches).
 3. `release` (`.github/workflows/release.yml`) builds darwin/arm64 `gateway` + `eve-gw`, writes `MANIFEST` (version, git sha, repo, ref, branch,
    schema, sha256 of the tar and of every member), signs the manifest with the job's OIDC identity and publishes
-   `eve-gateway-X.Y.Z.{MANIFEST,sigstore.json,tar}` as a GitHub release. It refuses to sign a tag whose commit is not on `main` / `release/*`.
+   `eve-gateway-X.Y.Z.{MANIFEST,sigstore.json,tar}` as a GitHub release. It refuses to sign unless the tag is a push of `refs/tags/vX.Y.Z` on exactly the tip of `main`. Build, sign and publish are three jobs; only the sign job has `id-token` and it runs no repository code.
 4. On the Mac, as the deploy user (no sudo for the download; staging is yours):
 
 ```
@@ -45,8 +45,8 @@ have independent, strictly increasing version lines.
 
 What `deploy` checks before it changes anything (any failure leaves the live system untouched; a failed health check restores the previous version):
 the Sigstore signature of `MANIFEST` offline against the pinned trust root and the pinned CI identity (workflow file at `main`, repository,
-tag ref, `push` trigger), manifest shape and kind, `version` equals the one staged (`fetch` leaves exactly one per kind; the bare verb takes it) and is **higher** than the installed one, the schema is not
-older than the database's, `ref` is that exact tag, `branch` is `main` or `release/X.Y.Z`, the sha256 of the tar and of every file, and the
+tag ref, `push` trigger), manifest shape and kind, `version` equals the one staged (`fetch` leaves exactly one per kind; the bare verb takes it) and is **higher** than the installed one, the schema equals
+the database's (a different schema needs the migration deploy script), `ref` is that exact tag, `branch` is exactly `main`, `built_at` is at most 14 days old (and not from the future, 5 minutes of skew allowed; the Mac's clock must be right), the sha256 of the tar and of every file, and the
 machine architecture. The files are first copied into a root-only directory and verified there, so the unprivileged staging dir cannot race it.
 
 ## Maintainers: pins inside the installer
@@ -60,7 +60,7 @@ hashes in `eve-deploy`, `setup-deploy-nopasswd.sh`, `test/run.sh`; a trust-root 
 ## Tests
 
 `bash deploy/nopasswd/test/run.sh` runs in a user-level sandbox (no root, nothing on the host is touched; CI: Ubuntu and macOS, bash 3.2, BSD tools).
-It verifies **real** CI-signed fixtures (`test/fixtures`, produced by `.github/workflows/test-fixtures.yml` from a throwaway branch) with real cosign
-(downloaded and sha256-checked): bad signature, tampered manifest/tar/member, wrong sha, downgrade and equal version, wrong ref, wrong branch,
+It verifies **real** CI-signed fixtures (`test/fixtures`, signed by CI from a throwaway branch; regenerated, if ever needed, by `.github/workflows/deploy-sign-fixture.yml`, a workflow the Mac does not trust) with real cosign
+(downloaded and sha256-checked): bad signature, tampered manifest/tar/member, wrong sha, downgrade and equal version, wrong ref, wrong branch (only `main`), a stale or future `built_at`, the release guard,
 wrong repo/identity/trigger, wrong kind, hostile tars, TOCTOU, signals during the swap, health-check restore, rollback, the installer and sudoers.
 The real `sudo`, `/etc/sudoers` and `/var/db` on the Mac are covered only by the manual runbook.
