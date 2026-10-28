@@ -662,6 +662,8 @@ case "$SIGNER_IDENTITY" in *fixture*) bad "the Mac must not pin a fixture identi
 no_ "nothing in the entrypoint or installer names the fixture workflow" grep -rn 'fixture' "$ENTRY" "$D/setup-deploy-nopasswd.sh" "$D/eve-fetch"
 no_ "no workflow still carries the old test-fixtures caller" test -e "$WFD/test-fixtures.yml"
 # release.yml passes nothing but the kind
+eq "release.yml: triggers only on tag pushes (a push to a branch such as release/* never signs)" "$(awk '/^on:/{o=1;next} o&&/^[a-z]/{exit} o&&/^    [a-z]/{sub(/^ +/,"");sub(/:.*/,"");print}' "$WFD/release.yml" | tr '\n' ' ')" "tags "
+no_ "release.yml: no branch trigger" bash -c "sed -E '/^[[:space:]]*#/d' '$WFD/release.yml' | grep -E '^[[:space:]]+branches:'"
 eq "release.yml: with: has only kind" "$(awk '/^    with:/{w=1;next} w&&/^      [a-z][a-z-]*:/{sub(/^ +/,"");sub(/:.*/,"");print;next} w&&/^[^ ]|^    [a-z]/{exit}' "$WFD/release.yml" | tr '\n' ' ')" "kind "
 no_ "release.yml: no fixture input" bash -c "sed -E '/^[[:space:]]*#/d;s/[[:space:]]+#.*$//' '$WFD/release.yml' | grep -i fixture"
 # L-2: every action in every workflow is pinned by full commit sha (the one exception is our own reusable workflow, which MUST be @main)
@@ -682,11 +684,13 @@ guard "$TIPC" refs/tags/v0.0.0 push; eq "guard: v0.0.0 accepted" "$?" 0
 guard "$TIPC" refs/tags/v1.2.3 push FIXTURE=true TOOLS=. fixture=true; eq "guard: fixture-ish environment on the tip changes nothing" "$?" 0
 guard "$C1" refs/tags/v1.2.3 push; eq "guard: an older commit of main (ancestor, not the tip) refused" "$?" 1
 grep -q "not the tip" "$GR/err" && ok || bad "guard says it is not the tip"
-guard "$C1" refs/tags/v99.0.0 push FIXTURE=true; eq "guard: older main commit with a higher tag and FIXTURE=true refused" "$?" 1
+guard "$C1" refs/tags/v99.0.0 push FIXTURE=true; eq "guard: a HIGHER tag on an OLDER main commit means signing is refused" "$?" 1
+grep -q "not the tip" "$GR/err" && ok || bad "higher tag on an older main commit: refusal reason"
+guard "$C1" refs/tags/v1.2.4 push; eq "guard: the next patch tag on an older main commit refused" "$?" 1
 guard "$SIDE" refs/tags/v1.2.3 push; eq "guard: release/X.Y.Z-only commit refused" "$?" 1
 guard "$SIDE" refs/tags/v99.0.0 push FIXTURE=true BRANCH=main; eq "guard: commit off main refused whatever the environment says" "$?" 1
 for ev in workflow_dispatch pull_request schedule workflow_run ""; do guard "$TIPC" refs/tags/v1.2.3 "$ev"; eq "guard: event [$ev] refused" "$?" 1; done
-for r in refs/heads/main refs/heads/fixture/x refs/tags/1.2.3 refs/tags/v1.2 refs/tags/v01.2.3 refs/tags/v1.2.3-rc1 refs/tags/v1.2.3.4 refs/tags/vx refs/tags/ "" refs/pull/1/merge; do
+for r in refs/heads/main refs/heads/release/1.2.3 refs/heads/fixture/x refs/tags/1.2.3 refs/tags/v1.2 refs/tags/v01.2.3 refs/tags/v1.2.3-rc1 refs/tags/v1.2.3.4 refs/tags/vx refs/tags/ "" refs/pull/1/merge; do
   guard "$TIPC" "$r" push; eq "guard: ref [$r] refused" "$?" 1
 done
 guard "$TIPC" refs/tags/v1.2.3 push KIND=other; eq "guard: bad kind refused" "$?" 1

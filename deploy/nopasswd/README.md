@@ -28,7 +28,7 @@ Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/e
 
 ## Releasing (no one touches a key)
 
-1. Merge to `main`. 2. Tag the **current tip of main** `vX.Y.Z` and push the tag (any other commit is refused; there are no `release/*` branches).
+1. Merge to `main`. 2. Tag the **current tip of main** `vX.Y.Z` and push the tag (any other commit is refused: a `release/*` branch is never signed, and neither is an older `main` commit, whatever its tag number).
 3. `release` (`.github/workflows/release.yml`) builds darwin/arm64 `gateway` + `eve-gw`, writes `MANIFEST` (version, git sha, repo, ref, branch,
    schema, sha256 of the tar and of every member), signs the manifest with the job's OIDC identity and publishes
    `eve-gateway-X.Y.Z.{MANIFEST,sigstore.json,tar}` as a GitHub release. It refuses to sign unless the tag is a push of `refs/tags/vX.Y.Z` on exactly the tip of `main`. Build, sign and publish are three jobs; only the sign job has `id-token` and it runs no repository code.

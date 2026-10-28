@@ -66,7 +66,7 @@ publish, it is not reusable, it runs only for branches named `fixture/*` or by h
 7. sha256 of the tar, then of each member, from the signed manifest; the tar is extracted by a hardened unpacker (no links, devices, absolute or `..` paths, bounded size and count).
 8. Swap with one previous version kept, restart, health check; a failed health check restores the previous version automatically. Signals during the swap are handled.
 
-The branch rule is enforced **in CI** (the workflow refuses to sign a tag unless its commit *is* the tip of `main`; there are no `release/*` branches) and recorded in the signed manifest; the Mac cannot
+The branch rule is enforced **in CI** (the workflow refuses to sign unless the event is a push of `refs/tags/vX.Y.Z` and the tagged commit *is* the tip of `main` at signing time; `release/*` branches remain usable for maintenance, a push to one may be built by `ci.yml` but never signs, and a tag on a `release/*` commit that is not the `main` tip is refused; a higher tag on an older `main` commit is refused too) and recorded in the signed manifest; the Mac cannot
 check Git ancestry offline and relies on the pinned workflow (at `main`) for it. That is why `deploy-sign.yml` is the trust root and must be protected as described below.
 
 ## Threat model

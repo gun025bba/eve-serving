@@ -5,7 +5,7 @@
 #
 # Inputs (environment, all taken from the workflow context): KIND EVENT REF SHA WEB_DIR MIGRATIONS_DIR; optional GITHUB_OUTPUT.
 # Output: `version=X.Y.Z` (appended to $GITHUB_OUTPUT when set, always printed).
-# There is no bypass: no fixture mode, no release/* branch, no environment switch.
+# There is no bypass: no fixture mode, no environment switch, and no branch other than the tip of main is ever signed (release/* branches never sign).
 set -Eeuo pipefail
 export LC_ALL=C
 die() { echo "release-guard: $*" >&2; exit 1; }
