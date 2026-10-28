@@ -440,7 +440,8 @@ sed "s/^SHA_FETCH=.*/SHA_FETCH=$(printf '0%.0s' $(seq 1 64))/" "$S/inst.sh" >"$S
 sed "s/^SHA_ROOT=.*/SHA_ROOT=$(printf '1%.0s' $(seq 1 64))/" "$S/inst.sh" >"$S/inst-badroot.sh"; ( setup_env bash "$S/inst-badroot.sh" ) >/dev/null 2>&1; eq "setup: a trust root that does not match its pin is refused" "$?" 1
 [ ! -e "$S/sudoers.d/eve-deploy" ] && [ ! -e "$S/libexec" ] && ok || bad "failed setups must install nothing"
 # the one-liner path: the script arrives on STDIN (`... | sudo /bin/bash -s`), children must not eat it, and no $0-relative path is used
-( setup_env bash -s -- <"$S/inst.sh" ) >"$S/out" 2>&1; eq "setup via stdin (bash -s): rc" "$?" 0
+( setup_env bash -s -- <"$S/inst.sh" ) >"$S/out" 2>&1; rc=$?; eq "setup via stdin (bash -s): rc" "$rc" 0
+[ "$rc" = 0 ] || sed "s/^/  setup output: /" "$S/out" | tail -15 >&2
 tail -5 "$S/out" | grep -q '^OK\.' && ok || bad "setup via stdin printed OK"
 F=$S/sudoers.d/eve-deploy; EP=$S/libexec/deploy
 yes_ "sudoers snippet passes visudo -c" /usr/sbin/visudo -c -q -f "$F"
