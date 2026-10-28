@@ -149,26 +149,27 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer pr.releaseInflight()
 	// Order of the system prompt: Eve self-description, client system text, memory block (last).
-	s.injectSelfDescription(r, body, s.resolveWebMode(r.Context(), webMode, webExplicit, pr))
+	memOffer := s.memoryOffered(r, body, pr)
+	s.injectSelfDescription(r, body, s.resolveWebMode(r.Context(), webMode, webExplicit, pr), memOffer)
 	s.injectMemory(r, body)
 	if pr != nil {
 		// Saved chats run detached from the client connection (§3.8).
 		s.runDetached(w, r, body, pr, func(w http.ResponseWriter, r *http.Request) {
-			s.chatRun(w, r, body, webMode, webExplicit, pr)
+			s.chatRun(w, r, body, webMode, webExplicit, pr, memOffer)
 		})
 		return
 	}
-	s.chatRun(w, r, body, webMode, webExplicit, nil)
+	s.chatRun(w, r, body, webMode, webExplicit, nil, memOffer)
 }
 
 // chatRun generates the reply. For saved chats r carries a context detached
 // from the client and w is the run's event log (genRun).
-func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string]any, webMode tools.Mode, webExplicit bool, pr *chatPersist) {
+func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string]any, webMode tools.Mode, webExplicit bool, pr *chatPersist, memOffer bool) {
 	mode := s.resolveWebMode(r.Context(), webMode, webExplicit, pr)
-	// Tool path: web auto/force, or any request of a user with active memory
-	// (memory_propose is offered whenever memory is active, web on or off).
-	if mode == tools.ModeAuto || mode == tools.ModeForce || s.memoryActive(r) {
-		s.webChat(w, r, body, mode, pr)
+	// Tool path: web auto/force, or any request where memory_propose is
+	// offered (memory active and the history checkable; web on or off).
+	if mode == tools.ModeAuto || mode == tools.ModeForce || memOffer {
+		s.webChat(w, r, body, mode, pr, memOffer)
 		return
 	}
 	if pr != nil {

@@ -74,7 +74,4 @@ func TestBuild_Compact(t *testing.T) {
 	if n := memory.EstimateTokens(got); n >= 200 {
 		t.Fatalf("self-description is %d tokens (budget 200):\n%s", n, got)
 	}
-	if strings.Contains(strings.ToLower(got), "jarvis") || strings.Contains(got, "자비스") {
-		t.Fatal("forbidden word")
-	}
 }

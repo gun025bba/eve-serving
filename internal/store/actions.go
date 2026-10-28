@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"time"
 )
@@ -151,15 +152,60 @@ func TokenHash(t string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// PayloadHash is "sha256:" + hex of the compacted payload JSON.
+// PayloadHash is "sha256:" + hex of the canonical payload JSON: the payload
+// is decoded and re-encoded with object keys sorted (Go's map ordering) and
+// numbers kept verbatim, so the hash does not depend on the key order the
+// producer used. Postgres JSONB reorders keys on storage ({"text","kind"}
+// comes back as {"kind","text"}); a hash over the producer's byte order would
+// never verify after a round trip. The same function is used when the card is
+// created and when the approval verifies it. Payloads that are not valid JSON
+// hash as their raw bytes.
 func PayloadHash(p json.RawMessage) string {
+	return hashHex(canonicalJSON(p))
+}
+
+// LegacyPayloadHash is the pre-5.0.2 hash: sha256 of the compacted payload in
+// its stored key order. It only exists so that pending cards created before the
+// canonical hash keep verifying when their stored order still matches.
+func LegacyPayloadHash(p json.RawMessage) string {
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, p); err != nil {
 		buf.Reset()
 		buf.Write(p)
 	}
-	h := sha256.Sum256(buf.Bytes())
+	return hashHex(buf.Bytes())
+}
+
+// PayloadHashMatches reports whether want is the canonical or the legacy hash
+// of p. Cards hashed the old way over a key order that JSONB later changed
+// cannot be recovered (the producer's order is gone); they fail and expire
+// with the 24h proposal lifetime.
+func PayloadHashMatches(p json.RawMessage, want string) bool {
+	return want == PayloadHash(p) || want == LegacyPayloadHash(p)
+}
+
+func hashHex(b []byte) string {
+	h := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+func canonicalJSON(p []byte) []byte {
+	dec := json.NewDecoder(bytes.NewReader(p))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return p
+	}
+	if _, err := dec.Token(); err != io.EOF { // trailing data: not one JSON value
+		return p
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return p
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n")
 }
 
 // TokenExpiry caps the token lifetime at the proposal expiry.

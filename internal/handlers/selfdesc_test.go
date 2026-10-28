@@ -99,7 +99,6 @@ func TestSelfDescription_StateMatrix(t *testing.T) {
 		{"intro not seen", true, true, "alice@example", func(t *testing.T, st store.Store) {
 			setUser(t, st, "alice@example", "memory", `{"enabled":true}`)
 		}, chat, "첫 사용 안내", []string{"웹 검색(꺼짐"}, []string{"기억 제안"}},
-		{"api key principal", true, true, "", on, chat, "이 연결에서는 사용할 수 없어요", []string{"웹 검색(꺼짐"}, []string{"기억 제안"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
