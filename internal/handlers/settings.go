@@ -87,11 +87,14 @@ func (s *Server) memoryActive(r *http.Request) bool {
 	return err == nil && u.UI.MemoryIntroSeen
 }
 
-func (s *Server) settingsView(u userSettings) map[string]any {
+// settingsView renders the settings. memory.enabled is the effective value for
+// this principal: without the interactive scope memory is fixed off (see
+// memoryFor), so an API key never reads "true" (security Low, 5.0.0 review).
+func (s *Server) settingsView(r *http.Request, u userSettings) map[string]any {
 	out := map[string]any{"system": map[string]any{"memory_available": s.memoryOn()},
 		"ui": map[string]any{"memory_intro_seen": u.UI.MemoryIntroSeen}}
 	if s.memoryOn() {
-		out["memory"] = map[string]any{"enabled": u.memoryEnabled()}
+		out["memory"] = map[string]any{"enabled": u.memoryEnabled() && hasScope(r, auth.ScopeInteractive)}
 	}
 	if s.Cfg.Briefing.Enabled {
 		out["briefing"] = u.Briefing
@@ -108,7 +111,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		s.memErr(w, r, err)
 		return
 	}
-	writeNoStore(w, 200, s.settingsView(u))
+	writeNoStore(w, 200, s.settingsView(r, u))
 }
 
 type briefingPatch struct {
@@ -238,7 +241,7 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		s.appendAudit(r.Context(), user(r), audit.Event{At: now, Actor: audit.ActorUser, Event: "settings_changed",
 			Scope: "security", Status: "ok", Detail: map[string]string{"key": k, "before": changes[k][0], "after": changes[k][1]}})
 	}
-	writeNoStore(w, 200, s.settingsView(after))
+	writeNoStore(w, 200, s.settingsView(r, after))
 }
 
 func withChange(m map[string][2]string, k string, before, after bool) map[string][2]string {
