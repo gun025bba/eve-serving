@@ -190,16 +190,37 @@ key that exists for this one purpose.
   and tags cannot be moved or deleted. To continue: `ssh-keygen -t ed25519 -f ~/.eve-release-tagger/id_ed25519` on the Mac (no passphrase is required by the script, a passphrase needs `ssh-agent` and is not supported by it), register the new public key, and put it in the bypass list again.
 - **What the script requires before it pushes** (it refuses, exit 1, and pushes nothing, unless all hold):
   1. the target SHA equals the tip of `main` on the remote (`git ls-remote`, read again right before the push; the default target is that tip);
-  2. a pull request of that commit has a review, a review comment or a PR comment by the security reviewer whose text names the **full 40-character SHA** (a `DISMISSED`, `CHANGES_REQUESTED` or `PENDING` review does not count; a squash merge creates a new commit, so the reviewer names the merged commit in a comment on the merged PR);
-  3. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`;
-  4. the version is strictly greater than the highest existing `vX.Y.Z` tag on the remote.
-  A reviewer comment is only evidence if the reviewer writes the SHA **only to approve** it; a blocking comment must not repeat the SHA.
-- **Who is the security reviewer.** There is no default: set `EVE_SECURITY_REVIEWER` to the GitHub login that posts the security reviews. Determine it from a review you trust, for example
-  `gh api repos/gun025bba/eve-serving/pulls/<PR>/reviews --jq '.[] | {id, login: .user.login, state, commit_id}'` (match the review id of the approval you were shown), and make sure that account is **not** one a releasing agent can also post as:
-  if the same account writes the code and the review, check 2 proves nothing. (At the time of writing the security reviews of #99 and #100 were posted under the owner's login, not a separate one; that is a decision for the owner.)
-- **Use** (on the Mac, inside a clone, with `gh` logged in for reads and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
-  `EVE_SECURITY_REVIEWER=<login> bash deploy/nopasswd/release-tag.sh --dry-run 5.1.0` checks everything and pushes nothing; without `--dry-run` it creates the annotated tag and pushes it.
-  Add `github.com` to `~/.ssh/known_hosts` first by checking GitHub's published host key fingerprints (the script does not disable host key checking). If `ssh` is missing (`openssh-client`), the script stops with a message before touching anything.
+  2. a **submitted PR review** (state `APPROVED` or `COMMENTED`; never an issue comment, a PR comment or a review line comment, and never a `PENDING` or `DISMISSED` review) of a PR of that commit, written by the
+     security reviewer (login **and** numeric id must both match), has a line that is exactly `SECURITY-APPROVED: <the 40-hex target SHA>` (lower case, one space, nothing else on the line);
+     and no review of the same reviewer that was submitted at the same time or later has a line exactly `SECURITY-BLOCKED: <the same SHA>` (any state except `PENDING`; ordered by `submitted_at`, then review id).
+     A review that contains both lines does not approve. A squash merge creates a **new commit**, so an approval of the PR head does not cover it: the reviewer must submit a new review naming the merged SHA
+     (on the merged PR) before it can be tagged;
+  3. the reviewer is none of: the PR author, an author or committer (by login or numeric id) of any commit of the PR or of the target commit, the account `gh` is logged in as on this machine (`GET /user`), or
+     `gallix-grok` (the release bot; also checked against the constants themselves). If any of these cannot be read, the script refuses;
+  4. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`;
+  5. the version is strictly greater than the highest existing `vX.Y.Z` tag on the remote.
+- **Constants, not environment.** The repository (`gun025bba/eve-serving`), the remote (`git@github.com:gun025bba/eve-serving.git`), the release bot login and the **reviewer identity** (login + numeric id) are constants in one marked block at the top of
+  `release-tag.sh`; no environment variable changes them (`EVE_SECURITY_REVIEWER`, `EVE_REPO`, `EVE_RELEASE_TAG_REMOTE` no longer exist). The only variable is `EVE_RELEASE_TAG_KEY` (path of the key).
+  **Pending decision (TODO reviewer decision):** the reviewer identity is a placeholder (`REVIEWER_LOGIN="__TODO_REVIEWER_DECISION__"`, `REVIEWER_ID="0"`), and with the placeholder the script fails closed: it refuses every run, even `--dry-run`.
+  The owner picks the account that posts the security reviews (it must be none of the accounts listed in 3.), and the login and numeric id (`gh api users/<login> --jq .id`) are filled in by one reviewed change.
+- **How the script reaches GitHub.** `git` talks to the remote only through `ssh -F /dev/null -i <key> -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<repo>/deploy/nopasswd/github_known_hosts
+  -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none`: no ssh config, no agent, no prompts, and **only GitHub's published host keys** (`deploy/nopasswd/github_known_hosts`, copied from
+  [GitHub's SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints) and `https://api.github.com/meta`; a rotation is a reviewed change to that file).
+  Nothing has to be added to `~/.ssh/known_hosts`. Git's global and system config are switched off (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, git 2.32 or newer) so no `url.*.insteadOf` can redirect the push, and the script refuses a clone whose
+  own config sets `url.*.insteadOf` or `pushInsteadOf`. If `ssh` is missing (`openssh-client`), the script stops with a message before touching anything.
+- **Limits that remain (documented Lows).**
+  - *The gate lives only in the script on the Mac.* GitHub does not enforce it: whoever holds the deploy key can push a `v*` tag by hand (ssh with the key, no script). Protection is the key's location and permissions
+    (the Mac only, never in CI or on the bots' box), the revocation above, and the Mac's own checks (pinned signing identity, strictly increasing version, branch `main`, `built_at` window).
+  - *The `gh` token on the Mac must be read-only.* The script only does `GET` requests and never passes the key to `gh`, but a token with write scope would let the same user do more than the script allows; use a read-only login
+    (for example a fine-grained token with read access to contents, pull requests and checks, or `gh auth login` without extra scopes) and never the release bot's token.
+  - *The key's directory is checked too.* The script refuses a directory that is a symlink, not owned by you, or has any group/other access (only mode `0700`, or `0500`, passes), because whoever can write there could swap the key file after the check.
+  - *Squash merge needs a new approval.* See 2.: the tag is made on the merged commit, which no earlier review named. Plan one more `SECURITY-APPROVED:` review after the merge, on the merged PR.
+  - *The CI workflow path is pinned.* The signing identity the Mac trusts is the workflow path of `release.yml` and `deploy-sign.yml@main` on a `refs/tags/vX.Y.Z` ref; a change of those paths (rename, move, a fork or a different
+    workflow) changes the identity and the Mac then refuses the artifact until the pin is updated by a reviewed change. The checks the script looks at are the ones named `test` and `deploy-nopasswd-macos` from GitHub Actions only.
+- **Who is the security reviewer.** See "Constants" above: it is fixed in the script, not chosen per run. It must be an account that no releasing agent can post as (otherwise check 2 proves nothing), and it has to be different from the author of the change,
+  which the script enforces by login and id. (At the time of writing the security reviews of #99 and #100 were posted under the owner's login; the owner decides which account takes this role.)
+- **Use** (on the Mac, inside a clean clone, with `gh` logged in read-only and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
+  `bash deploy/nopasswd/release-tag.sh --dry-run 5.1.0` checks everything and pushes nothing; without `--dry-run` it creates the annotated tag and pushes it.
 - **Tests**: `deploy/nopasswd/test/release-tag-test.sh` (run by `test/run.sh`, hence by both CI jobs) uses fakes for `gh`, `git` and `ssh` and a local bare repository; it needs no network and no key, and never creates a real tag.
 
 ## If a version that is too high was recorded
