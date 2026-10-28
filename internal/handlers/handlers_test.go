@@ -484,6 +484,51 @@ func TestRootRedirectsToUI(t *testing.T) {
 	}
 }
 
+// The redirect target is fixed: nothing in the query string or forwarded headers can steer it
+// (no open redirect), and the query is not carried over.
+func TestRootRedirectIgnoresQueryAndHeaders(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, q := range []string{"?next=https://evil.example", "?next=//evil.example/x&url=/v1/me", "?", "?%2F%2Fevil.example", "?a=1&a=2"} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+"/"+q, nil)
+			req.Header.Set("X-Forwarded-Host", "evil.example")
+			req.Header.Set("X-Forwarded-Proto", "https")
+			req.Header.Set("Origin", "https://evil.example")
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 302 || resp.Header.Get("Location") != "/ui/" {
+				t.Errorf("%s /%s: %d Location=%q, want 302 exactly /ui/", m, q, resp.StatusCode, resp.Header.Get("Location"))
+			}
+		}
+	}
+}
+
+// The redirect must never be cached (it depends on whether the UI is served).
+func TestRootRedirectNoStore(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, p := range []string{"/", "/?x=1"} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+p, nil)
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 302 {
+				t.Fatalf("%s %s: %d, want 302", m, p, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+				t.Errorf("%s %s: Cache-Control=%q, want no-store", m, p, got)
+			}
+		}
+	}
+}
+
 // With the UI disabled (no static dir) there is no target: GET / keeps answering the JSON 404.
 func TestRootNoUI404(t *testing.T) {
 	ts, _ := newServer(t, "http://127.0.0.1:1", func(c *config.Config) { c.StaticDir = "" })
