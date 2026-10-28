@@ -7,7 +7,7 @@ const { webkit, chromium, devices } = require('@playwright/test');
 const L = require('../release/lib');
 if (String(L.PORT) !== '8002') throw new Error('QA 8002 only');
 const UI_DIR = process.env.EVE_UI_DIR || path.join(L.HOME, 'eve-qa/fe/eve-web');
-const EXPECT_V = process.env.EVE_EXPECT_UI_VERSION || '1.10.1';
+const EXPECT_V = process.env.EVE_EXPECT_UI_VERSION || '1.10.2';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 let pass = 0, fail = 0, skip = 0; const fails = [];
@@ -64,7 +64,10 @@ const goHome = async (page, hash = '#/') => { await page.goto(L.BASE + '/ui/' + 
 const sheetShown = page => page.evaluate(() => { const e = document.getElementById('memIntro'); return !!e && !e.hidden; });
 const sheetEver = page => page.evaluate(() => window.__sheetSeen || 0);
 const ls = page => page.evaluate(() => { try { return localStorage.getItem('eve.mem.introSeen'); } catch (e) { return 'ERR'; } });
-const errState = page => page.evaluate(() => { const e = document.getElementById('memIntroErr'); return e ? { hidden: e.hidden, text: e.textContent.trim(), role: e.getAttribute('role') } : null; });
+// error line state, works for 1.10.1 (hidden attribute) and 1.10.2 (reserved line, .on / opacity): hidden=true means not visible to the user
+const errState = page => page.evaluate(() => { const e = document.getElementById('memIntroErr'); if (!e) return null; const cs = getComputedStyle(e);
+  const vis = !e.hidden && cs.display !== 'none' && parseFloat(cs.opacity) > 0.5; const r = e.getBoundingClientRect();
+  return { hidden: !vis, text: e.textContent.trim(), role: e.getAttribute('role'), ariaHidden: e.getAttribute('aria-hidden'), h: Math.round(r.height * 10) / 10, op: cs.opacity }; });
 async function waitSheet(page, ms = 8000) { try { await page.waitForFunction(() => { const e = document.getElementById('memIntro'); return e && !e.hidden; }, null, { timeout: ms }); return true; } catch { return false; } }
 const sleep = L.sleep;
 module.exports = { L, UI_DIR, EXPECT_V, chk, info, skp, totals, session, api, setIntro, setMemory, getSettings, openCtx, goHome, sheetShown, sheetEver, ls, errState, waitSheet, sleep, webkit, chromium, devices, STANDALONE };

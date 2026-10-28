@@ -1,5 +1,5 @@
 'use strict';
-// QA for eve-web 1.10.1 (PR #26, head c350ed7): memory intro "seen" only after PATCH ui.memory_intro_seen = 200.
+// QA for eve-web 1.10.1 (PR #26, head c350ed7) and 1.10.2 (PR #28, head 40c69c1; EVE_EXPECT_UI_VERSION=1.10.2 is the default now): memory intro "seen" only after PATCH ui.memory_intro_seen = 200.
 // QA instance 127.0.0.1:8002 ONLY. UI under test = local checkout at EVE_UI_DIR (default ~/eve-qa/fe/eve-web @ c350ed7), served into the page via Playwright
 // route.fulfill for /ui/**; /v1 + /whoami hit the real QA gateway with a paired QA session cookie. Nothing is deployed.
 //   node tests/e2e/fe1101/run.js [--only s1,s2,s3,s4,s5,s6]
@@ -24,7 +24,7 @@ async function s1() {
   for (let i = 0; i < 30 && !resp.length; i++) await H.sleep(100);
   chk('exactly one PATCH {"ui":{"memory_intro_seen":true}} sent when the sheet opens, status 200', c.introPatches().length === 1 && resp[0] === 200 && c.introPatches()[0].body === BODY, JSON.stringify({ n: c.introPatches().length, resp, body: c.introPatches()[0] && c.introPatches()[0].body }));
   chk('localStorage eve.mem.introSeen = "1" after the 200', (await H.ls(c.page)) === '1');
-  chk('error line hidden', (await H.errState(c.page)).hidden === true);
+  { const e0 = await H.errState(c.page); chk('error line invisible; (1.10.2) its space is reserved: height>0, aria-hidden=true, no role=alert', e0.hidden && e0.role === null && (H.EXPECT_V === '1.10.1' || (e0.h > 15 && e0.ariaHidden === 'true')), JSON.stringify(e0)); }
   await c.page.click('#memIntroOk'); await H.sleep(900);
   chk('tap 좋아요 closes the sheet, no second PATCH', !(await H.sheetShown(c.page)) && c.introPatches().length === 1, c.introPatches().length);
   chk('server flag is true (GET /v1/settings)', (await H.getSettings(B)).ui.memory_intro_seen === true);
@@ -55,6 +55,9 @@ async function failCase(kind) {
     if (mode === '400') return route.fulfill({ status: 400, contentType: 'application/json', body: '{"error_code":"invalid"}' });
     if (mode === 'net') return route.abort('failed');
     if (mode === 'html200') return route.fulfill({ status: 200, contentType: 'text/html', body: '<html>proxy page</html>' });
+    if (mode === 'text200') return route.fulfill({ status: 200, contentType: 'text/plain', body: 'OK' });
+    if (mode === 'empty200') return route.fulfill({ status: 200, body: '' });
+    if (mode === '204') return route.fulfill({ status: 204, body: '' });
     return route.fallback();
   });
   const t = `[PATCH ${kind}] `;
@@ -62,6 +65,8 @@ async function failCase(kind) {
   chk(t + 'sheet shown', await H.waitSheet(c.page));
   for (let i = 0; i < 30 && c.introPatches().length < 1; i++) await H.sleep(100);
   chk(t + 'auto PATCH at show attempted once; localStorage NOT set; error line still hidden (no nag before the user acts)', c.introPatches().length === 1 && (await H.ls(c.page)) === null && (await H.errState(c.page)).hidden, JSON.stringify({ n: c.introPatches().length, ls: await H.ls(c.page) }));
+  const LAY = () => c.page.evaluate(() => { const g = id => { const r = document.getElementById(id).getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(v => Math.round(v * 10) / 10); }; return { sheet: g('memIntro'), title: g('memIntroTitle'), ok: g('memIntroOk'), alt: g('memIntroSettings'), err: g('memIntroErr') }; });
+  let lay0 = await LAY(); for (let i = 0; i < 30; i++) { await H.sleep(150); const n = await LAY(); const st = JSON.stringify(n) === JSON.stringify(lay0); lay0 = n; if (st) break; }   // let the slide-in finish first
   await c.page.click('#memIntroOk');
   for (let i = 0; i < 30 && c.introPatches().length < 2; i++) await H.sleep(100);
   await H.sleep(500);
@@ -69,6 +74,8 @@ async function failCase(kind) {
   chk(t + '좋아요 retries the PATCH (2nd attempt)', c.introPatches().length === 2, c.introPatches().length);
   chk(t + 'sheet stays open', await H.sheetShown(c.page));
   chk(t + 'in-sheet error text is visible, role=alert, says 저장하지 못했어요', er && !er.hidden && er.role === 'alert' && /저장하지 못했어요/.test(er.text), JSON.stringify(er));
+  { const lay1 = await LAY(); const same = ['sheet', 'title', 'ok', 'alt', 'err'].every(k => lay0[k].every((v, i) => Math.abs(v - lay1[k][i]) < 0.6));
+    chk(t + 'showing the error does not move anything in the sheet (sheet/title/좋아요/설정에서 끄기/error rects identical before vs after)', same, same ? '' : JSON.stringify({ lay0, lay1 })); }
   chk(t + 'localStorage still not set', (await H.ls(c.page)) === null);
   chk(t + '좋아요 re-enabled (not stuck disabled)', await c.page.evaluate(() => !document.getElementById('memIntroOk').disabled));
   chk(t + 'error line is inside the sheet and on screen', await c.page.evaluate(() => { const e = document.getElementById('memIntroErr'), s = document.getElementById('memIntro'); const a = e.getBoundingClientRect(), b = s.getBoundingClientRect(); return s.contains(e) && a.height > 0 && a.top >= b.top && a.bottom <= b.bottom && a.bottom <= innerHeight; }));
@@ -85,14 +92,7 @@ async function failCase(kind) {
 }
 async function s2() {
   console.log('\n== 2. PATCH failure: sheet stays, in-sheet error, localStorage untouched ==');
-  for (const k of ['500', '400', 'net']) await failCase(k);
-  // 200 with a non-JSON body (captive portal / proxy page): informational
-  await H.setIntro(B, false);
-  { const c = await H.openCtx(browser, { cookie: B.cookie });
-    await c.page.route(/\/v1\/settings/, route => isIntroPatch(route.request()) ? route.fulfill({ status: 200, contentType: 'text/html', body: '<html>portal</html>' }) : route.fallback());
-    await H.goHome(c.page); await H.waitSheet(c.page); await H.sleep(800);
-    info('[PATCH 200 text/html (captive portal)] localStorage after show', JSON.stringify(await H.ls(c.page)) + '  (the server flag is in fact still false: ' + ((await H.getSettings(B)).ui.memory_intro_seen === false) + '; 1.10.1 trusts the status code only; the per-load silent retry self-heals it)');
-    await c.ctx.close(); }
+  for (const k of ['500', '400', 'net', 'html200', 'text200', 'empty200', '204']) await failCase(k);
   // dismiss without saving: scrim tap while PATCH fails
   await H.setIntro(B, false);
   { const c = await H.openCtx(browser, { cookie: B.cookie });

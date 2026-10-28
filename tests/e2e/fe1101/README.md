@@ -24,3 +24,8 @@ Limits (real-device items): iOS contact-suggestion bar, real notch safe-area, SW
 Known/pre-existing (same on 1.10.0 = 6f88ab7, so not a 1.10.1 regression): offline -> online while the answer is still generating (300-line prompt) leaves the bubble on "답변 불러오는 중…"
 and it never shows the answer (WebKit and Chromium emulation, 4/4 runs on both builds while MLX was slow, ~20 s answers). When the model is fast enough that the answer is finished before the network returns (12/12 runs with a 120-line prompt, and the last full run) the UI recovers, so the informational variants in s6 are timing dependent and are not counted.
 4.0.0+81f4292 (`qa-env.sh rollback`) answers `PATCH ui.memory_intro_seen` with 400 `{"error_code":"invalid"}`; 5.0.0-qa.a419ef9, 5.0.1-qa.f3d59e0 and 5.0.2-qa.d045b10 answer 200 (unknown ui keys and wrong types are 400 on all of them).
+
+## 1.10.2 (PR #28, head 40c69c1)
+- `s7_resume.js [--reps N]`: offline 5 s / 2 s and hidden→visible while a 300-line answer is generating, WebKit + Chromium iPhone emulation. Counted checks: server message `generating` at the moment the network returns, GET `.../stream` with `Last-Event-ID`, live bubble DOM node kept, one assistant bubble/message, numbers 1..300 exactly once in order, UI text == server text. Samples where the model itself stops early (UI == server, < 300 numbers) are discarded and rerun (up to 3).
+- `run.js` s2 adds non-JSON 200 (html/plain), empty 200 and 204 PATCH → not saved, plus a layout-shift check (rects of sheet/title/좋아요/설정에서 끄기/error line identical before vs after the error appears; measured after the slide-in has settled).
+- Run: `EVE_UI_DIR=<checkout of 40c69c1> EVE_EXPECT_UI_VERSION=1.10.2 node tests/e2e/fe1101/run.js` and `node tests/e2e/fe1101/s7_resume.js --reps 3`.
