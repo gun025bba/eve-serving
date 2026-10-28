@@ -322,6 +322,21 @@ func (s *Store) ReleaseAction(ctx context.Context, user, id string) error {
 	return nil
 }
 
+// ScrubActionContent: see store.ActionScrubber. One UPDATE; a card that is
+// still pending and not yet expired is never selected.
+func (s *Store) ScrubActionContent(ctx context.Context, tools []string, cutoff time.Time) (int64, error) {
+	if len(tools) == 0 {
+		return 0, nil
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE pending_actions SET payload='{}'::jsonb, payload_view='{}'::jsonb
+		WHERE tool = ANY($1) AND updated_at < $2 AND (status <> 'pending' OR expires_at < $2)
+		AND (payload <> '{}'::jsonb OR payload_view <> '{}'::jsonb)`, tools, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (s *Store) ActionStatus(ctx context.Context, user, id string) (string, error) {
 	u, err := s.uid(ctx, user)
 	if err != nil {

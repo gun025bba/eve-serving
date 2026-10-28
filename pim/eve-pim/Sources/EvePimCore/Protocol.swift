@@ -46,6 +46,19 @@ public struct PimError: Error, Equatable, Sendable {
     public init(_ code: PimErrorCode) { self.code = code }
 }
 
+/// L-2: the same text rule as the gateway (cleanLabel): no control (Cc), format
+/// (Cf: zero-width, bidi overrides) or line/paragraph separator (Zl/Zp: U+2028,
+/// U+2029) characters.
+public enum TextRule {
+    public static func isForbidden(_ s: Unicode.Scalar) -> Bool {
+        if CharacterSet.controlCharacters.contains(s) { return true }
+        switch s.properties.generalCategory {
+        case .control, .format, .lineSeparator, .paragraphSeparator: return true
+        default: return false
+        }
+    }
+}
+
 public enum Limits {
     public static let maxRequestBytes = 8 * 1024
     public static let maxEvents = 50
@@ -59,6 +72,10 @@ public enum Limits {
     public static let maxNotesChars = 500
     public static let maxEventSeconds: TimeInterval = 7 * 24 * 3600
     public static let maxAllDaySeconds: TimeInterval = 31 * 24 * 3600
+    /// L-5: the whole request must arrive within this many seconds of the
+    /// connection being accepted (a per-read timeout alone lets a peer that
+    /// sends one byte at a time hold the single accept loop).
+    public static let requestDeadlineSeconds = 3
 }
 
 public enum PimRequest: Equatable, Sendable {
@@ -157,7 +174,7 @@ public func parseRequest(_ raw: Data) throws -> ParsedRequest {
     func text(_ s: String?, max: Int) throws -> String? {
         guard let s else { return nil }
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty || t.count > max || t.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+        if t.isEmpty || t.count > max || t.unicodeScalars.contains(where: { TextRule.isForbidden($0) }) {
             throw PimError(.invalidRequest)
         }
         return t

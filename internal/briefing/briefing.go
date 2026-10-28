@@ -276,7 +276,7 @@ func prepEvents(ev *pim.Events, loc *time.Location, now time.Time) prepared {
 	y, m, d := now.In(loc).Date()
 	for _, e := range ev.Events {
 		e := e
-		it := item{Title: e.Title, ev: &e}
+		it := item{Title: pim.ClipTitle(e.Title), ev: &e} // L-3: same 200-char cap as the read tools
 		switch t, ok := parseT(e.Start, loc); {
 		case e.AllDay:
 			it.Time, it.rank = "종일", 0
@@ -315,7 +315,7 @@ func prepReminders(rs *pim.Reminders, loc *time.Location, now time.Time) prepare
 	today := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc)
 	for _, r := range rs.Reminders {
 		r := r
-		it := item{Title: r.Title, rank: 3, Time: "시간 없음", rem: &r}
+		it := item{Title: pim.ClipTitle(r.Title), rank: 3, Time: "시간 없음", rem: &r}
 		if r.Due != nil {
 			if t, ok := parseT(*r.Due, loc); ok {
 				it.at = t

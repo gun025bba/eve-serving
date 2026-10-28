@@ -51,9 +51,6 @@ const (
 	MethodAddReminder      = "add_reminder"
 	MethodCompleteReminder = "complete_reminder"
 	MethodAddEvent         = "add_event"
-
-	// DefaultCalendarName is what the card says for calendar_id = null.
-	DefaultCalendarName = "기본 캘린더"
 )
 
 // EventWrite is one add_event helper request (already normalized to +09:00).
@@ -142,8 +139,8 @@ func secretLike(s string) bool {
 }
 
 // cleanLabel is the text rule of the write cards (§11.4): trimmed, NFKC,
-// 1..max characters, no control characters and no zero-width / format
-// characters, nothing secret-like. Failing here means the helper would
+// 1..max characters, no control characters, no zero-width / format
+// characters, no U+2028/U+2029, nothing secret-like. Failing here means the helper would
 // refuse it too (it also rejects control characters), or the card could not
 // show it faithfully.
 func cleanLabel(s string, max int) (string, bool) {
@@ -156,7 +153,9 @@ func cleanLabel(s string, max int) (string, bool) {
 		return "", false
 	}
 	for _, r := range t {
-		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) {
+		// Zl/Zp (U+2028, U+2029) are line/paragraph separators that Cc and Cf
+		// do not cover; a card or a synced event must not carry a line break.
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return "", false
 		}
 	}
@@ -170,7 +169,7 @@ func cleanText(s string, max int) (string, bool) {
 		return "", false
 	}
 	for _, r := range t {
-		if unicode.Is(unicode.Cc, r) {
+		if unicode.Is(unicode.Cc, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
 			return "", false
 		}
 	}
@@ -465,23 +464,23 @@ func ProposeAddEvent(ctx context.Context, rd Reader, rawArgs string, now time.Ti
 			return Proposal{}, bad
 		}
 	}
-	if a.hasCal {
-		if p.CalendarID, ok = cleanText(a.calendarID, MaxIDChars); !ok {
-			return Proposal{}, bad
-		}
+	// L-1: calendar_id is required. The event syncs to an external account, so
+	// the card must always name the calendar it will be written to (looked up
+	// in the helper's writable calendars below), never "the default".
+	if !a.hasCal {
+		return Proposal{}, bad
+	}
+	if p.CalendarID, ok = cleanText(a.calendarID, MaxIDChars); !ok {
+		return Proposal{}, bad
 	}
 	if err := checkEvent(p); err != nil {
 		return Proposal{}, err
 	}
-	name := DefaultCalendarName
-	if p.CalendarID != "" {
-		c, err := writableCalendar(ctx, rd, p.CalendarID)
-		if err != nil {
-			return Proposal{}, err
-		}
-		name = clipTitle(c.Name)
+	c, err := writableCalendar(ctx, rd, p.CalendarID)
+	if err != nil {
+		return Proposal{}, err
 	}
-	return build(ToolAddEvent, tools.VerbAdd, "일정 추가", p, now, name)
+	return build(ToolAddEvent, tools.VerbAdd, "일정 추가", p, now, clipTitle(c.Name))
 }
 
 // checkEvent is the shape rule of an event payload: start before end, both
@@ -607,10 +606,8 @@ func ParsePayload(tool string, raw json.RawMessage) (Payload, error) {
 				return p, bad
 			}
 		}
-		if p.CalendarID != "" {
-			if p.CalendarID, ok = cleanText(p.CalendarID, MaxIDChars); !ok {
-				return p, bad
-			}
+		if p.CalendarID, ok = cleanText(p.CalendarID, MaxIDChars); !ok { // required since L-1
+			return p, bad
 		}
 		if err := checkEvent(p); err != nil {
 			return p, err
@@ -647,10 +644,8 @@ func Revalidate(ctx context.Context, rd Reader, tool string, p Payload) error {
 			return &Error{CodeNotFound}
 		}
 	case ToolAddEvent:
-		if p.CalendarID != "" {
-			_, err := writableCalendar(ctx, rd, p.CalendarID)
-			return err
-		}
+		_, err := writableCalendar(ctx, rd, p.CalendarID)
+		return err
 	}
 	return nil
 }

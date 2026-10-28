@@ -83,7 +83,12 @@ func serve(_ o: Options, dispatcher: Dispatcher) -> Never {
     signal(SIGPIPE, SIG_IGN)
     while true {
         let c = accept(fd, nil, nil)
-        if c < 0 { continue }
+        if c < 0 {
+            // EINTR / ECONNABORTED: try again at once; anything else (EMFILE, ENFILE...)
+            // would spin the loop, so back off briefly (L-5).
+            if errno != EINTR && errno != ECONNABORTED { usleep(100_000) }
+            continue
+        }
         handleConn(c, peerUID: peerUID, dispatcher: dispatcher)
         close(c)
     }
@@ -100,7 +105,14 @@ func handleConn(_ c: Int32, peerUID: uid_t, dispatcher: Dispatcher) {
     setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
     var buf = Data()
     var chunk = [UInt8](repeating: 0, count: 4096)
+    // L-5: one deadline for the whole request, not just for each read.
+    let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(Limits.requestDeadlineSeconds) * 1_000_000_000
     while buf.count <= Limits.maxRequestBytes {
+        let now = DispatchTime.now().uptimeNanoseconds
+        if now >= deadline { break }
+        var pfd = pollfd(fd: c, events: Int16(POLLIN), revents: 0)
+        let leftMs = Int32(min((deadline - now) / 1_000_000 + 1, UInt64(Limits.requestDeadlineSeconds) * 1000))
+        if poll(&pfd, 1, leftMs) <= 0 { break } // timeout or error: answer with what we have (a bad request)
         let n = read(c, &chunk, chunk.count)
         if n <= 0 { break }
         buf.append(contentsOf: chunk[0..<n])

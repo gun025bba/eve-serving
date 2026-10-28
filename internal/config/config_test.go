@@ -120,6 +120,47 @@ func TestPimConfig(t *testing.T) {
 	}
 }
 
+// L-4 (b): owner_user_id must be a positive id once pim is on; 0, negative and
+// non-numeric values must stop the start rather than silently map to nobody.
+func TestPimOwnerUserIDMustBePositive(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	for _, id := range []string{"0", "-1", "-7", "abc", "1.5"} {
+		m := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": id}
+		if _, err := Load("/nonexistent.yaml", env(m)); err == nil {
+			t.Fatalf("owner id %q accepted with pim enabled", id)
+		}
+	}
+	// with pim off the id is not checked, and 1 is the smallest valid one
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_OWNER_USER_ID": "0"})); err != nil {
+		t.Fatal("pim off must not reject an unset owner id:", err)
+	}
+	m := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "1"}
+	if c, err := Load("/nonexistent.yaml", env(m)); err != nil || c.Pim.OwnerUserID != 1 {
+		t.Fatal(err)
+	}
+}
+
+// L-4 (a): GW_BRIEFING_ENABLED defaults off, parses booleans and refuses junk
+// (a typo must not silently leave the briefing in a state the owner did not choose).
+func TestBriefingConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := Load("/nonexistent.yaml", env(nil))
+	if err != nil || c.Briefing.Enabled {
+		t.Fatal("briefing must default off", err)
+	}
+	for v, want := range map[string]bool{"true": true, "1": true, "false": false, "0": false} {
+		c, err := Load("/nonexistent.yaml", env(map[string]string{"GW_BRIEFING_ENABLED": v}))
+		if err != nil || c.Briefing.Enabled != want {
+			t.Fatalf("GW_BRIEFING_ENABLED=%q: got %v err %v", v, c.Briefing.Enabled, err)
+		}
+	}
+	for _, v := range []string{"maybe", "yes please", "2"} {
+		if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_BRIEFING_ENABLED": v})); err == nil {
+			t.Fatalf("GW_BRIEFING_ENABLED=%q accepted", v)
+		}
+	}
+}
+
 func TestPimWritesConfig(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 	base := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}

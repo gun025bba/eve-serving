@@ -174,6 +174,16 @@ final class DispatcherTests: XCTestCase {
         XCTAssertEqual(log.line, "eve-pim request method=add_event count=1 status=ok")
     }
 
+    func testTextRuleForbidsSeparatorsAndFormatCharacters() {
+        for u in [0x2028, 0x2029, 0x202E, 0x200B, 0x0007, 0x000A] {
+            XCTAssertTrue(TextRule.isForbidden(Unicode.Scalar(u)!), String(u, radix: 16))
+        }
+        for ch in "가aZ 9-é".unicodeScalars where ch != " " {
+            XCTAssertFalse(TextRule.isForbidden(ch), String(ch))
+        }
+        XCTAssertEqual(Limits.requestDeadlineSeconds, 3)
+    }
+
     func testAddEventRejectsBadParams() {
         let d = Dispatcher(store: FakeStore(), writesEnabled: true)
         let cases: [(String, String)] = [
@@ -181,6 +191,12 @@ final class DispatcherTests: XCTestCase {
             (#"{"title":"x","start":"2026-10-28T16:00:00+09:00","end":"2026-10-28T15:00:00+09:00"}"#, "invalid_request"),
             (#"{"title":" ","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"),
             (addEventParams(#","extra":1"#), "invalid_request"),
+            (#"{"title":"a\u2028b","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"), // U+2028
+            (#"{"title":"a\u2029b","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"), // U+2029
+            (#"{"title":"a\u202eb","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"), // bidi override (Cf)
+            (#"{"title":"a\u200bb","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"), // zero width (Cf)
+            (addEventParams(#","notes":"a\u2028b""#), "invalid_request"),
+            (addEventParams(#","location":"a\u2029b""#), "invalid_request"),
             (addEventParams(#","notes":"\#(String(repeating: "a", count: 501))""#), "invalid_request"),
             (addEventParams(#","location":"\#(String(repeating: "a", count: 201))""#), "invalid_request"),
             (#"{"title":"x","start":"2026-10-28T00:00:00+09:00","end":"2026-11-05T00:00:00+09:00"}"#, "range_too_long"), // 8 days timed

@@ -210,3 +210,24 @@ func TestPimCard_NoMethodKey(t *testing.T) {
 		t.Fatal(pv)
 	}
 }
+
+// I-2: ScrubPimCards blanks the content of an ended event card (never a live one)
+// and goes through the optional store interface.
+func TestScrubPimCards(t *testing.T) {
+	e, _ := pimEventEnv(t, [2]string{pim.ToolAddEvent, addEventArgs})
+	evs := objects(writeStream(t, e, "alice@example"), "confirmation")
+	if len(evs) != 1 {
+		t.Fatal(evs)
+	}
+	// the card is live: even far in the future of its creation, "now" = just after it was made
+	if n, err := e.srv.ScrubPimCards(t.Context(), time.Now()); err != nil || n != 0 {
+		t.Fatalf("live card scrubbed: %d %v", n, err)
+	}
+	// 3 days later it has expired and is past the retention
+	if n, err := e.srv.ScrubPimCards(t.Context(), time.Now().Add(72*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("expired card: scrubbed %d %v, want 1", n, err)
+	}
+	if n, _ := e.srv.ScrubPimCards(t.Context(), time.Now().Add(72*time.Hour)); n != 0 {
+		t.Fatal("not idempotent")
+	}
+}

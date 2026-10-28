@@ -32,6 +32,9 @@ func clipTitle(s string) string {
 	return string(r[:MaxTitleShown-1]) + "…"
 }
 
+// ClipTitle is clipTitle for other packages (the briefing caps titles the same way the read tools do).
+func ClipTitle(s string) string { return clipTitle(s) }
+
 // ToKST parses an RFC3339 time and formats it as +09:00.
 func ToKST(s string) (string, bool) {
 	t, err := time.Parse(time.RFC3339, s)

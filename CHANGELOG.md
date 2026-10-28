@@ -1,5 +1,20 @@
 # Changelog
 
+## 5.1.0 (unreleased)
+
+> 캘린더 연동·아침 브리핑(M1). Everything is off by default. Switches and enabling order:
+> `docs/runbooks/5.1.0-calendar-briefing.md`.
+
+### Changed (security review follow-up, Low findings)
+- `calendar_add_event` now **requires `calendar_id`** (from `calendar_list_events`); the confirmation card always
+  names the target calendar. There is no implicit default calendar. (L-1)
+- Text fields refuse U+2028/U+2029 in addition to control and format characters; the helper applies the same rule. (L-2)
+- Titles in the model's calendar/reminder results and in the briefing are cut to 200 characters. (L-3)
+- The helper gives up on a request that has not fully arrived 3 s after connecting and backs off on accept errors. (L-5)
+- New cleanup: event/reminder text left in `pending_actions` of finished or expired pim write cards is blanked 24 h
+  after they ended (job every 6 h; hash and status stay). (I-2)
+- Docs: `GW_PIM_WRITES_ENABLED` and the four other keys, defaults and the external-sync warning for writes.
+
 ## 5.0.0 (unreleased)
 
 > **Breaking (MAJOR): personalized memory is on by default.** Stacked on 4.0.0. Contract: #54 (memory.md §14,

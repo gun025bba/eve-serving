@@ -33,6 +33,8 @@ func viewOf(t *testing.T, p Proposal) map[string]any {
 // testNow = 2026-10-28 12:00 KST.
 func TestAddEvent_ArgsStrict(t *testing.T) {
 	ok := `"title":"치과","start":"2026-10-28T15:00:00+09:00"`
+	// every case below must fail for the reason it names, so a case without a
+	// calendar_id gets one (L-1: it is required; "no calendar_id" tests that).
 	for name, args := range map[string]string{
 		"no title":        `{"start":"2026-10-28T15:00:00+09:00"}`,
 		"no start":        `{"title":"x"}`,
@@ -61,6 +63,12 @@ func TestAddEvent_ArgsStrict(t *testing.T) {
 		"long notes":      `{` + ok + `,"notes":"` + strings.Repeat("a", 501) + `"}`,
 		"newline notes":   `{` + ok + `,"notes":"a\nb"}`,
 		"zero width":      `{"title":"a\u200bb","start":"2026-10-28T15:00:00+09:00"}`,
+		"line sep title":  `{"title":"a\u2028b","start":"2026-10-28T15:00:00+09:00"}`,
+		"para sep title":  `{"title":"a\u2029b","start":"2026-10-28T15:00:00+09:00"}`,
+		"line sep notes":  `{` + ok + `,"notes":"a\u2028b"}`,
+		"para sep loc":    `{` + ok + `,"location":"a\u2029b"}`,
+		"line sep cal id": `{` + ok + `,"calendar_id":"cal\u2028_1"}`,
+		"notes 501 runes": `{` + ok + `,"notes":"` + strings.Repeat("가", 501) + `"}`,
 		"control":         `{"title":"a\u0007b","start":"2026-10-28T15:00:00+09:00"}`,
 		"secret":          `{"title":"AKIAIOSFODNN7EXAMPLE","start":"2026-10-28T15:00:00+09:00"}`,
 		"secret notes":    `{` + ok + `,"notes":"password: hunter2"}`,
@@ -68,8 +76,17 @@ func TestAddEvent_ArgsStrict(t *testing.T) {
 		"trailing":        `{` + ok + `} {}`,
 		"not object":      `[]`,
 	} {
+		if strings.HasPrefix(args, "{") && strings.HasSuffix(args, "}") && !strings.Contains(args, "calendar_id") && name != "trailing" {
+			args = args[:len(args)-1] + `,"calendar_id":"cal_1"}`
+		}
 		if _, err := ProposeAddEvent(t.Context(), cals, args, testNow); CodeOf(err) != CodeInvalidArgs {
 			t.Fatal(name, err)
+		}
+	}
+	// L-1: calendar_id is required, with or without anything else
+	for _, a := range []string{`{` + ok + `}`, `{` + ok + `,"all_day":false,"location":"x"}`} {
+		if _, err := ProposeAddEvent(t.Context(), cals, a, testNow); CodeOf(err) != CodeInvalidArgs {
+			t.Fatal("calendar_id must be required:", a, err)
 		}
 	}
 	// calendars: unknown or read-only -> not_found
@@ -81,17 +98,17 @@ func TestAddEvent_ArgsStrict(t *testing.T) {
 	if _, err := ProposeAddEvent(t.Context(), nil, `{`+ok+`,"calendar_id":"cal_1"}`, testNow); CodeOf(err) != CodeUnavailable {
 		t.Fatal(err)
 	}
-	// defaults: timed -> +60 min, default calendar, no location/notes
-	p, err := ProposeAddEvent(t.Context(), cals, `{`+ok+`}`, testNow)
+	// defaults: timed -> +60 min, no location/notes; the card names the calendar and its id
+	p, err := ProposeAddEvent(t.Context(), cals, `{`+ok+`,"calendar_id":"cal_1"}`, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	v := viewOf(t, p)
-	if v["end"] != "2026-10-28T16:00:00+09:00" || v["all_day"] != false || v["location"] != nil || v["notes"] != nil || v["calendar_id"] != nil || v["calendar"] != "기본 캘린더" {
+	if v["end"] != "2026-10-28T16:00:00+09:00" || v["all_day"] != false || v["location"] != nil || v["notes"] != nil || v["calendar_id"] != "cal_1" || v["calendar"] != "개인" {
 		t.Fatal(string(p.View))
 	}
 	// all-day default: next day 00:00 (exclusive)
-	p, err = ProposeAddEvent(t.Context(), cals, `{"title":"기념일","start":"2026-10-29T00:00:00+09:00","all_day":true}`, testNow)
+	p, err = ProposeAddEvent(t.Context(), cals, `{"title":"기념일","start":"2026-10-29T00:00:00+09:00","all_day":true,"calendar_id":"cal_1"}`, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +117,11 @@ func TestAddEvent_ArgsStrict(t *testing.T) {
 	}
 	// limits at the edge are accepted: 7 days, 31 days, now-1d, now+365d
 	for _, a := range []string{
-		`{` + ok + `,"end":"2026-11-04T15:00:00+09:00"}`,
-		`{"title":"x","start":"2026-10-29T00:00:00+09:00","all_day":true,"end":"2026-11-29T00:00:00+09:00"}`,
-		`{"title":"x","start":"2026-10-27T12:00:00+09:00"}`,
-		`{"title":"x","start":"2027-10-28T12:00:00+09:00"}`,
+		`{` + ok + `,"end":"2026-11-04T15:00:00+09:00","calendar_id":"cal_1"}`,
+		`{"title":"x","start":"2026-10-29T00:00:00+09:00","all_day":true,"end":"2026-11-29T00:00:00+09:00","calendar_id":"cal_1"}`,
+		`{"title":"x","start":"2026-10-27T12:00:00+09:00","calendar_id":"cal_1"}`,
+		`{"title":"x","start":"2027-10-28T12:00:00+09:00","calendar_id":"cal_1"}`,
+		`{` + ok + `,"calendar_id":"cal_1","notes":"` + strings.Repeat("가", 500) + `"}`, // notes at exactly 500 runes
 	} {
 		if _, err := ProposeAddEvent(t.Context(), cals, a, testNow); err != nil {
 			t.Fatal(a, err)
@@ -112,7 +130,7 @@ func TestAddEvent_ArgsStrict(t *testing.T) {
 }
 
 func TestAddEvent_NormalizedToKST(t *testing.T) {
-	p, err := ProposeAddEvent(t.Context(), cals, `{"title":" Ｃａｆé 미팅 ","start":"2026-10-28T06:00:00Z","end":"2026-10-28T01:30:00-07:00","location":"  역삼  "}`, testNow)
+	p, err := ProposeAddEvent(t.Context(), cals, `{"title":" Ｃａｆé 미팅 ","start":"2026-10-28T06:00:00Z","end":"2026-10-28T01:30:00-07:00","location":"  역삼  ","calendar_id":"cal_1"}`, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +226,7 @@ func TestPimCard_NoMethodKeyInView(t *testing.T) {
 	rd := listOnly{[]Reminder{{ID: "r1", Title: "t", List: "l"}}}
 	a, _ := ProposeAdd(`{"title":"x"}`, testNow)
 	c, _ := ProposeComplete(t.Context(), rd, `{"id":"r1"}`, testNow)
-	e, _ := ProposeAddEvent(t.Context(), cals, `{"title":"x","start":"2026-10-28T15:00:00+09:00"}`, testNow)
+	e, _ := ProposeAddEvent(t.Context(), cals, `{"title":"x","start":"2026-10-28T15:00:00+09:00","calendar_id":"cal_1"}`, testNow)
 	for _, p := range []Proposal{a, c, e} {
 		if v := viewOf(t, p); v["method"] != nil || v["verb"] == nil {
 			t.Fatal(string(p.View))
@@ -231,10 +249,14 @@ func TestAddEvent_RevalidateAndExecute(t *testing.T) {
 	if err := Revalidate(t.Context(), gone, ToolAddEvent, p); CodeOf(err) != CodeNotFound {
 		t.Fatal(err)
 	}
-	p.CalendarID = ""
-	if err := Revalidate(t.Context(), gone, ToolAddEvent, p); err != nil {
+	p.CalendarID = "" // never produced since L-1; a card without a calendar is refused, not defaulted
+	if err := Revalidate(t.Context(), gone, ToolAddEvent, p); CodeOf(err) != CodeNotFound {
 		t.Fatal(err)
 	}
+	if _, err := ParsePayload(ToolAddEvent, json.RawMessage(`{"method":"add_event","title":"x","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}`)); CodeOf(err) != CodeInvalidArgs {
+		t.Fatal("a stored event card without calendar_id must not parse:", err)
+	}
+	p.CalendarID = "cal_1"
 	if err := Execute(t.Context(), nil, ToolAddEvent, p); CodeOf(err) != CodeUnavailable {
 		t.Fatal(err)
 	}
