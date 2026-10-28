@@ -152,7 +152,7 @@ type PimConfig struct {
 	// user never sees the tools.
 	OwnerUserID int64 `yaml:"owner_user_id"`
 	// WritesEnabled (GW_PIM_WRITES_ENABLED, #70) additionally offers the
-	// write verbs reminders_add / reminders_complete, still only through an
+	// write verbs reminders_add / reminders_complete / calendar_add_event, still only through an
 	// approved confirmation card. Off by default, and effective only while
 	// Enabled is on (see WritesOn). The helper must also be started with
 	// --writes-enabled; the two switches are independent and both default off.

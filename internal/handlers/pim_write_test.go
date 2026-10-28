@@ -24,7 +24,20 @@ type fakeWriter struct {
 	reminders []pim.Reminder
 	added     []pim.Payload
 	completed []string
+	events    []pim.EventWrite
+	calendars []pim.Calendar
 	addErr    error
+}
+
+func (f *fakeWriter) ListCalendars(context.Context) (pim.Calendars, error) {
+	return pim.Calendars{Calendars: append([]pim.Calendar{}, f.calendars...)}, nil
+}
+
+func (f *fakeWriter) AddEvent(_ context.Context, e pim.EventWrite) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.events = append(f.events, e)
+	return f.addErr
 }
 
 func (f *fakeWriter) ListEvents(context.Context, time.Time, time.Time) (pim.Events, error) {
@@ -58,7 +71,7 @@ func (f *fakeWriter) CompleteReminder(_ context.Context, id string) error {
 func (f *fakeWriter) writes() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.added) + len(f.completed)
+	return len(f.added) + len(f.completed) + len(f.events)
 }
 
 // pimWriteEnv: web env whose upstream emits the given tool calls one per

@@ -475,7 +475,13 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 					// A write proposal after web/pim results in this turn is allowed,
 					// but its card is marked tainted and shows the exact values.
 					pimTainted := len(pimCalls) > 0 || len(sess.Calls) > 0 || len(sess.Sources) > 0
-					res := s.runPimTool(r, pr, pimTools, c.name, c.args, pimTainted, out.event)
+					res, po, conf := s.runPimTool(r, pr, pimTools, c.name, c.args, pimTainted)
+					pc, prs := pimToolEvents(c.id, c.name, c.args, rounds, po)
+					out.event(pc)
+					out.event(prs)
+					if conf != nil { // directly after its tool_result (§11.1)
+						out.event(conf)
+					}
 					pimCalls = append(pimCalls, "request:call:"+c.name)
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue

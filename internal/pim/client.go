@@ -85,7 +85,24 @@ type Event struct {
 	End      string `json:"end"`
 	AllDay   bool   `json:"all_day"`
 	Calendar string `json:"calendar"`
+	// CalendarID is opaque; it is the value calendar_add_event takes.
+	CalendarID string `json:"calendar_id"`
 }
+
+// Calendar is what the helper's list_calendars returns: id, name and whether
+// events may be added. Never any event content.
+type Calendar struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Writable bool   `json:"writable"`
+}
+
+type Calendars struct {
+	Calendars []Calendar `json:"calendars"`
+}
+
+// MaxCalendars bounds a list_calendars answer.
+const MaxCalendars = 200
 
 type Reminder struct {
 	ID    string  `json:"id"`
@@ -110,6 +127,8 @@ type Reminders struct {
 type Reader interface {
 	ListEvents(ctx context.Context, from, to time.Time) (Events, error)
 	ListReminders(ctx context.Context, dueBefore *time.Time, includeDone bool) (Reminders, error)
+	// ListCalendars is the helper's read-only list_calendars (id, name, writable).
+	ListCalendars(ctx context.Context) (Calendars, error)
 }
 
 // Client talks to eve-pim over its unix socket, one request per connection.
@@ -179,6 +198,15 @@ func (c *Client) ListReminders(ctx context.Context, dueBefore *time.Time, includ
 	return out, err
 }
 
+func (c *Client) ListCalendars(ctx context.Context) (Calendars, error) {
+	var out Calendars
+	err := c.call(ctx, "list_calendars", struct{}{}, &out)
+	if len(out.Calendars) > MaxCalendars {
+		out.Calendars = out.Calendars[:MaxCalendars]
+	}
+	return out, err
+}
+
 type addReminderParams struct {
 	Title string  `json:"title"`
 	Due   *string `json:"due,omitempty"`
@@ -200,6 +228,32 @@ func (c *Client) AddReminder(ctx context.Context, title string, due *time.Time, 
 		p.List = &list
 	}
 	return c.call(ctx, "add_reminder", p, &struct{}{})
+}
+
+type addEventParams struct {
+	Title      string  `json:"title"`
+	Start      string  `json:"start"`
+	End        string  `json:"end"`
+	AllDay     bool    `json:"all_day"`
+	Location   *string `json:"location,omitempty"`
+	Notes      *string `json:"notes,omitempty"`
+	CalendarID *string `json:"calendar_id,omitempty"`
+}
+
+// AddEvent creates one event from an approved card (add_event). One attempt
+// only, never retried: EventKit has no idempotency key.
+func (c *Client) AddEvent(ctx context.Context, e EventWrite) error {
+	p := addEventParams{Title: e.Title, Start: e.Start, End: e.End, AllDay: e.AllDay}
+	if e.Location != "" {
+		p.Location = &e.Location
+	}
+	if e.Notes != "" {
+		p.Notes = &e.Notes
+	}
+	if e.CalendarID != "" {
+		p.CalendarID = &e.CalendarID
+	}
+	return c.call(ctx, "add_event", p, &struct{}{})
 }
 
 // CompleteReminder marks one reminder done. One attempt only.

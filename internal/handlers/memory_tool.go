@@ -221,7 +221,7 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 
 // approveAction: POST /v1/actions/{id}/approve {confirm_token, payload_hash}.
 // Registered while memory is on or pim writes are on; only memory.propose
-// and (when GW_PIM_WRITES_ENABLED) reminders_add/reminders_complete cards execute.
+// and (when GW_PIM_WRITES_ENABLED) reminders_add/reminders_complete/calendar_add_event cards execute.
 func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	if s.denyAPIKey(w, r) {
 		return

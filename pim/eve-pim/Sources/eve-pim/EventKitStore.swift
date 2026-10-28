@@ -39,9 +39,46 @@ final class EventKitStore: PimStore {
         let pred = ek.predicateForEvents(withStart: from, end: to, calendars: nil)
         let evs = ek.events(matching: pred).sorted { $0.startDate < $1.startDate }
         return evs.prefix(limit).map {
-            PimEvent(id: $0.calendarItemIdentifier, title: $0.title ?? "", start: $0.startDate,
-                     end: $0.endDate, allDay: $0.isAllDay, calendar: $0.calendar?.title ?? "")
+            Self.event($0)
         }
+    }
+
+    static func event(_ e: EKEvent) -> PimEvent {
+        let end = e.isAllDay ? allDayExclusiveEnd(start: e.startDate, end: e.endDate, tz: .current) : e.endDate!
+        return PimEvent(id: e.calendarItemIdentifier, title: e.title ?? "", start: e.startDate, end: end,
+                        allDay: e.isAllDay, calendar: e.calendar?.title ?? "", calendarID: e.calendar?.calendarIdentifier ?? "")
+    }
+
+    func calendars() throws -> [PimCalendar] {
+        guard Self.authorized(.event) else { throw PimError(.permissionDenied) }
+        return ek.calendars(for: .event).map {
+            PimCalendar(id: $0.calendarIdentifier, name: $0.title, writable: $0.allowsContentModifications)
+        }
+    }
+
+    func addEvent(title: String, start: Date, end: Date, allDay: Bool, location: String?, notes: String?,
+                  calendarID: String?) throws -> PimEvent {
+        guard Self.authorized(.event) else { throw PimError(.permissionDenied) }
+        let cal: EKCalendar
+        if let calendarID {
+            guard let c = ek.calendar(withIdentifier: calendarID), c.allowsContentModifications,
+                  ek.calendars(for: .event).contains(where: { $0.calendarIdentifier == c.calendarIdentifier })
+            else { throw PimError(.notFound) }
+            cal = c
+        } else {
+            guard let c = ek.defaultCalendarForNewEvents else { throw PimError(.notFound) }
+            cal = c
+        }
+        let ev = EKEvent(eventStore: ek)
+        ev.calendar = cal
+        ev.title = title
+        ev.isAllDay = allDay
+        ev.startDate = start
+        ev.endDate = allDay ? end.addingTimeInterval(-1) : end // all-day: the last second of the last day
+        ev.location = location
+        ev.notes = notes
+        do { try ek.save(ev, span: .thisEvent, commit: true) } catch { throw PimError(.internalError) }
+        return Self.event(ev)
     }
 
     func reminders(dueBefore: Date?, includeDone: Bool, limit: Int) throws -> [PimReminder] {

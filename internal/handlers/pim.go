@@ -104,25 +104,40 @@ func withPimTools(defs []any, names []string) []any {
 
 // runPimTool executes one pim tool call. A call for a tool that is not
 // exposed to this principal is denied without touching the helper. Write
-// verbs only build a confirmation card (proposePimWrite). Logs carry method
-// or tool, status, error code and count only.
-func (s *Server) runPimTool(r *http.Request, pr *chatPersist, exposed []string, name, args string, tainted bool, emit func(map[string]any)) string {
+// verbs only build a confirmation card (proposePimWrite); its event comes
+// back as the third result so it can follow the tool_result. Logs carry
+// method or tool, status, error code and count only.
+func (s *Server) runPimTool(r *http.Request, pr *chatPersist, exposed []string, name, args string, tainted bool) (string, pim.Outcome, map[string]any) {
 	ok := false
 	for _, n := range exposed {
 		ok = ok || n == name
 	}
 	if !ok {
 		s.Log.Info("pim_tool", "request_id", rid(r), "tool", name, "status", "denied", "error_code", pim.CodeKillSwitch)
-		return pim.Denied()
+		return pim.Denied(), pim.DeniedOutcome(name), nil
 	}
 	if pim.IsWriteTool(name) {
-		return s.proposePimWrite(r, pr, name, args, tainted, emit)
+		return s.proposePimWrite(r, pr, name, args, tainted)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	out, o := pim.Exec(ctx, s.Pim, name, args, time.Local)
 	s.Log.Info("pim_tool", "request_id", rid(r), "tool", name, "status", o.Status, "error_code", o.ErrorCode, "count", o.Count, "truncated", o.Truncated)
-	return out
+	return out, o, nil
+}
+
+// pimToolEvents builds the two SSE events of a pim tool call (design §11.1),
+// the existing chat.completion.tool_call / tool_result shapes: the model's
+// arguments as-is for reads ({} for writes), then status, count/truncated and
+// the card on success or error_code and an error card on failure. No sources,
+// and the card is never stored.
+func pimToolEvents(id, name, rawArgs string, round int, o pim.Outcome) (call, result map[string]any) {
+	call = map[string]any{"object": "chat.completion.tool_call", "id": id, "tool": name, "args": pim.PublicArgs(name, rawArgs), "round": round}
+	result = map[string]any{"object": "chat.completion.tool_result", "id": id, "tool": name}
+	for k, v := range o.ResultFields() {
+		result[k] = v
+	}
+	return call, result
 }
 
 func pimErrResult(code string) string {
@@ -130,31 +145,38 @@ func pimErrResult(code string) string {
 }
 
 // proposePimWrite turns a model write call into a pending confirmation card.
-// The card's payload_view carries the exact values that will be written
-// (title, due, list). The model only ever sees pending_confirmation and the
-// action id; the write itself happens in approvePimWrite.
-func (s *Server) proposePimWrite(r *http.Request, pr *chatPersist, name, args string, tainted bool, emit func(map[string]any)) string {
+// The card's payload_view carries the exact values that will be written plus
+// the server-made display strings (design §11.4). The model only ever sees
+// pending_confirmation and the action id; the write itself happens in
+// approvePimWrite. A failed proposal takes the read-error path: an error
+// outcome (status, error_code, error card) and no confirmation.
+func (s *Server) proposePimWrite(r *http.Request, pr *chatPersist, name, args string, tainted bool) (string, pim.Outcome, map[string]any) {
 	method := pim.Method(name)
-	fail := func(code string) string {
-		s.Log.Info("pim_write", "request_id", rid(r), "method", method, "stage", "propose", "status", "error", "error_code", code)
-		return pimErrResult(code)
+	fail := func(code string) (string, pim.Outcome, map[string]any) {
+		o := pim.FailOutcome(name, code)
+		s.Log.Info("pim_write", "request_id", rid(r), "method", method, "stage", "propose", "status", o.Status, "error_code", o.ErrorCode)
+		return pimErrResult(o.ErrorCode), o, nil
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
+	now := s.now().UTC()
 	var prop pim.Proposal
 	var err error
 	switch name {
 	case pim.ToolAddReminder:
-		prop, err = pim.ProposeAdd(args)
+		prop, err = pim.ProposeAdd(args, now)
 	case pim.ToolCompleteReminder:
-		prop, err = pim.ProposeComplete(ctx, s.Pim, args)
+		prop, err = pim.ProposeComplete(ctx, s.Pim, args, now)
+	case pim.ToolAddEvent:
+		prop, err = pim.ProposeAddEvent(ctx, s.Pim, args, now)
+	default:
+		err = &pim.Error{Code: pim.CodeInvalidArgs}
 	}
 	if err != nil {
 		return fail(pim.CodeOf(err))
 	}
-	now := s.now().UTC()
 	card := store.Action{Payload: prop.Payload}
-	card.Tool, card.ToolVersion, card.Scopes = name, pim.ToolWriteVersion, []string{pim.ScopeWrite}
+	card.Tool, card.ToolVersion, card.Scopes = name, pim.ToolWriteVersion, []string{pim.ScopeFor(name)}
 	card.PayloadHash = store.PayloadHash(prop.Payload)
 	card.Provenance = store.Provenance{Actor: "user"}
 	card.Tainted = tainted
@@ -177,11 +199,11 @@ func (s *Server) proposePimWrite(r *http.Request, pr *chatPersist, name, args st
 	}
 	s.actionAudit(r, "action_proposed", saved)
 	var m map[string]any
-	if b, err := json.Marshal(view(saved)); err == nil && json.Unmarshal(b, &m) == nil {
-		emit(m)
+	if b, err := json.Marshal(view(saved)); err != nil || json.Unmarshal(b, &m) != nil {
+		m = nil
 	}
 	s.Log.Info("pim_write", "request_id", rid(r), "method", method, "stage", "propose", "status", "pending_confirmation", "count", 1)
-	return toolResult(map[string]any{"status": "pending_confirmation", "action_id": saved.ID})
+	return toolResult(map[string]any{"status": "pending_confirmation", "action_id": saved.ID}), pim.PendingOutcome(name, saved.ID), m
 }
 
 func compactJSON(b []byte) []byte {
@@ -236,13 +258,13 @@ func (s *Server) approvePimWrite(w http.ResponseWriter, r *http.Request, ap stor
 	tainted := a.Tainted
 	if s.Audit != nil {
 		e := audit.Event{At: time.Now().UTC(), Actor: audit.ActorUser, Event: "pim_write_approve", PendingActionID: a.ID, Tool: a.Tool,
-			ToolVersion: a.ToolVersion, Scope: pim.ScopeWrite, PayloadSHA256: a.PayloadHash, Tainted: &tainted, Status: "ok",
+			ToolVersion: a.ToolVersion, Scope: pim.ScopeFor(a.Tool), PayloadSHA256: a.PayloadHash, Tainted: &tainted, Status: "ok",
 			Detail: map[string]string{"via": "ui", "method": method, "count": "1"}}
 		if err := s.Audit.Append(r.Context(), login, e); err != nil {
 			s.M.AuditWriteFail.Inc()
 			s.Log.Error("audit_write_failed", "event", e.Event, "err", err.Error())
 			logRes("error", "audit_unavailable", 0)
-			s.fail(w, r, apierr.New(500, "internal_error", "Reminder write failed", "server_error"))
+			s.fail(w, r, apierr.New(500, "internal_error", "PIM write failed", "server_error"))
 			return
 		}
 	}
@@ -260,7 +282,7 @@ func (s *Server) approvePimWrite(w http.ResponseWriter, r *http.Request, ap stor
 	err = pim.Execute(ectx, s.pimWriter(), a.Tool, p)
 	result := func(status, code string) {
 		s.appendAudit(r.Context(), login, audit.Event{At: time.Now().UTC(), Actor: audit.ActorUser, Event: "pim_write_result", PendingActionID: a.ID,
-			Tool: a.Tool, ToolVersion: a.ToolVersion, Scope: pim.ScopeWrite, PayloadSHA256: a.PayloadHash, Status: status,
+			Tool: a.Tool, ToolVersion: a.ToolVersion, Scope: pim.ScopeFor(a.Tool), PayloadSHA256: a.PayloadHash, Status: status,
 			Detail: map[string]string{"method": method, "error_code": code}})
 	}
 	if err == nil {

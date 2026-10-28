@@ -2,12 +2,14 @@ package briefing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/pim"
+	"github.com/gun025bba/eve-serving/internal/store"
 )
 
 type fp struct {
@@ -21,6 +23,7 @@ func (f *fp) ListEvents(_ context.Context, from, to time.Time) (pim.Events, erro
 	f.from, f.to = from, to
 	return f.ev, f.evErr
 }
+func (f *fp) ListCalendars(context.Context) (pim.Calendars, error) { return pim.Calendars{}, nil }
 func (f *fp) ListReminders(_ context.Context, due *time.Time, done bool) (pim.Reminders, error) {
 	if done {
 		panic("include_done must be false")
@@ -34,6 +37,7 @@ var allOn = Gates{true, true, true, true}
 type rec struct {
 	msgs  [][]map[string]any
 	saved []string
+	docs  []store.Briefing
 	out   string // model answer; default is a bare word, which fails validation
 }
 
@@ -49,8 +53,11 @@ func deps(p pim.Reader, r *rec, mem string) Deps {
 			}
 			return "브리핑", nil
 		},
-		Save: func(_ context.Context, t string) error { r.saved = append(r.saved, t); return nil },
-		Now:  func() time.Time { return now },
+		Save: func(_ context.Context, t string, bd store.Briefing) error {
+			r.saved, r.docs = append(r.saved, t), append(r.docs, bd)
+			return nil
+		},
+		Now: func() time.Time { return now },
 	}
 }
 
@@ -148,7 +155,7 @@ func TestHelperFailureOnlyThatSection(t *testing.T) {
 	f := &fp{evErr: &pim.Error{Code: pim.CodePermissionDenied}, rs: pim.Reminders{Reminders: []pim.Reminder{{ID: "r", Title: "약"}}}}
 	r := &rec{}
 	res := Run(t.Context(), deps(f, r, ""), Defaults(), allOn)
-	if res.Status != StatusOK || res.Sections[0].Code != pim.CodePermissionDenied || res.Sections[1].Code != "" {
+	if res.Status != StatusPartial || res.Sections[0].Code != pim.CodePermissionDenied || res.Sections[1].Code != "" {
 		t.Fatal(res)
 	}
 	user := r.msgs[0][1]["content"].(string)
@@ -160,9 +167,12 @@ func TestHelperFailureOnlyThatSection(t *testing.T) {
 	if !res.Fallback || !strings.Contains(r.saved[0], "일정: 확인하지 못했어요") || !strings.Contains(r.saved[0], "약") {
 		t.Fatal(res, r.saved)
 	}
-	// both down: not "empty" — the user hears that it could not be checked
+	// both down: not "empty" — the user hears that it could not be checked,
+	// with a fixed phrase and no model call (§11.3 unavailable)
 	f = &fp{evErr: errors.New("x"), rsErr: errors.New("y")}
-	if res := Run(t.Context(), deps(f, &rec{}, ""), Defaults(), allOn); res.Status != StatusOK || res.Sections[1].Code != pim.CodeUnavailable {
+	r2 := &rec{}
+	if res := Run(t.Context(), deps(f, r2, ""), Defaults(), allOn); res.Status != StatusUnavailable || res.Sections[1].Code != pim.CodeUnavailable ||
+		!res.Fixed || len(r2.msgs) != 0 || r2.saved[0] != TextUnavailable || res.Doc.TextSource != "fixed" {
 		t.Fatal(res)
 	}
 }
@@ -172,7 +182,7 @@ func TestNoPimNoModelCall(t *testing.T) {
 	s := Defaults()
 	s.SkipIfEmpty = false
 	res := Run(t.Context(), deps(nil, r, "<memory>x</memory>"), s, allOn)
-	if res.Status != StatusOK || len(res.Sections) != 0 || !res.Fixed || len(r.msgs) != 0 || r.saved[0] != TextPimOff {
+	if res.Status != StatusUnavailable || len(res.Sections) != 0 || !res.Fixed || len(r.msgs) != 0 || r.saved[0] != TextPimOff || len(res.Doc.Sections) != 0 {
 		t.Fatal(res, r.saved)
 	}
 	// preview: same fixed phrase, nothing saved, no model
@@ -364,5 +374,117 @@ func TestNoThinkAndThinkStripped(t *testing.T) {
 	r = &rec{out: "<think>음 일정이"}
 	if res := Preview(t.Context(), deps(f, r, ""), Defaults()); res.Status != StatusError || res.Text != "" {
 		t.Fatal("unfinished think accepted:", res)
+	}
+}
+
+func docOf(t *testing.T, f *fp, out string) (Result, store.Briefing) {
+	t.Helper()
+	r := &rec{out: out}
+	s := Defaults()
+	s.SkipIfEmpty = false
+	res := Run(t.Context(), deps(f, r, ""), s, allOn)
+	if res.Doc == nil || len(r.docs) != 1 || res.Status != r.docs[0].Status {
+		t.Fatal(res, r.docs)
+	}
+	return res, r.docs[0]
+}
+
+// §11.3: status ok | partial | unavailable, and last_status equals it.
+func TestBriefing_StatusTable(t *testing.T) {
+	ev := pim.Events{Events: []pim.Event{{ID: "1", Title: "회의", Start: "2026-10-28T10:00:00+09:00", End: "2026-10-28T11:00:00+09:00", Calendar: "업무"}}}
+	rs := pim.Reminders{Reminders: []pim.Reminder{{ID: "r", Title: "약", List: "집"}}}
+	out := "오늘 2026-10-28(수) 브리핑\n일정 1건\n- 10:00 회의\n리마인더 1건\n- 시간 없음 약"
+	cases := []struct {
+		name         string
+		f            *fp
+		status, src  string
+		kinds, stats []string
+	}{
+		{"both ok", &fp{ev: ev, rs: rs}, "ok", "model", []string{"events", "reminders"}, []string{"ok", "ok"}},
+		{"events down", &fp{evErr: &pim.Error{Code: pim.CodePermissionDenied}, rs: rs}, "partial", "template", []string{"events", "reminders"}, []string{"error", "ok"}},
+		{"reminders down", &fp{ev: ev, rsErr: &pim.Error{Code: pim.CodeTimeout}}, "partial", "template", []string{"events", "reminders"}, []string{"ok", "error"}},
+		{"both down", &fp{evErr: errors.New("x"), rsErr: errors.New("y")}, "unavailable", "fixed", []string{"events", "reminders"}, []string{"error", "error"}},
+	}
+	for _, c := range cases {
+		res, d := docOf(t, c.f, out)
+		if d.Schema != 1 || d.Status != c.status || res.Status != c.status || d.TextSource != c.src || d.Date != "2026-10-28" || d.TZ != "Asia/Seoul" || !strings.HasSuffix(d.GeneratedAt, "+09:00") {
+			t.Fatal(c.name, d)
+		}
+		for i, sec := range d.Sections {
+			if sec.Kind != c.kinds[i] || sec.Status != c.stats[i] || (sec.Status == "error") != (sec.ErrorCode != "") || (sec.Status == "error" && (len(sec.Items) != 0 || sec.Count != 0)) {
+				t.Fatal(c.name, sec)
+			}
+		}
+	}
+	// pim off: unavailable, no sections
+	r := &rec{}
+	s := Defaults()
+	s.SkipIfEmpty = false
+	if res := Run(t.Context(), deps(nil, r, ""), s, allOn); res.Doc.Status != "unavailable" || len(res.Doc.Sections) != 0 || res.Doc.TextSource != "fixed" {
+		t.Fatal(res.Doc)
+	}
+	// skipped_* creates no message: only last_status has it
+	if res := Run(t.Context(), deps(&fp{}, &rec{}, ""), Defaults(), allOn); res.Status != StatusSkippedEmpty || res.Doc != nil {
+		t.Fatal(res)
+	}
+	if res := Run(t.Context(), deps(&fp{}, &rec{}, ""), Defaults(), Gates{}); res.Status != StatusSkippedOff || res.Doc != nil {
+		t.Fatal(res)
+	}
+}
+
+// §11.3: items are the first 10 of the sorted list; count is the whole,
+// truncated means "shown < collected" (or the read itself was cut).
+func TestBriefing_ItemsCap10TruncatedMeaning(t *testing.T) {
+	var evs []pim.Event
+	for i := range 12 {
+		evs = append(evs, pim.Event{ID: "e", Title: "e" + string(rune('a'+i)), Start: time.Date(2026, 10, 28, 8+i%12, 0, 0, 0, time.UTC).Format(time.RFC3339), End: "2026-10-28T23:00:00Z", Calendar: "c"})
+	}
+	rs := pim.Reminders{Reminders: []pim.Reminder{{ID: "r", Title: "약", List: "집"}, {ID: "r2", Title: "빨래", List: "집"}}}
+	// the model text does not matter: the template is used when it omits items
+	_, d := docOf(t, &fp{ev: pim.Events{Events: evs}, rs: rs}, "오늘 x")
+	e, r := d.Sections[0], d.Sections[1]
+	if e.Count != 12 || len(e.Items) != 10 || !e.Truncated {
+		t.Fatal(e.Count, len(e.Items), e.Truncated)
+	}
+	if r.Count != 2 || len(r.Items) != 2 || r.Truncated {
+		t.Fatal(r)
+	}
+	if first := e.Items[0].(store.BriefingEvent); first.Title != "ea" || first.Start != "2026-10-28T17:00:00+09:00" {
+		t.Fatal("kst or order", first)
+	}
+	// the read was cut by the helper cap although all collected are shown
+	_, d = docOf(t, &fp{ev: pim.Events{Events: evs[:3], Truncated: true}, rs: rs}, "오늘 x")
+	if e := d.Sections[0]; e.Count != 3 || len(e.Items) != 3 || !e.Truncated {
+		t.Fatal(e)
+	}
+}
+
+// §11.3: no ids (event, reminder, calendar) in what is stored or served.
+func TestBriefing_NoIdsStored(t *testing.T) {
+	due := "2026-10-28T09:00:00Z"
+	f := &fp{ev: pim.Events{Events: []pim.Event{{ID: "EV-SECRET-ID", Title: "회의", Start: "2026-10-28T01:00:00Z", End: "2026-10-28T02:00:00Z", Calendar: "업무", CalendarID: "CAL-SECRET-ID"}}},
+		rs: pim.Reminders{Reminders: []pim.Reminder{{ID: "REM-SECRET-ID", Title: "약", List: "집", Due: &due}}}}
+	_, d := docOf(t, f, "x")
+	raw := store.BriefingMetadata(d)
+	for _, bad := range []string{"SECRET", `"id"`, "calendar_id", "_id"} {
+		if strings.Contains(string(raw), bad) {
+			t.Fatal(bad, string(raw))
+		}
+	}
+	// through the API projection: validated, null for non-briefing messages
+	kind := store.BriefingKind
+	m := store.Message{ID: "m", Content: "c", TemplateKind: &kind, Metadata: raw}
+	b, _ := json.Marshal(m)
+	if !strings.Contains(string(b), `"briefing":{"schema":1,"status":"ok"`) || strings.Contains(string(b), `"metadata"`) || strings.Contains(string(b), "SECRET") {
+		t.Fatal(string(b))
+	}
+	b, _ = json.Marshal(store.Message{ID: "n", Content: "c"})
+	if !strings.Contains(string(b), `"briefing":null`) {
+		t.Fatal(string(b))
+	}
+	// a hand-edited / unknown-field metadata is not served
+	bad := json.RawMessage(`{"briefing":{"schema":1,"status":"ok","date":"2026-10-28","tz":"Asia/Seoul","generated_at":"2026-10-28T07:30:00+09:00","text_source":"model","sections":[{"kind":"events","status":"ok","count":1,"truncated":false,"items":[{"title":"a","start":"x","end":"y","all_day":false,"calendar":"c","id":"LEAK"}]},{"kind":"reminders","status":"ok","count":0,"truncated":false,"items":[]}]}}`)
+	if store.ParseBriefing(bad) != nil {
+		t.Fatal("unknown field accepted")
 	}
 }

@@ -61,10 +61,16 @@ func ToolDefs(names []string) []any {
 // Outcome is what may be logged or audited about one call: no content.
 type Outcome struct {
 	Tool      string
-	Status    string // ok | error
+	Status    string // ok | error | timeout | denied
 	ErrorCode string
 	Count     int
 	Truncated bool
+	// Card is the UI card (§11.2): the list card on success, the error card on
+	// failure. Stream-only, never stored.
+	Card map[string]any
+	// ActionID is the confirmation card of a write proposal (Status
+	// "pending_confirmation"); there is no card of its own then.
+	ActionID string
 }
 
 // Exec runs one read tool. now/loc anchor relative defaults. The returned
@@ -72,8 +78,9 @@ type Outcome struct {
 func Exec(ctx context.Context, rd Reader, name, rawArgs string, loc *time.Location) (string, Outcome) {
 	o := Outcome{Tool: name, Status: "error"}
 	fail := func(code string) (string, Outcome) {
-		o.ErrorCode = code
-		b, _ := json.Marshal(map[string]any{"status": "error", "error_code": code})
+		o = FailOutcome(name, code)
+		// the model keeps the existing form: status "error" whatever the UI status is
+		b, _ := json.Marshal(map[string]any{"status": "error", "error_code": o.ErrorCode})
 		return string(b), o
 	}
 	if rd == nil {
@@ -124,10 +131,20 @@ func Exec(ctx context.Context, rd Reader, name, rawArgs string, loc *time.Locati
 			ev.Events, ev.Truncated = ev.Events[:MaxEvents], true
 		}
 		ev.Truncated = ev.Truncated || clipped
-		if ev.Events == nil {
-			ev.Events = []Event{}
+		items := make([]Event, 0, len(ev.Events))
+		for _, e := range ev.Events {
+			s, ok1 := ToKST(e.Start)
+			en, ok2 := ToKST(e.End)
+			if !ok1 || !ok2 {
+				return fail(CodeUnavailable) // the helper broke its contract
+			}
+			e.Start, e.End, e.Title = s, en, clipTitle(e.Title)
+			items = append(items, e)
 		}
-		o.Count, o.Truncated, data = len(ev.Events), ev.Truncated, ev
+		ev.Events = items
+		o.Count, o.Truncated, data = len(items), ev.Truncated, ev
+		o.Card = map[string]any{"kind": "calendar_events", "v": 1, "items": items,
+			"range": map[string]string{"from": from.In(KST).Format(time.RFC3339), "to": to.In(KST).Format(time.RFC3339)}}
 	case ToolListReminders:
 		var due *time.Time
 		include := false
@@ -156,10 +173,25 @@ func Exec(ctx context.Context, rd Reader, name, rawArgs string, loc *time.Locati
 		if len(rs.Reminders) > MaxReminders {
 			rs.Reminders, rs.Truncated = rs.Reminders[:MaxReminders], true
 		}
-		if rs.Reminders == nil {
-			rs.Reminders = []Reminder{}
+		items := make([]Reminder, 0, len(rs.Reminders))
+		for _, r := range rs.Reminders {
+			if r.Due != nil {
+				d, ok := ToKST(*r.Due)
+				if !ok {
+					return fail(CodeUnavailable)
+				}
+				r.Due = &d
+			}
+			r.Title = clipTitle(r.Title)
+			items = append(items, r)
 		}
-		o.Count, o.Truncated, data = len(rs.Reminders), rs.Truncated, rs
+		rs.Reminders = items
+		o.Count, o.Truncated, data = len(items), rs.Truncated, rs
+		var dueBefore any
+		if due != nil {
+			dueBefore = due.In(KST).Format(time.RFC3339)
+		}
+		o.Card = map[string]any{"kind": "reminders", "v": 1, "due_before": dueBefore, "items": items}
 	default:
 		return fail(CodeInvalidArgs)
 	}

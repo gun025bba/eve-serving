@@ -69,12 +69,19 @@ public final class Dispatcher {
             return (["reminder": reminderJSON(try store.addReminder(title: title, due: due, list: list))], 1)
         case let .completeReminder(id):
             return (["reminder": reminderJSON(try store.completeReminder(id: id))], 1)
+        case .listCalendars:
+            let cs = try store.calendars()
+            return (["calendars": cs.map { ["id": $0.id, "name": $0.name, "writable": $0.writable] as [String: Any] }], cs.count)
+        case let .addEvent(title, start, end, allDay, location, notes, calendarID):
+            let ev = try store.addEvent(title: title, start: start, end: end, allDay: allDay,
+                                        location: location, notes: notes, calendarID: calendarID)
+            return (["event": eventJSON(ev)], 1)
         }
     }
 
     private func eventJSON(_ e: PimEvent) -> [String: Any] {
         ["id": e.id, "title": e.title, "start": RFC3339.format(e.start, tz: tz),
-         "end": RFC3339.format(e.end, tz: tz), "all_day": e.allDay, "calendar": e.calendar]
+         "end": RFC3339.format(e.end, tz: tz), "all_day": e.allDay, "calendar": e.calendar, "calendar_id": e.calendarID]
     }
 
     private func reminderJSON(_ r: PimReminder) -> [String: Any] {
