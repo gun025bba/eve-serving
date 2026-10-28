@@ -68,10 +68,10 @@ Then, from a checkout at the reviewed commit, run this **one line** (one `sudo`,
 checkout is not the reviewed commit, is dirty, or any of the three scripts differs from the hashes below:
 
 ```
-cd <checkout> && [ "$(git rev-parse HEAD)" = <REVIEWED_COMMIT> ] && git diff --quiet HEAD -- deploy/nopasswd && cd deploy/nopasswd && printf '%s  %s\n' 0afa70da4c5bfab1e920883da86213ad7ad019b66e22f802eb7bf02e2eb9a81e setup-deploy-nopasswd.sh 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 eve-deploy 333d1f1125267171be69b416240aee72c05d81e6cf611f2456601eaa4115ccb9 uninstall-deploy-nopasswd.sh | shasum -a 256 -c - && sudo /bin/bash setup-deploy-nopasswd.sh --expect-sha256 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 --expect-key-fingerprint <SHA256:fingerprint> --pubkey <path>/eve-deploy-signing.pub --current <installed X.Y.Z> --schema <newest goose version>
+cd <checkout> && [ "$(git rev-parse HEAD)" = 8466b4d4d37202f72813e4539f7db6ece3c62ca1 ] && git diff --quiet HEAD -- deploy/nopasswd && cd deploy/nopasswd && printf '%s  %s\n' 0afa70da4c5bfab1e920883da86213ad7ad019b66e22f802eb7bf02e2eb9a81e setup-deploy-nopasswd.sh 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 eve-deploy 333d1f1125267171be69b416240aee72c05d81e6cf611f2456601eaa4115ccb9 uninstall-deploy-nopasswd.sh | shasum -a 256 -c - && sudo /bin/bash setup-deploy-nopasswd.sh --expect-sha256 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 --expect-key-fingerprint <SHA256:fingerprint> --pubkey <path>/eve-deploy-signing.pub --current <installed X.Y.Z> --schema <newest goose version>
 ```
 
-`<REVIEWED_COMMIT>` is the full commit SHA announced with the review (a README cannot contain its own commit). The three hashes
+`8466b4d4d37202f72813e4539f7db6ece3c62ca1` is the commit that merged this passwordless-deploy path into release/5.0.1 (check that commit out for the one-liner; this README line was added by a later commit, and `deploy/nopasswd` is byte-identical in both). The three hashes
 are the reviewed `sha256` of `setup-deploy-nopasswd.sh`, `eve-deploy` and `uninstall-deploy-nopasswd.sh` at that commit.
 
 Setup refuses to continue if: the entrypoint hash differs; the key is not a single ed25519 public key or its fingerprint differs
