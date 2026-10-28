@@ -25,6 +25,36 @@
   "error": null
  },
  {
+  "name": "ok_list_calendars",
+  "request": "{\"v\":1,\"id\":\"r6\",\"method\":\"list_calendars\",\"params\":{}}",
+  "error": null
+ },
+ {
+  "name": "ok_add_event",
+  "request": "{\"v\":1,\"id\":\"r7\",\"method\":\"add_event\",\"params\":{\"title\":\"x\",\"start\":\"2026-10-29T09:00:00+09:00\",\"end\":\"2026-10-29T10:00:00+09:00\",\"all_day\":false,\"location\":\"L\",\"notes\":\"N\",\"calendar_id\":\"c1\"}}",
+  "error": null
+ },
+ {
+  "name": "list_calendars_with_param",
+  "request": "{\"v\":1,\"id\":\"e20\",\"method\":\"list_calendars\",\"params\":{\"q\":\"*\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "add_event_no_end",
+  "request": "{\"v\":1,\"id\":\"e21\",\"method\":\"add_event\",\"params\":{\"title\":\"x\",\"start\":\"2026-10-29T09:00:00+09:00\"}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "add_event_unknown_param",
+  "request": "{\"v\":1,\"id\":\"e22\",\"method\":\"add_event\",\"params\":{\"title\":\"x\",\"start\":\"2026-10-29T09:00:00+09:00\",\"end\":\"2026-10-29T10:00:00+09:00\",\"attendees\":[\"a\"]}}",
+  "error": "invalid_request"
+ },
+ {
+  "name": "add_event_8_days",
+  "request": "{\"v\":1,\"id\":\"e23\",\"method\":\"add_event\",\"params\":{\"title\":\"x\",\"start\":\"2026-10-29T00:00:00+09:00\",\"end\":\"2026-11-06T00:00:00+09:00\"}}",
+  "error": "range_too_long"
+ },
+ {
   "name": "unknown_method",
   "request": "{\"v\":1,\"id\":\"e1\",\"method\":\"delete_event\",\"params\":{}}",
   "error": "unknown_method"

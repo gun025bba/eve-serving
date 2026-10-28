@@ -6,6 +6,19 @@ final class FakeStore: PimStore {
     var reminders: [PimReminder] = []
     var err: PimError?
     var writes = 0
+    var calendarList: [PimCalendar] = []
+    var added: [(title: String, start: Date, end: Date, allDay: Bool, location: String?, notes: String?, calendarID: String?)] = []
+
+    func calendars() throws -> [PimCalendar] {
+        if let err { throw err }
+        return calendarList
+    }
+    func addEvent(title: String, start: Date, end: Date, allDay: Bool, location: String?, notes: String?, calendarID: String?) throws -> PimEvent {
+        writes += 1
+        if let err { throw err }
+        added.append((title, start, end, allDay, location, notes, calendarID))
+        return PimEvent(id: "ev", title: title, start: start, end: end, allDay: allDay, calendar: "c", calendarID: calendarID ?? "def")
+    }
 
     func events(from: Date, to: Date, limit: Int) throws -> [PimEvent] {
         if let err { throw err }
@@ -84,7 +97,7 @@ final class DispatcherTests: XCTestCase {
         XCTAssertEqual(log.count, 50)
         XCTAssertFalse(log.line.contains("secret"))
         let ev = (r["events"] as! [[String: Any]])[0]
-        XCTAssertEqual(Set(ev.keys), ["id", "title", "start", "end", "all_day", "calendar"])
+        XCTAssertEqual(Set(ev.keys), ["id", "title", "start", "end", "all_day", "calendar", "calendar_id"])
     }
 
     func testRemindersTruncatedAt100AndFiltered() {
@@ -117,6 +130,86 @@ final class DispatcherTests: XCTestCase {
         let (resp3, _) = on.handle(req("add_reminder", #"{"title":"buy milk"}"#))
         XCTAssertEqual(json(resp3)["ok"] as? Bool, true)
         XCTAssertEqual(s.writes, 1)
+    }
+
+    func testListCalendarsIsReadOnlyAndMinimal() {
+        let s = FakeStore()
+        s.calendarList = [PimCalendar(id: "c1", name: "개인", writable: true), PimCalendar(id: "c2", name: "공휴일", writable: false)]
+        let d = Dispatcher(store: s, writesEnabled: false) // a read: works with writes off
+        let (resp, log) = d.handle(req("list_calendars"))
+        let r = json(resp)["result"] as! [String: Any]
+        let cs = r["calendars"] as! [[String: Any]]
+        XCTAssertEqual(cs.count, 2)
+        XCTAssertEqual(Set(cs[0].keys), ["id", "name", "writable"])
+        XCTAssertEqual(cs[1]["writable"] as? Bool, false)
+        XCTAssertEqual(log.line, "eve-pim request method=list_calendars count=2 status=ok")
+        let (bad, _) = d.handle(req("list_calendars", #"{"x":1}"#))
+        XCTAssertEqual(json(bad)["error"] as? String, "invalid_request")
+    }
+
+    func addEventParams(_ extra: String = "") -> String {
+        #"{"title":"치과","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"\#(extra)}"#
+    }
+
+    func testAddEventWritesDisabledByFlag() {
+        let s = FakeStore()
+        let (resp, log) = Dispatcher(store: s, writesEnabled: false).handle(req("add_event", addEventParams()))
+        XCTAssertEqual(json(resp)["error"] as? String, "writes_disabled")
+        XCTAssertEqual(s.writes, 0)
+        XCTAssertFalse(log.line.contains("치과"))
+    }
+
+    func testAddEventPassesValuesAndReturnsMinimalEvent() {
+        let s = FakeStore()
+        let d = Dispatcher(store: s, writesEnabled: true, timeZone: TimeZone(identifier: "Asia/Seoul")!)
+        let (resp, log) = d.handle(req("add_event", addEventParams(#","location":"역삼동","notes":"메모","calendar_id":"c1","all_day":false"#)))
+        XCTAssertEqual(json(resp)["ok"] as? Bool, true)
+        XCTAssertEqual(s.added.count, 1)
+        XCTAssertEqual(s.added[0].calendarID, "c1")
+        XCTAssertEqual(s.added[0].location, "역삼동")
+        XCTAssertEqual(s.added[0].end.timeIntervalSince(s.added[0].start), 3600)
+        let ev = (json(resp)["result"] as! [String: Any])["event"] as! [String: Any]
+        XCTAssertEqual(Set(ev.keys), ["id", "title", "start", "end", "all_day", "calendar", "calendar_id"])
+        XCTAssertEqual(ev["start"] as? String, "2026-10-28T15:00:00+09:00")
+        XCTAssertEqual(log.line, "eve-pim request method=add_event count=1 status=ok")
+    }
+
+    func testAddEventRejectsBadParams() {
+        let d = Dispatcher(store: FakeStore(), writesEnabled: true)
+        let cases: [(String, String)] = [
+            (#"{"title":"x","start":"2026-10-28T15:00:00+09:00"}"#, "invalid_request"), // no end
+            (#"{"title":"x","start":"2026-10-28T16:00:00+09:00","end":"2026-10-28T15:00:00+09:00"}"#, "invalid_request"),
+            (#"{"title":" ","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00"}"#, "invalid_request"),
+            (addEventParams(#","extra":1"#), "invalid_request"),
+            (addEventParams(#","notes":"\#(String(repeating: "a", count: 501))""#), "invalid_request"),
+            (addEventParams(#","location":"\#(String(repeating: "a", count: 201))""#), "invalid_request"),
+            (#"{"title":"x","start":"2026-10-28T00:00:00+09:00","end":"2026-11-05T00:00:00+09:00"}"#, "range_too_long"), // 8 days timed
+            (#"{"title":"x","all_day":true,"start":"2026-10-01T00:00:00+09:00","end":"2026-11-03T00:00:00+09:00"}"#, "range_too_long"), // 33 days all-day
+        ]
+        for (params, want) in cases {
+            let (resp, _) = d.handle(req("add_event", params))
+            XCTAssertEqual(json(resp)["error"] as? String, want, params)
+        }
+        let ok = #"{"title":"x","all_day":true,"start":"2026-10-01T00:00:00+09:00","end":"2026-11-01T00:00:00+09:00"}"#
+        XCTAssertEqual(json(d.handle(req("add_event", ok)).response)["ok"] as? Bool, true) // 31 days all-day allowed
+    }
+
+    func testAddEventStoreErrorIsCodeOnly() {
+        let s = FakeStore()
+        s.err = PimError(.notFound)
+        let (resp, log) = Dispatcher(store: s, writesEnabled: true).handle(req("add_event", addEventParams(#","calendar_id":"gone""#)))
+        XCTAssertEqual(json(resp)["error"] as? String, "not_found")
+        XCTAssertEqual(log.line, "eve-pim request method=add_event status=not_found")
+    }
+
+    func testAllDayExclusiveEnd() {
+        let tz = TimeZone(identifier: "Asia/Seoul")!
+        let f = ISO8601DateFormatter()
+        func d(_ s: String) -> Date { f.date(from: s)! }
+        // last second of the last day, start of the last day, equal to start: all give the next day 00:00
+        XCTAssertEqual(allDayExclusiveEnd(start: d("2026-10-28T00:00:00+09:00"), end: d("2026-10-28T23:59:59+09:00"), tz: tz), d("2026-10-29T00:00:00+09:00"))
+        XCTAssertEqual(allDayExclusiveEnd(start: d("2026-10-28T00:00:00+09:00"), end: d("2026-10-28T00:00:00+09:00"), tz: tz), d("2026-10-29T00:00:00+09:00"))
+        XCTAssertEqual(allDayExclusiveEnd(start: d("2026-10-28T00:00:00+09:00"), end: d("2026-10-30T23:59:59+09:00"), tz: tz), d("2026-10-31T00:00:00+09:00"))
     }
 
     func testStoreErrorsAreCodesOnly() {
