@@ -377,7 +377,7 @@ func (s *Server) buildMux() *routeMux {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, "/ui/", http.StatusFound)
+		http.Redirect(w, r, rootRedirectTarget(r.URL.RawQuery), http.StatusFound)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
@@ -550,4 +550,21 @@ func (s *Server) now() time.Time {
 		return s.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+// rootRedirectTarget is where GET / goes: the path is always the fixed "/ui/"
+// (nothing in the request can steer it, so there is no open redirect) and only
+// the raw query string is carried over, so /?a=b lands on /ui/?a=b. A query
+// that is not plain printable ASCII, or is longer than 2048 bytes, is dropped
+// rather than copied into a header.
+func rootRedirectTarget(rawQuery string) string {
+	if rawQuery == "" || len(rawQuery) > 2048 {
+		return "/ui/"
+	}
+	for i := 0; i < len(rawQuery); i++ {
+		if c := rawQuery[i]; c < 0x21 || c > 0x7e {
+			return "/ui/"
+		}
+	}
+	return "/ui/?" + rawQuery
 }
