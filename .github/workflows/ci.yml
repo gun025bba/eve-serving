@@ -9,7 +9,7 @@ jobs:
   deploy-nopasswd-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: passwordless-deploy tests on macOS (system bash 3.2, BSD tools, no sudo)
         run: |
           set -eux
@@ -29,8 +29,8 @@ jobs:
     env:
       GW_TEST_DATABASE_URL: postgres://postgres:ci@localhost:5432/llmchat_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.26.x"
           check-latest: true
@@ -79,7 +79,7 @@ jobs:
       run:
         working-directory: pim/eve-pim
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: no network code in eve-pim
         run: |
           if grep -rnE 'import (Network|CFNetwork)|URLSession|NWConnection|NWListener|AF_INET|getaddrinfo' Sources; then echo "network code in eve-pim"; exit 1; fi
