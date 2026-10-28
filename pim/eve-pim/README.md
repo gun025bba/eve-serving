@@ -75,6 +75,10 @@ The gateway can offer two write verbs, `reminders_add` and `reminders_complete`
 Reminders sync to the Mac's linked accounts (iCloud etc.), so enabling either switch is an
 owner decision (explicit approval); `install-pim.sh` never sets them.
 
+`calendar_add_event` (§11.4) uses the same two switches. Its `calendar_id` is **required** (a writable calendar from
+`calendar_list_events`) so the card always names the calendar the event will sync to. Full key list and the
+enabling order: `docs/runbooks/5.1.0-calendar-briefing.md`.
+
 Flow: the model call only creates a `pending_actions` card whose `payload_view` shows the exact
 title / due / list (for complete: the reminder's current title). Nothing is written until the owner
 approves it in a browser session (`POST /v1/actions/{id}/approve`, `interactive` scope; an API key

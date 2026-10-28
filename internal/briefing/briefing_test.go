@@ -488,3 +488,37 @@ func TestBriefing_NoIdsStored(t *testing.T) {
 		t.Fatal("unknown field accepted")
 	}
 }
+
+// L-3: one invitation with a 100,000-character title must not blow up the
+// prompt, the fallback text or the stored briefing: titles are capped at
+// pim.MaxTitleShown characters, the same cap the read tools apply.
+func TestLongTitlesAreCapped(t *testing.T) {
+	long := strings.Repeat("가", 100000)
+	due := "2026-10-28T10:00:00+09:00"
+	f := &fp{ev: pim.Events{Events: []pim.Event{{ID: "1", Title: long, Start: "2026-10-28T09:00:00+09:00", End: "2026-10-28T10:00:00+09:00"}}},
+		rs: pim.Reminders{Reminders: []pim.Reminder{{ID: "2", Title: long, Due: &due}}}}
+	r := &rec{}
+	res := Preview(t.Context(), deps(f, r, ""), Defaults())
+	u := lastUser(r)
+	if len(u) > 8000 {
+		t.Fatalf("prompt is %d bytes for two items", len(u))
+	}
+	if strings.Contains(u, strings.Repeat("가", pim.MaxTitleShown+1)) || !strings.Contains(u, "…") {
+		t.Fatal("titles were not clipped to", pim.MaxTitleShown)
+	}
+	if len(res.Text) > 4000 || strings.Contains(res.Text, strings.Repeat("가", pim.MaxTitleShown+1)) {
+		t.Fatalf("fallback text is %d bytes", len(res.Text))
+	}
+	// the stored briefing (a real run, fallback text) carries clipped titles too
+	r = &rec{}
+	rr := Run(t.Context(), deps(f, r, ""), Defaults(), allOn)
+	if len(r.saved) != 1 || len(r.saved[0]) > 4000 || strings.Contains(r.saved[0], strings.Repeat("가", pim.MaxTitleShown+1)) {
+		t.Fatal("saved briefing not clipped", rr.Status, len(r.saved))
+	}
+	for _, d := range r.docs {
+		b, _ := json.Marshal(d)
+		if strings.Contains(string(b), strings.Repeat("가", pim.MaxTitleShown+1)) {
+			t.Fatal("stored briefing carries an unclipped title")
+		}
+	}
+}

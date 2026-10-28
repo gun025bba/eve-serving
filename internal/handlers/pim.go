@@ -313,3 +313,48 @@ func (s *Server) approvePimWrite(w http.ResponseWriter, r *http.Request, ap stor
 		writeNoStore(w, http.StatusBadGateway, map[string]any{"status": "error", "action_id": a.ID, "error_code": code, "outcome_unknown": false})
 	}
 }
+
+// PimCardRetention is how long the text of a finished pim write card (event
+// title, place, notes; reminder title) stays in pending_actions. The card's
+// own life is at most an hour; the rest is time to look at a failed approve.
+const PimCardRetention = 24 * time.Hour
+
+// ScrubPimCards blanks payload and payload_view of pim write cards that ended
+// more than PimCardRetention before now (I-2: calendar content must not sit in
+// the database forever). It returns how many cards it scrubbed.
+func (s *Server) ScrubPimCards(ctx context.Context, now time.Time) (int64, error) {
+	sc, ok := s.Store.(store.ActionScrubber)
+	if !ok {
+		return 0, nil
+	}
+	return sc.ScrubActionContent(ctx, pim.WriteNames(), now.Add(-PimCardRetention))
+}
+
+// RunPimCardScrub scrubs now and then every interval until ctx is done. It
+// runs whether or not pim is enabled: cards written while it was on must be
+// cleaned up after it is switched off.
+func (s *Server) RunPimCardScrub(ctx context.Context, interval time.Duration) {
+	run := func() {
+		c, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		n, err := s.ScrubPimCards(c, time.Now())
+		if err != nil {
+			s.Log.Error("pim_card_scrub_failed", "error", logTrunc(err.Error(), 200))
+			return
+		}
+		if n > 0 {
+			s.Log.Info("pim_card_scrub", "cards", n) // a count only, never content
+		}
+	}
+	run()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
+}
