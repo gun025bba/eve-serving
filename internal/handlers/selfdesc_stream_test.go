@@ -29,7 +29,7 @@ func TestSelfDescription_NotInjectedForAPIClients(t *testing.T) {
 		}
 		for _, q := range e.requests() {
 			raw, _ := json.Marshal(q["messages"])
-			if strings.Contains(string(raw), "자기 설명") || strings.Contains(string(raw), "user_memory") {
+			if strings.Contains(string(raw), "앱 기능 참고자료") || strings.Contains(string(raw), "user_memory") {
 				t.Fatalf("web=%s: gateway text for an API client: %s", web, raw)
 			}
 			for _, m := range q["messages"].([]any) {
@@ -530,7 +530,7 @@ func TestMemoryPropose_NoThreadAssistantHistoryNotOffered(t *testing.T) {
 			t.Fatalf("web=%s: card created", web)
 		}
 		sys := firstSystem(t, reqs[:1])
-		if m := selfDescSection(t, sys, "메모리"); !strings.Contains(m, "제안이 불가") || strings.Contains(sys, "기억 제안(") {
+		if m := selfDescSection(t, sys, "메모리"); !strings.Contains(m, "직접 하라고") || strings.Contains(sys, "확인 카드") {
 			t.Fatalf("web=%s: self-description claims proposals:\n%s", web, sys)
 		}
 	}

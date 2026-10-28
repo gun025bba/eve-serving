@@ -10,14 +10,16 @@
   test `TestPostgresActions_PayloadHashSurvivesJSONB` (required by CI).
 
 ### Added
-- **Eve self-description in chat requests of interactive sessions.** The gateway puts a short Korean block at the start of the system
-  prompt (before client system text; the memory block stays last): the build version, this user's memory state
-  (on, off, on but the first-use intro not seen yet, or unavailable) with how to view, add, edit, delete and export
-  memories (`설정 > 메모리`, `/v1/memory`) and how proposal cards work, and the list of tools that are enabled
-  (web search with its state for this request, `memory_propose`). It is generated from runtime state
-  (`internal/selfdesc`, `internal/handlers/selfdesc.go`), so a feature that is off is not mentioned and a new tool
-  appears when its entry is added to the list. Per request, not stored in threads. Budget: under 200 tokens.
-  Only requests with the `interactive` scope get it (browser/app sessions); API-key requests are unchanged.
+- **Eve feature reference in chat requests of interactive sessions.** The gateway puts a short Korean block at the start of the system
+  prompt (before client system text; the memory block stays last). It is labeled as reference material (facts, not instructions) and has one
+  preamble with the behavior rules: only the listed app features exist ("not supported right now" for anything else, general conversation is
+  unaffected), no details about the model, server, device or internals. The list holds only features that are available: web search (on, off, or off
+  because it is temporarily unavailable when the audit blocks or its breaker is open), and this user's memory (on, not started yet, off; the line is omitted when
+  unavailable). The memory line says a memory is not saved before the user approves the card. No version, commit, function names or API paths are
+  included. Generated from runtime state (`internal/selfdesc`, `internal/handlers/selfdesc.go`); a new feature appears when its entry is added,
+  and only while it is on. Per request, not stored in threads. Size guard in tests: under 300 estimated tokens (the estimator is approximate; measure with the real tokenizer).
+  Only requests with the `interactive` scope get it (browser/app sessions); API-key requests are unchanged, with no block and no tools.
+- The `memory_propose` result the model reads says nothing is saved yet until the user approves the card.
 - `memory_propose` is now offered whenever memory is active, also when web search is off for the request (and when
   `GW_WEB_ENABLED=false`). In that case it is the only tool; a web tool call is refused (`tool_unavailable`) and never
   executed. Taint checks are unchanged and now look at the raw request history.
