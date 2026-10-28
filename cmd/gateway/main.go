@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"github.com/prometheus/client_golang/prometheus"
 	stdlog "log"
 	"net"
@@ -210,6 +211,15 @@ func main() {
 	}
 	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Sessions: sessions, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
+	if cfg.Pim.Enabled {
+		// Jarvis M1 read tools (#69): owner-only, exposure keyed on users.id.
+		if _, ok := st.(store.UserIDResolver); !ok {
+			log.Error("pim_disabled", "err", "store cannot resolve users.id")
+			os.Exit(1)
+		}
+		srv.Pim = pim.NewClient(cfg.Pim.SocketPath)
+		log.Info("pim_enabled", "msg", "calendar/reminders read tools offered to the configured owner only")
+	}
 	{
 		msg, args := config.MemoryResolvedLog(cfg)
 		log.Info(msg, args...)

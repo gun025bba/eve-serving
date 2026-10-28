@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"io"
 	"net/http"
 	"regexp"
@@ -351,6 +352,8 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	}
 	var memTaint []string
 	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
+	pimTools := s.pimToolsFor(r.Context(), user(r))
+	var pimCalls []string // pim results are untrusted: they taint memory proposals
 	if memUser {
 		_, memTaint = s.historyTainted(r, clean, pr)
 	}
@@ -421,7 +424,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = s.withMemoryTool(tools.ToolDefs(), memUser)
+			b["tools"] = withPimTools(s.withMemoryTool(tools.ToolDefs(), memUser), pimTools)
 			b["tool_choice"] = "auto"
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
 			if ferr != nil {
@@ -468,6 +471,15 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
+				if pim.IsTool(c.name) {
+					res, po := s.runPimTool(r, pimTools, c.name, c.args)
+					pc, pr2 := pimToolEvents(c.id, c.name, c.args, rounds, po)
+					out.event(pc)
+					out.event(pr2)
+					pimCalls = append(pimCalls, "request:call:"+c.name)
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				if c.name == memory.ToolName && s.memoryOn() && !memUser {
 					// user memory off: tool is hidden, but a call that arrives
 					// anyway gets a kill_switch tool error; nothing is saved.
@@ -477,7 +489,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				}
 				if c.name == memory.ToolName && memUser {
 					// Any web result already in this request taints the proposal.
-					reasons := append([]string(nil), memTaint...)
+					reasons := append(append([]string(nil), memTaint...), pimCalls...)
 					for _, wc := range sess.Calls {
 						reasons = append(reasons, "request:call:"+wc.Tool)
 					}

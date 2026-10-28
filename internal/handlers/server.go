@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"mime"
 	"net/http"
 	"os"
@@ -70,8 +71,11 @@ type Server struct {
 	// Sessions issues and validates paired browser sessions (4.0.0). nil = no
 	// browser can pair or authenticate (API key only).
 	Sessions *session.Manager
-	Web      *WebTools    // nil = web tools unavailable (also needs Cfg.Web.Enabled)
-	Audit    audit.Ledger // tool_audit; nil = audit events dropped (tests only; main always sets it)
+	Web      *WebTools // nil = web tools unavailable (also needs Cfg.Web.Enabled)
+	// Pim reads the owner's Calendar/Reminders through eve-pim (Jarvis M1
+	// #69). nil = pim tools unavailable (also needs Cfg.Pim.Enabled).
+	Pim   pim.Reader
+	Audit audit.Ledger // tool_audit; nil = audit events dropped (tests only; main always sets it)
 	// AuditBreaker disables the web tools after repeated audit write/verify
 	// failures (M2 fail-open mitigation). nil = no breaker.
 	AuditBreaker *audit.Breaker
