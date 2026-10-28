@@ -326,14 +326,26 @@ func (s *Server) Handler() http.Handler {
 		w.Write(openAPISpec)
 	}))
 	mux.HandleFunc("GET /docs", s.authed(docs))
+	uiServed := false
 	if dir := config.Expand(s.Cfg.StaticDir); dir != "" {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			uiServed = true
 			mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			})
 			mux.Handle("GET /ui/", withCSP(http.StripPrefix("/ui", staticFiles(dir))))
 		}
 	}
+	// GET / (exact path only; "{$}") -> the UI. Public like /ui/ itself and still behind the host allowlist
+	// (withHost wraps the whole mux). With the UI disabled there is nothing to redirect to: 404 as before.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if !uiServed {
+			writeJSON(w, 404, map[string]string{"detail": "Not Found"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
 	})

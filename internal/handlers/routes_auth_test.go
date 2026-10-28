@@ -62,6 +62,7 @@ func TestRouteAuthMatrix(t *testing.T) {
 		{"POST", "/admin/log-level", false, false},
 		{"GET", "/openapi.json", false, false},
 		{"GET", "/docs", false, false},
+		{"GET", "/", true, false}, // 302 -> /ui/, public; the exact path only ("GET /{$}")
 	}
 	// Guard: the table must equal, as a set, every route registered anywhere
 	// in the package (server.go, memory.go, ...), not just a count.
@@ -170,6 +171,7 @@ func normRoute(p string) string {
 	if i := strings.IndexByte(p, '?'); i >= 0 {
 		p = p[:i]
 	}
+	p = strings.ReplaceAll(p, "{$}", "") // "GET /{$}" = exactly "/"
 	p = reWild.ReplaceAllString(p, "*")
 	for reNumSeg.MatchString(p) {
 		p = reNumSeg.ReplaceAllString(p, "/*$1")
