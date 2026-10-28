@@ -26,6 +26,9 @@
 
 ### Added
 - Setting `ui.memory_intro_seen` (bool, default false; PATCH from a browser session only).
+- **Deploys no longer need a sudo password (optional step the host owner must approve and run himself).** Changes a
+  privilege boundary: one root-owned entrypoint may run via sudo without a password, only for releases signed with a
+  pinned key. Install, removal and design: `deploy/nopasswd/README.md`.
 
 ## 4.0.0 (unreleased)
 
