@@ -104,7 +104,7 @@ sandbox_env() {
   STATE=$B/state; BIN_DIR=$B/bin; WEB_DIR=$B/web; STAGING=$B/staging; LOGF=$B/log
   OWNER_ARGS=""; CHOWN_SPEC=""; ROOT_UID=$MYUID; SUDO_USER=$ME; SUDO_UID=$MYUID; GW_UID=$((MYUID + 100000))
   COSIGN=$COSIGN_T; COSIGN_SHA256S="$COSIGN_T_SHA"; TRUSTED_ROOT=$T/trusted_root.json
-  SIGNER_IDENTITY=$FX_ID; REPO_GATEWAY=$FX_REPO; REPO_WEB=$FX_REPO; REF_FMT=$FX_REF; HOST_ARCH_WANT=$(uname -m)
+  SIGNER_IDENTITY=$FX_ID; REPO_GATEWAY=$FX_REPO; REPO_WEB=$FX_REPO; WEB_ENABLED=yes; REF_FMT=$FX_REF; HOST_ARCH_WANT=$(uname -m)
   require_root() { :; }
   now_epoch() { echo "$FX_NOW"; }
   svc_restart() { echo restart >>"$B/svc"; }
@@ -218,6 +218,16 @@ eq "prod: tag-push trigger" "$SIGNER_TRIGGER" push
 eq "prod: ref is the tag" "$(printf "$REF_FMT" 5.0.2)" refs/tags/v5.0.2
 eq "prod: gateway repo" "$REPO_GATEWAY" gun025bba/eve-serving
 eq "prod: web repo" "$REPO_WEB" gun025bba/eve-web
+# web deploys are OFF in the production build (WEB_ENABLED=no): every web verb is refused before anything else, even with a valid signed release staged
+eq "prod: web deploys disabled" "$WEB_ENABLED" no
+new_box 91; stage web
+for wv in "deploy-web" "deploy-web $FXV" "rollback-web"; do
+  ( sandbox_env; WEB_ENABLED=no; main $wv ) >"$B/stdout" 2>"$B/stderr"; eq "web disabled: [$wv] refused (rc 4)" "$?" 4
+  grep -q "web deploys are disabled" "$B/stderr" && ok || bad "web disabled: [$wv] says why"
+done
+eq "web disabled: current_web_version untouched" "$(cat "$B/state/current_web_version")" 9.0.0
+new_box 92; stage gateway; ( sandbox_env; WEB_ENABLED=no; main deploy $FXV ) >/dev/null 2>&1; eq "web disabled: the gateway verbs still work" "$?" 0
+( sandbox_env; WEB_ENABLED=no; main deploy-web extra args ) >/dev/null 2>&1; eq "web disabled: bad args are still rejected by the parser (rc 2)" "$?" 2
 # M-1: only main. A manifest that claims any other branch (release/*, a feature branch, near-misses) is refused by the production pin.
 eq "prod: the only accepted branch is main" "$BRANCH_WANT" main
 no_ "prod: no branch regexp / release/* allowance is left in the entrypoint" grep -nE 'BRANCH_RE|release/' "$ENTRY"
