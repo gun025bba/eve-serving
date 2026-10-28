@@ -78,13 +78,14 @@ type Config struct {
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
-	Env      string       `yaml:"env" json:"env"`
-	Auth     AuthConfig   `yaml:"auth" json:"auth"`
-	Database DBConfig     `yaml:"database" json:"database"`
-	Web      WebConfig    `yaml:"web" json:"web"`
-	Push     PushConfig   `yaml:"push" json:"push"`
-	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
-	Pim      PimConfig    `yaml:"pim" json:"-"`    // Jarvis M1 (#69); not in /admin/config
+	Env      string         `yaml:"env" json:"env"`
+	Auth     AuthConfig     `yaml:"auth" json:"auth"`
+	Database DBConfig       `yaml:"database" json:"database"`
+	Web      WebConfig      `yaml:"web" json:"web"`
+	Push     PushConfig     `yaml:"push" json:"push"`
+	Memory   MemoryConfig   `yaml:"memory" json:"-"`   // not in /admin/config: keeps the 4.0 response unchanged
+	Pim      PimConfig      `yaml:"pim" json:"-"`      // Jarvis M1 (#69); not in /admin/config
+	Briefing BriefingConfig `yaml:"briefing" json:"-"` // Jarvis M1 (#71); not in /admin/config
 	// AllowedHosts are extra Host header values (port ignored) accepted besides
 	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
 	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
@@ -150,6 +151,13 @@ type PimConfig struct {
 	// Reminders the helper reads (EventKit = one login user). Every other
 	// user never sees the tools.
 	OwnerUserID int64 `yaml:"owner_user_id"`
+}
+
+// BriefingConfig is the server-wide switch for the morning briefing (#71).
+// Off by default: the briefing.* settings are not readable or writable and
+// POST /v1/briefing/preview answers 404.
+type BriefingConfig struct {
+	Enabled bool `yaml:"enabled"` // GW_BRIEFING_ENABLED
 }
 
 // PushConfig enables the Web Push subscription endpoints
@@ -431,6 +439,13 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_PIM_OWNER_USER_ID: %w", err)
 		}
 		c.Pim.OwnerUserID = n
+	}
+	if v := getenv("GW_BRIEFING_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_BRIEFING_ENABLED: %w", err)
+		}
+		c.Briefing.Enabled = b
 	}
 	if v := getenv("GW_PUSH_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)
