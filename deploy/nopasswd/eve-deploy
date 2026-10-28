@@ -1,0 +1,273 @@
+#!/bin/bash -p
+# eve-deploy: root-owned deploy entrypoint, the ONLY command sudoers allows without a password.
+# Installed (by setup-deploy-nopasswd.sh) at /usr/local/libexec/eve/deploy, root:wheel 0755.
+#
+#   sudo /usr/local/libexec/eve/deploy deploy <X.Y.Z>   # install the signed bundle staged for X.Y.Z (must be > current)
+#   sudo /usr/local/libexec/eve/deploy rollback         # back to the ONE previous version this script kept
+#
+# Every other argument is rejected. Nothing here trusts the environment, the caller's PATH or any user-owned file
+# except the staged bundle, which is first copied to a root-only temp dir and verified THERE (never in place).
+# Does not touch config, secrets, the database, or run migrations. Written for macOS /bin/bash 3.2.
+# The shebang is `#!/bin/bash -p` (privileged mode): bash then ignores BASH_ENV/ENV/SHELLOPTS and imports no exported functions,
+# even if the caller's environment is not reset (sudo's env_reset is a second layer, not the only one).
+# shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
+
+# ----- clean slate when executed (not when sourced by the tests): drop every inherited variable and function (defence in depth after `bash -p`) -----
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  builtin set +o posix 2>/dev/null
+  for _f in $(builtin compgen -A function); do builtin unset -f "$_f"; done
+  for _v in $(builtin compgen -e); do case "$_v" in SUDO_USER|SUDO_UID) ;; *) builtin unset "$_v" 2>/dev/null;; esac; done
+  SUDO_USER=${SUDO_USER-}; SUDO_UID=${SUDO_UID-}
+  unset _f _v
+  IFS=$' \t\n'
+fi
+
+# ----- fixed locations (plain assignments: the environment can never override them) -----
+SAFE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+LIBEXEC=/usr/local/libexec/eve
+SIGNERS=$LIBEXEC/allowed_signers        # root:wheel 0644, holds the signing PUBLIC key
+STAGING=$LIBEXEC/staging                # owned by the deploy user; only eve-<ver>.tar and eve-<ver>.tar.sig are read
+STATE=/var/db/eve-deploy                # root:wheel 0700: current_version, schema, allowed_user, previous/, work dirs
+LOGF=/var/log/eve-deploy.log            # root:wheel 0600
+BIN_DIR=/opt/eve-gw/bin                 # live gateway + eve-gw (root:wheel 0755)
+LABEL=com.llmserving.gateway
+HEAD=/usr/bin/head                      # the only command that can block on a staged file (tests replace it with a slow stub)
+HEALTH_URL=http://127.0.0.1:8000/health
+SIG_NAMESPACE=eve-deploy
+SIG_IDENTITY=eve-release
+MAX_BUNDLE=$((600 * 1024 * 1024))
+MAX_SIG=65536
+OWNER_ARGS="-o root -g wheel"           # tests clear this
+ROOT_UID=0                              # uid that must own the signers file (tests change this)
+GW_UID=451                              # _evegw: may never call this script
+
+log() { # never log secrets: callers pass only versions, names and hashes
+  local m; m="$(date '+%Y-%m-%dT%H:%M:%S%z') $*"
+  printf '%s\n' "$m" >>"$LOGF" 2>/dev/null || true
+  /usr/bin/logger -t eve-deploy -- "$*" 2>/dev/null || true
+}
+die() { log "FAIL: $*"; printf 'eve-deploy: %s\n' "$*" >&2; exit 1; }
+
+# ----- version handling -----
+# strict MAJOR.MINOR.PATCH: decimal, no leading zeros, at most 9 digits per part (no overflow), nothing else.
+valid_version() { [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; }
+# prints -1, 0 or 1 for a<b, a=b, a>b. Both must be valid.
+ver_cmp() {
+  valid_version "$1" && valid_version "$2" || return 2
+  local a0 a1 a2 b0 b1 b2
+  IFS=. read -r a0 a1 a2 <<<"$1"; IFS=. read -r b0 b1 b2 <<<"$2"
+  if [ "$a0" -lt "$b0" ]; then echo -1; elif [ "$a0" -gt "$b0" ]; then echo 1
+  elif [ "$a1" -lt "$b1" ]; then echo -1; elif [ "$a1" -gt "$b1" ]; then echo 1
+  elif [ "$a2" -lt "$b2" ]; then echo -1; elif [ "$a2" -gt "$b2" ]; then echo 1
+  else echo 0; fi
+}
+valid_schema() { [[ "$1" =~ ^(0|[1-9][0-9]{0,5})$ ]]; }
+
+# ----- argument parsing: ONLY `deploy <version>` or `rollback` -----
+ACTION=""; TARGET=""
+parse_args() {
+  ACTION=""; TARGET=""
+  case "$#" in
+    1) [ "$1" = rollback ] || return 1; ACTION=rollback;;
+    2) [ "$1" = deploy ] || return 1; valid_version "$2" || return 1; ACTION=deploy; TARGET=$2;;
+    *) return 1;;
+  esac
+  return 0
+}
+usage() { printf 'usage: deploy <X.Y.Z> | rollback   (X.Y.Z must be higher than the installed version)\n' >&2; }
+
+# ----- small helpers (all absolute paths) -----
+require_root() { [ "$(/usr/bin/id -u)" = 0 ] || die "must run as root (via sudo)"; }
+stat_uid() { /usr/bin/stat -c %u "$1" 2>/dev/null || /usr/bin/stat -f %u "$1" 2>/dev/null; }   # GNU first: BSD stat rejects -c, GNU stat misreads -f
+stat_mode() { /usr/bin/stat -c %a "$1" 2>/dev/null || /usr/bin/stat -f %Lp "$1" 2>/dev/null; }
+dir_ok() { # $1 dir: exists, root-owned, not writable by group/other (-L: a symlink is judged by its target)
+  [ -d "$1" ] && [ "$(/usr/bin/stat -L -c %u "$1" 2>/dev/null || /usr/bin/stat -L -f %u "$1" 2>/dev/null)" = "$ROOT_UID" ] || return 1
+  local m; m=$(/usr/bin/stat -L -c %a "$1" 2>/dev/null || /usr/bin/stat -L -f %Lp "$1" 2>/dev/null) || return 1
+  [ $(( 0$m & 0022 )) = 0 ]
+}
+stat_size() { /usr/bin/stat -c %s "$1" 2>/dev/null || /usr/bin/stat -f %z "$1" 2>/dev/null; }
+sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
+read_state() { # $1 file; first line only, must be a plain token
+  [ -f "$STATE/$1" ] && [ ! -L "$STATE/$1" ] || return 1
+  local v; IFS= read -r v <"$STATE/$1" || true
+  printf '%s' "$v"
+}
+write_state() { # atomic, root-only
+  local f="$STATE/$1" t="$STATE/.tmp.$1.$$"
+  ( umask 077; printf '%s\n' "$2" >"$t" ) && /bin/mv -f "$t" "$f"
+}
+inst() { # $1 src $2 dst: atomic replace, root:wheel 0755
+  # shellcheck disable=SC2086
+  /usr/bin/install $OWNER_ARGS -m 0755 "$1" "$2.new" && /bin/mv -f "$2.new" "$2"
+}
+svc_restart() { /bin/launchctl kickstart -k "system/$LABEL" >/dev/null 2>&1; }
+health_ok() { local _ b; for _ in $(/usr/bin/seq 1 60); do
+    b=$(/usr/bin/curl -s -m 3 "$HEALTH_URL" 2>/dev/null || true)
+    [ "$b" = '{"status":"ok"}' ] && return 0
+    /bin/sleep 1; done; return 1; }
+
+# who may call: exactly the user setup recorded; never root-by-itself, never _evegw
+check_caller() {
+  local u="${SUDO_USER:-}" allowed
+  [ -n "$u" ] && [ "$u" != root ] && [ "$u" != _evegw ] || die "no valid SUDO_USER"
+  allowed=$(read_state allowed_user) || die "not installed (allowed_user missing)"
+  [ "$u" = "$allowed" ] || die "caller is not the installed deploy user"
+  local uid; uid=$(/usr/bin/id -u "$u" 2>/dev/null) || die "unknown caller"
+  [ "$uid" != "$GW_UID" ] && [ "$uid" != 0 ] || die "caller uid not allowed"
+  [ "${SUDO_UID:-}" = "$uid" ] || die "SUDO_UID mismatch"
+}
+
+WORK=""
+# From the moment the live binaries are about to be snapshotted until the new version is recorded, a half-finished swap must run to
+# its health check / automatic restore, so INT/TERM/HUP/QUIT are ignored ONLY for that window. Before it (waiting for / reading
+# the staged files) the default action applies: Ctrl-C or kill aborts at once and the EXIT trap removes the work dir and the lock.
+swap_window() { trap '' INT TERM HUP QUIT; }
+# Outside the window a signal must end the run AND clean up. bash 3.2 (macOS) does not run the EXIT trap when a signal kills
+# the shell, so INT/TERM/HUP/QUIT are trapped to `exit`, and the one blocking read (copy_staged) runs in the background under
+# `wait`, which a trapped signal interrupts at once (a foreground read of a FIFO would defer the trap until it ends).
+COPY_PID=""
+abort_run() { [ -z "$COPY_PID" ] || kill "$COPY_PID" 2>/dev/null; log "aborted by a signal before the swap window"; exit 1; }
+cleanup() { [ -z "$WORK" ] || { /bin/rm -rf "$WORK"; WORK=""; }; /bin/rmdir "$STATE/lock" 2>/dev/null || true; }
+
+# ----- verification of the staged bundle -----
+# copy ($1 src, $2 dst, $3 max bytes) a user-owned staging file into the root-only work dir.
+# The staging file must be a regular non-symlink owned by the deploy user; everything after this reads the COPY only.
+copy_staged() {
+  local src=$1 dst=$2 max=$3 sz
+  [ -f "$src" ] && [ ! -L "$src" ] || die "staged file missing or not a regular file: ${src##*/}"
+  [ "$(stat_uid "$src")" = "$(/usr/bin/id -u "$SUDO_USER")" ] || die "staged file not owned by the deploy user: ${src##*/}"
+  "$HEAD" -c "$((max + 1))" <"$src" >"$dst" & COPY_PID=$!
+  wait "$COPY_PID" || { COPY_PID=""; die "cannot copy ${src##*/}"; }
+  COPY_PID=""
+  sz=$(stat_size "$dst")
+  [ "$sz" -gt 0 ] && [ "$sz" -le "$max" ] || die "bad size for ${src##*/}"
+}
+verify_sig() { # $1 bundle copy $2 signature copy: against the pinned public key only
+  [ -f "$SIGNERS" ] && [ ! -L "$SIGNERS" ] && [ "$(stat_uid "$SIGNERS")" = "$ROOT_UID" ] || die "signers file missing or not root-owned"
+  /usr/bin/ssh-keygen -Y verify -f "$SIGNERS" -I "$SIG_IDENTITY" -n "$SIG_NAMESPACE" -s "$2" <"$1" >/dev/null 2>&1 \
+    || die "signature verification FAILED"
+}
+manifest_get() { # $1 file $2 key -> value of the single line key=value
+  local n; n=$(/usr/bin/grep -c -E "^$2=" "$1" || true)
+  [ "$n" = 1 ] || return 1
+  /usr/bin/grep -E "^$2=" "$1" | /usr/bin/sed "s/^$2=//"
+}
+unpack_bundle() { # $1 verified copy of the tar, $2 empty dir. Members: MANIFEST + gateway (+ eve-gw, optional)
+  local names; names=$(/usr/bin/tar -tf "$1" 2>/dev/null | /usr/bin/sort | /usr/bin/tr '\n' ' ') || die "unreadable bundle"
+  case "$names" in "MANIFEST eve-gw gateway "|"MANIFEST gateway ") ;; *) die "bundle must contain exactly MANIFEST, gateway and optionally eve-gw";; esac
+  /usr/bin/tar -tvf "$1" 2>/dev/null | /usr/bin/awk '{print substr($1,1,1)}' | /usr/bin/grep -qv -- '-' && die "bundle has non-regular entries"
+  /usr/bin/tar -xof "$1" -C "$2" 2>/dev/null || die "cannot unpack bundle"
+  local f; for f in $names; do [ -f "$2/$f" ] && [ ! -L "$2/$f" ] || die "bad bundle member $f"; done
+}
+
+# ----- install / restore -----
+# eve-gw is optional on the host (the runbooks install only `gateway`): it is handled only if present.
+bindir_ok() { dir_ok "$(/usr/bin/dirname "$BIN_DIR")" && dir_ok "$BIN_DIR" && [ -f "$BIN_DIR/gateway" ] && [ ! -L "$BIN_DIR/gateway" ]; }
+snapshot_live() { # $1 dir: copy of the live binaries + hashes + version; line 2 of sha256 is "-" when the host has no eve-gw
+  /bin/mkdir -p "$1" && /bin/chmod 0700 "$1" || return 1
+  [ -f "$BIN_DIR/gateway" ] || { log "live gateway missing"; return 1; }
+  /bin/cp -p "$BIN_DIR/gateway" "$1/gateway" || return 1
+  local h2=-
+  if [ -f "$BIN_DIR/eve-gw" ]; then /bin/cp -p "$BIN_DIR/eve-gw" "$1/eve-gw" || return 1; h2=$(sha_of "$1/eve-gw"); fi
+  printf '%s\n%s\n' "$(sha_of "$1/gateway")" "$h2" >"$1/sha256" || return 1
+  printf '%s\n' "$CUR_VER" >"$1/version" && printf '%s\n' "$CUR_SCHEMA" >"$1/schema"
+}
+check_snapshot() { # $1 dir made by snapshot_live: the files must still match their recorded hashes
+  local h1 h2; { IFS= read -r h1; IFS= read -r h2; } <"$1/sha256" || return 1
+  [ "$(sha_of "$1/gateway")" = "$h1" ] || { log "snapshot hash mismatch (gateway)"; return 1; }
+  if [ "$h2" = - ]; then [ ! -e "$1/eve-gw" ] || { log "snapshot has an unexpected eve-gw"; return 1; }
+  else [ -f "$1/eve-gw" ] && [ "$(sha_of "$1/eve-gw")" = "$h2" ] || { log "snapshot hash mismatch (eve-gw)"; return 1; }; fi
+}
+apply_dir() { # $1 dir with gateway [+ eve-gw]; $2 = exact: remove a live eve-gw that $1 does not have
+  inst "$1/gateway" "$BIN_DIR/gateway" || return 1
+  if [ -f "$1/eve-gw" ]; then inst "$1/eve-gw" "$BIN_DIR/eve-gw" || return 1
+  elif [ "$2" = exact ]; then /bin/rm -f "$BIN_DIR/eve-gw" || return 1; fi
+}
+restore_from() { # $1 dir made by snapshot_live; verifies hashes first
+  check_snapshot "$1" || return 1
+  apply_dir "$1" exact
+}
+swap_and_check() { # $1 dir with the new binaries; $2 snapshot dir to fall back to; $3 exact|keep. 0 = healthy
+  if apply_dir "$1" "$3" && svc_restart && health_ok; then return 0; fi
+  log "new binaries did not come up healthy: restoring the previous binaries"
+  if restore_from "$2" && svc_restart && health_ok; then log "automatic rollback OK (database was not touched)"
+  else log "ROLLBACK NOT HEALTHY: manual recovery needed (see rollback-5.0.0.md)"; fi
+  return 1
+}
+
+load_state() {
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || die "not installed ($STATE missing)"
+  CUR_VER=$(read_state current_version) && valid_version "$CUR_VER" || die "current_version invalid"
+  CUR_SCHEMA=$(read_state schema) && valid_schema "$CUR_SCHEMA" || die "schema state invalid"
+}
+take_lock() { /bin/mkdir "$STATE/lock" 2>/dev/null || die "another deploy is running (or stale $STATE/lock)"; }
+make_work() { WORK=$(umask 077; /usr/bin/mktemp -d "$STATE/work.XXXXXX") || die "mktemp failed"; /bin/chmod 0700 "$WORK"; }
+
+do_deploy() {
+  local v=$TARGET c
+  c=$(ver_cmp "$v" "$CUR_VER") || die "version compare failed"
+  [ "$c" = 1 ] || die "version $v is not higher than installed $CUR_VER (downgrade/same refused; use rollback)"
+  log "deploy $v requested by $SUDO_USER (installed $CUR_VER)"
+  make_work
+  copy_staged "$STAGING/eve-$v.tar" "$WORK/bundle.tar" "$MAX_BUNDLE"
+  copy_staged "$STAGING/eve-$v.tar.sig" "$WORK/bundle.tar.sig" "$MAX_SIG"
+  verify_sig "$WORK/bundle.tar" "$WORK/bundle.tar.sig"          # on the root-only COPY
+  /bin/mkdir "$WORK/x" && unpack_bundle "$WORK/bundle.tar" "$WORK/x"
+  [ "$(manifest_get "$WORK/x/MANIFEST" eve-deploy-bundle)" = 1 ] || die "bad manifest format"
+  [ "$(manifest_get "$WORK/x/MANIFEST" version)" = "$v" ] || die "manifest version != requested version"
+  [ "$(manifest_get "$WORK/x/MANIFEST" schema)" = "$CUR_SCHEMA" ] || die "schema differs from installed: use the migration deploy script"
+  [ "$(manifest_get "$WORK/x/MANIFEST" sha256.gateway)" = "$(sha_of "$WORK/x/gateway")" ] || die "gateway hash != manifest"
+  if [ -f "$WORK/x/eve-gw" ]; then [ "$(manifest_get "$WORK/x/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
+  else manifest_get "$WORK/x/MANIFEST" sha256.eve-gw >/dev/null && die "manifest lists eve-gw but the bundle has none"; fi
+  log "signature OK, manifest OK for $v (gateway $(sha_of "$WORK/x/gateway"))"
+  swap_window
+  bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
+  snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
+  if swap_and_check "$WORK/x" "$WORK/snap" keep; then
+    /bin/rm -rf "$STATE/previous" && /bin/mv "$WORK/snap" "$STATE/previous" || die "cannot keep the previous version"
+    write_state current_version "$v" || die "cannot record the new version (binaries ARE v$v)"
+    log "deploy $v OK; previous $CUR_VER kept for rollback"
+  else
+    exit 1
+  fi
+}
+
+do_rollback() {
+  local pv ps c
+  [ -d "$STATE/previous" ] && [ ! -L "$STATE/previous" ] || die "no previous version is kept"
+  pv=$(/usr/bin/head -1 "$STATE/previous/version" 2>/dev/null) && valid_version "$pv" || die "previous version invalid"
+  ps=$(/usr/bin/head -1 "$STATE/previous/schema" 2>/dev/null) && valid_schema "$ps" || die "previous schema invalid"
+  c=$(ver_cmp "$pv" "$CUR_VER") || die "version compare failed"
+  [ "$c" = -1 ] || die "kept version $pv is not lower than installed $CUR_VER"
+  [ "$ps" = "$CUR_SCHEMA" ] || die "schema differs between $pv and $CUR_VER: automatic rollback refused (no DB down-migration here)"
+  log "rollback to $pv requested by $SUDO_USER (installed $CUR_VER)"
+  make_work
+  swap_window
+  bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
+  snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
+  [ -f "$STATE/previous/gateway" ] || die "kept binaries missing"
+  check_snapshot "$STATE/previous" || die "kept previous binaries fail their recorded hashes"
+  if swap_and_check "$STATE/previous" "$WORK/snap" exact; then
+    /bin/rm -rf "$STATE/previous"
+    write_state current_version "$pv" || die "cannot record the version (binaries ARE v$pv)"
+    log "rollback to $pv OK (no further rollback is kept)"
+  else
+    exit 1
+  fi
+}
+
+main() {
+  PATH=$SAFE_PATH; export PATH; LC_ALL=C; export LC_ALL
+  parse_args "$@" || { usage; log "REJECTED arguments (count=$#)"; exit 2; }
+  require_root
+  umask 077
+  check_caller
+  load_state
+  take_lock
+  trap cleanup EXIT               # normal exits and every `exit` (die, abort_run)
+  trap abort_run INT TERM HUP QUIT   # until swap_window() replaces this with "ignore"
+  case "$ACTION" in deploy) do_deploy;; rollback) do_rollback;; esac
+}
+
+# run only when executed (tests source this file and call the functions); the clean slate is at the top of the file.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

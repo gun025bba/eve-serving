@@ -94,3 +94,17 @@ func TestSettings_PatchBearer403(t *testing.T) {
 		t.Fatal(r.StatusCode)
 	}
 }
+
+// Security Low: memory is fixed off for a principal without the interactive
+// scope, so GET /v1/settings must not report memory.enabled=true to an API key.
+func TestSettings_GetBearerShowsMemoryOff(t *testing.T) {
+	e, _ := newMemEnv(t, true, &failLedger{})
+	r, b := e.call(t, "alice@example", "GET", "/v1/settings", "")
+	if r.StatusCode != 200 || !strings.Contains(string(b), `"memory":{"enabled":true}`) {
+		t.Fatal("interactive view must show the stored value", r.StatusCode, string(b))
+	}
+	r, b = e.call(t, "", "GET", "/v1/settings", "")
+	if r.StatusCode != 200 || !strings.Contains(string(b), `"memory":{"enabled":false}`) || strings.Contains(string(b), `"enabled":true`) {
+		t.Fatal("API key must read memory.enabled=false", r.StatusCode, string(b))
+	}
+}

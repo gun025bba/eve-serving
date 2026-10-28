@@ -447,3 +447,119 @@ func TestUIStaticServesNoData(t *testing.T) {
 		}
 	}
 }
+
+// GET / (exact path) redirects to the UI without credentials; everything else under / stays 404, the host allowlist still applies.
+func TestRootRedirectsToUI(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	get := func(method, path, host string) *http.Response {
+		req, _ := http.NewRequest(method, ts.URL+path, nil)
+		if host != "" {
+			req.Host = host
+		}
+		resp, err := noFollow.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	for _, m := range []string{"GET", "HEAD"} {
+		resp := get(m, "/", "")
+		if resp.StatusCode != 302 || resp.Header.Get("Location") != "/ui/" {
+			t.Errorf("%s /: %d Location=%q, want 302 /ui/", m, resp.StatusCode, resp.Header.Get("Location"))
+		}
+	}
+	if resp := get("GET", "/", "evil.example"); resp.StatusCode != 421 {
+		t.Errorf("GET / with a foreign Host: %d, want 421 (host allowlist)", resp.StatusCode)
+	}
+	for _, c := range []struct{ m, p string }{{"POST", "/"}, {"GET", "/nope"}, {"GET", "/index.html"}, {"GET", "//"}} {
+		if resp := get(c.m, c.p, ""); resp.StatusCode == 302 || resp.StatusCode == 200 {
+			t.Errorf("%s %s: %d, want not a redirect/200", c.m, c.p, resp.StatusCode)
+		}
+	}
+	// the UI itself is still served at /ui/ (the redirect target)
+	if resp := get("GET", "/ui/", ""); resp.StatusCode != 200 {
+		t.Errorf("GET /ui/: %d, want 200", resp.StatusCode)
+	}
+}
+
+// The redirect target is fixed: nothing in the query string or forwarded headers can steer the
+// path/host (no open redirect); only the raw query is carried over, after "/ui/".
+func TestRootRedirectKeepsQueryOnFixedPath(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for q, want := range map[string]string{
+		"":                                  "/ui/",
+		"?":                                 "/ui/",
+		"?a=b":                              "/ui/?a=b",
+		"?a=1&a=2":                          "/ui/?a=1&a=2",
+		"?next=https://evil.example":        "/ui/?next=https://evil.example",
+		"?next=//evil.example/x&url=/v1/me": "/ui/?next=//evil.example/x&url=/v1/me",
+		"?%2F%2Fevil.example":               "/ui/?%2F%2Fevil.example",
+		"?x=%0d%0aSet-Cookie:a=b":           "/ui/?x=%0d%0aSet-Cookie:a=b", // still percent-encoded: no header injection
+		"?" + strings.Repeat("a", 2049):     "/ui/",                        // too long: dropped
+	} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+"/"+q, nil)
+			req.Header.Set("X-Forwarded-Host", "evil.example")
+			req.Header.Set("X-Forwarded-Proto", "https")
+			req.Header.Set("Origin", "https://evil.example")
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			loc := resp.Header.Get("Location")
+			if resp.StatusCode != 302 || loc != want {
+				t.Errorf("%s /%.40s: %d Location=%.80q, want 302 %.80q", m, q, resp.StatusCode, loc, want)
+			}
+			// whatever the query, the redirect stays on this origin under /ui/
+			if !strings.HasPrefix(loc, "/ui/") || strings.HasPrefix(loc, "//") || strings.ContainsAny(loc, "\r\n") {
+				t.Errorf("%s /%.40s: unsafe Location %.80q", m, q, loc)
+			}
+		}
+	}
+}
+
+// Characters that are not plain printable ASCII are never copied into Location.
+func TestRootRedirectTargetDropsUnsafeQuery(t *testing.T) {
+	for in, want := range map[string]string{
+		"a=b": "/ui/?a=b", "": "/ui/", "a=b c": "/ui/", "a=\r\nX: y": "/ui/", "a=\x00": "/ui/", "a=한": "/ui/", "a=\x7f": "/ui/",
+	} {
+		if got := rootRedirectTarget(in); got != want {
+			t.Errorf("rootRedirectTarget(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The redirect must never be cached (it depends on whether the UI is served).
+func TestRootRedirectNoStore(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, p := range []string{"/", "/?x=1"} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+p, nil)
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 302 {
+				t.Fatalf("%s %s: %d, want 302", m, p, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+				t.Errorf("%s %s: Cache-Control=%q, want no-store", m, p, got)
+			}
+		}
+	}
+}
+
+// With the UI disabled (no static dir) there is no target: GET / keeps answering the JSON 404.
+func TestRootNoUI404(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", func(c *config.Config) { c.StaticDir = "" })
+	resp, m := do(t, "GET", ts.URL+"/", "", false)
+	if resp.StatusCode != 404 || m["detail"] != "Not Found" {
+		t.Fatalf("GET / without UI: %d %v, want 404 Not Found", resp.StatusCode, m)
+	}
+}

@@ -285,7 +285,35 @@ func (s *Server) Handler() http.Handler {
 		s.Limiter = auth.NoopLimiter{}
 	}
 	s.csrfStartup()
-	mux := http.NewServeMux()
+	mux := s.buildMux()
+	return s.withHost(s.withCORS(s.withRecover(s.withRequestID(mux))))
+}
+
+// routeMux is the only way routes are registered. It records every pattern it
+// is given so a test can walk the real mux (routes_auth_test.go) instead of
+// grepping the sources: Handle, HandleFunc, method-less patterns and routes
+// added by helper functions are all seen.
+type routeMux struct {
+	mux      *http.ServeMux
+	patterns []string
+}
+
+func (m *routeMux) Handle(pattern string, h http.Handler) {
+	m.patterns = append(m.patterns, pattern)
+	m.mux.Handle(pattern, h)
+}
+
+func (m *routeMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	m.patterns = append(m.patterns, pattern)
+	m.mux.HandleFunc(pattern, h)
+}
+
+func (m *routeMux) ServeHTTP(w http.ResponseWriter, r *http.Request) { m.mux.ServeHTTP(w, r) }
+
+// buildMux registers every route. It must stay the only http.NewServeMux call
+// in this package (TestRoutesAuthMux enforces it).
+func (s *Server) buildMux() *routeMux {
+	mux := &routeMux{mux: http.NewServeMux()}
 	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/settings", s.authed(noStore(s.getSettings)))
@@ -326,18 +354,30 @@ func (s *Server) Handler() http.Handler {
 		w.Write(openAPISpec)
 	}))
 	mux.HandleFunc("GET /docs", s.authed(docs))
+	uiServed := false
 	if dir := config.Expand(s.Cfg.StaticDir); dir != "" {
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			uiServed = true
 			mux.HandleFunc("GET /ui", func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/ui/", http.StatusTemporaryRedirect)
 			})
 			mux.Handle("GET /ui/", withCSP(http.StripPrefix("/ui", staticFiles(dir))))
 		}
 	}
+	// GET / (exact path only; "{$}") -> the UI. Public like /ui/ itself and still behind the host allowlist
+	// (withHost wraps the whole mux). With the UI disabled there is nothing to redirect to: 404 as before.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if !uiServed {
+			writeJSON(w, 404, map[string]string{"detail": "Not Found"})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, rootRedirectTarget(r.URL.RawQuery), http.StatusFound)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
 	})
-	return s.withHost(s.withCORS(s.withRecover(s.withRequestID(mux))))
+	return mux
 }
 
 func (s *Server) withRequestID(next http.Handler) http.Handler {
@@ -505,4 +545,21 @@ func (s *Server) now() time.Time {
 		return s.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+// rootRedirectTarget is where GET / goes: the path is always the fixed "/ui/"
+// (nothing in the request can steer it, so there is no open redirect) and only
+// the raw query string is carried over, so /?a=b lands on /ui/?a=b. A query
+// that is not plain printable ASCII, or is longer than 2048 bytes, is dropped
+// rather than copied into a header.
+func rootRedirectTarget(rawQuery string) string {
+	if rawQuery == "" || len(rawQuery) > 2048 {
+		return "/ui/"
+	}
+	for i := 0; i < len(rawQuery); i++ {
+		if c := rawQuery[i]; c < 0x21 || c > 0x7e {
+			return "/ui/"
+		}
+	}
+	return "/ui/?" + rawQuery
 }

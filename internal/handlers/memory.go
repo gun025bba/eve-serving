@@ -61,7 +61,7 @@ func noStore(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) memoryRoutes(mux *http.ServeMux) {
+func (s *Server) memoryRoutes(mux *routeMux) {
 	if !s.memoryOn() {
 		return
 	}
