@@ -1,0 +1,26 @@
+# eve-web 1.10.1 QA (PR #26, head c350ed7, merged as 4506c93)
+
+QA instance 127.0.0.1:8002 only. The UI under test is a local checkout (`EVE_UI_DIR`, default `~/eve-qa/fe/eve-web` at c350ed7). The page is opened at the real gateway origin and
+Playwright `route.fulfill`s every `/ui/**` request from that directory, so `/v1` and `/whoami` hit the real QA gateway with a paired QA session cookie (qa-a / qa-b), same origin, no header
+rewriting, no deploy. The memory UI is behind `localStorage eve.flag.memory=1` (set by the harness).
+
+```
+node tests/e2e/fe1101/run.js [--only s1,s2,s3,s4,s5,s6]     # all scenarios, ~6 min (s6 sends 3 short prompts to MLX)
+node tests/e2e/fe1101/s4_builds.js                            # PATCH probe on 5.0.0 / 5.0.1 / 5.0.2-d045b10 QA builds, rolls forward to 5.0.0-qa at the end
+EVE_UI_DIR=<other checkout> EVE_EXPECT_UI_VERSION=1.10.0 node tests/e2e/fe1101/run.js --only s6   # baseline comparison
+```
+
+| id | what |
+|---|---|
+| s1 | happy path: PATCH 200 -> localStorage -> reload -> no sheet; server flag persists across a new context; per-user flag |
+| s2 | PATCH 500 / 400 / network failure: sheet stays, in-sheet error (role=alert), localStorage unset, 3 retries, reload asks again, recovery; scrim/설정에서 끄기 while failing; slow PATCH no double send |
+| s3 | local seen + server empty: exactly one silent PATCH per load, no flash (MutationObserver), no loop on failure, no retry when memory off / settings GET fails / local flag off |
+| s4 | gateway: does `ui.memory_intro_seen` get 400? (+ control keys) |
+| s5 | fixed cases: standalone-emulated top area (computed backdrop-filter none incl. pseudo-elements and `.navbar.collapsed`), Chromium CDP `display-mode: standalone` + `setSafeAreaInsetsOverride(47px)` numbers, composer outside `<form>` + autofill attributes |
+| s6 | smoke on the real gateway: send, streaming (>=3 distinct lengths), hidden->visible mid-stream; offline->online is informational (see below) |
+
+Limits (real-device items): iOS contact-suggestion bar, real notch safe-area, SW update on a home-screen PWA.
+
+Known/pre-existing (same on 1.10.0 = 6f88ab7, so not a 1.10.1 regression): offline -> online while the answer is still generating (300-line prompt) leaves the bubble on "답변 불러오는 중…"
+and it never shows the answer (WebKit and Chromium emulation, 4/4 runs on both builds while MLX was slow, ~20 s answers). When the model is fast enough that the answer is finished before the network returns (12/12 runs with a 120-line prompt, and the last full run) the UI recovers, so the informational variants in s6 are timing dependent and are not counted.
+4.0.0+81f4292 (`qa-env.sh rollback`) answers `PATCH ui.memory_intro_seen` with 400 `{"error_code":"invalid"}`; 5.0.0-qa.a419ef9, 5.0.1-qa.f3d59e0 and 5.0.2-qa.d045b10 answer 200 (unknown ui keys and wrong types are 400 on all of them).
