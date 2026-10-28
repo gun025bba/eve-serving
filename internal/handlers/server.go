@@ -285,7 +285,35 @@ func (s *Server) Handler() http.Handler {
 		s.Limiter = auth.NoopLimiter{}
 	}
 	s.csrfStartup()
-	mux := http.NewServeMux()
+	mux := s.buildMux()
+	return s.withHost(s.withCORS(s.withRecover(s.withRequestID(mux))))
+}
+
+// routeMux is the only way routes are registered. It records every pattern it
+// is given so a test can walk the real mux (routes_auth_test.go) instead of
+// grepping the sources: Handle, HandleFunc, method-less patterns and routes
+// added by helper functions are all seen.
+type routeMux struct {
+	mux      *http.ServeMux
+	patterns []string
+}
+
+func (m *routeMux) Handle(pattern string, h http.Handler) {
+	m.patterns = append(m.patterns, pattern)
+	m.mux.Handle(pattern, h)
+}
+
+func (m *routeMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	m.patterns = append(m.patterns, pattern)
+	m.mux.HandleFunc(pattern, h)
+}
+
+func (m *routeMux) ServeHTTP(w http.ResponseWriter, r *http.Request) { m.mux.ServeHTTP(w, r) }
+
+// buildMux registers every route. It must stay the only http.NewServeMux call
+// in this package (TestRoutesAuthMux enforces it).
+func (s *Server) buildMux() *routeMux {
+	mux := &routeMux{mux: http.NewServeMux()}
 	mux.HandleFunc("GET /whoami", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/me", s.authed(s.whoami))
 	mux.HandleFunc("GET /v1/settings", s.authed(noStore(s.getSettings)))
@@ -349,7 +377,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"detail": "Not Found"})
 	})
-	return s.withHost(s.withCORS(s.withRecover(s.withRequestID(mux))))
+	return mux
 }
 
 func (s *Server) withRequestID(next http.Handler) http.Handler {
