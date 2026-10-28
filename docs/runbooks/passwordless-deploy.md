@@ -22,15 +22,15 @@ Mac**, with a console (or a second admin terminal) kept open. Run every `sudo` s
    - `sudo ls -ld /usr/local/libexec/eve /private/var/db/eve-deploy` (root:wheel; the state dir is `0700`; staging belongs to you).
    - `ls -l /usr/local/libexec/eve/` shows `deploy`, `fetch`, `uninstall`, `cosign`, `trusted_root.json` as root:wheel and not group/world writable.
    - `shasum -a 256 /usr/local/libexec/eve/deploy /usr/local/libexec/eve/cosign /usr/local/libexec/eve/trusted_root.json` equal the pins printed by the installer.
-   - `sudo visudo -c` says "parsed OK"; `cat /etc/sudoers.d/eve-deploy` shows **one user, one exact path, four fixed verbs**, `NOSETENV`, no other command.
+   - `sudo visudo -c` says "parsed OK"; `cat /etc/sudoers.d/eve-deploy` shows **one user, one exact path, four exact verbs (no wildcard)**, `NOSETENV`, no other command.
 3. **Scope of the sudo rule.**
    - `sudo -k; sudo -n /usr/local/libexec/eve/deploy bogus; echo $?` runs without a password and rejects the argument.
    - `sudo -k; sudo -n /bin/true; echo $?` needs a password (rc not 0): NOPASSWD applies to that one path only.
    - `sudo -n -E /usr/local/libexec/eve/deploy rollback` and `sudo -n FOO=1 ...` are refused (no `SETENV`).
 4. **Signature trust path (no service impact).** With a released version already **installed or older**, run
-   `/usr/local/libexec/eve/fetch gateway <that version>` then `sudo /usr/local/libexec/eve/deploy deploy <that version>`: it must be refused with a "not higher than installed" message
+   `/usr/local/libexec/eve/fetch gateway <that version>` then `sudo /usr/local/libexec/eve/deploy deploy`: it must be refused with a "not higher than installed" message
    (the signature check already passed, the ratchet stops it). Edit one byte of the staged `.tar` and repeat with a newer, unreleased number: it must fail the signature or sha check.
-5. **First real deploy in a low-risk window.** Release a patch version from CI (tag a commit on `main`), then `fetch gateway X.Y.Z && sudo .../deploy deploy X.Y.Z`. Check
+5. **First real deploy in a low-risk window.** Release a patch version from CI (tag a commit on `main`), then `fetch gateway X.Y.Z && sudo .../deploy deploy`. Check
    `launchctl print system/com.llmserving.gateway | head`, `curl -s http://127.0.0.1:8000/health` returns exactly `{"status":"ok"}`, and the log under `/var/db/eve-deploy` is `0600`.
    Then `sudo .../deploy rollback` once and confirm it goes back (only one previous version is kept). Repeat for the UI with `fetch web` / `deploy-web` / `rollback-web`.
 6. **Removal path.** `sudo rm /etc/sudoers.d/eve-deploy` alone removes NOPASSWD at once: check with `sudo -k; sudo -n -l`. Afterwards, if wanted, run

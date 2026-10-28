@@ -2,9 +2,9 @@
 # eve-deploy: root-owned deploy entrypoint, the ONLY command sudoers allows without a password.
 # Installed (by setup-deploy-nopasswd.sh) at /usr/local/libexec/eve/deploy, root:wheel 0755.
 #
-#   sudo /usr/local/libexec/eve/deploy deploy <X.Y.Z>       # gateway (+ eve-gw): install the release staged for X.Y.Z (must be > current)
+# gateway (+ eve-gw): install the one staged release (must be > current; the version is read from the staged, signed MANIFEST)
 #   sudo /usr/local/libexec/eve/deploy rollback             # gateway: back to the ONE previous version this script kept
-#   sudo /usr/local/libexec/eve/deploy deploy-web <X.Y.Z>   # web UI bundle (eve-web), same rules, own version line
+#   sudo /usr/local/libexec/eve/deploy deploy-web           # web UI bundle (eve-web), same rules, own version line
 #   sudo /usr/local/libexec/eve/deploy rollback-web         # web UI: back to the ONE previous tree
 #
 # Trust model: a release is trusted only if its MANIFEST carries a Sigstore (keyless) signature made by the pinned CI signing
@@ -90,12 +90,14 @@ ver_cmp() {
 }
 valid_schema() { [[ "$1" =~ ^(0|[1-9][0-9]{0,5})$ ]]; }
 
-# ----- argument parsing: ONLY `deploy <v>`, `rollback`, `deploy-web <v>`, `rollback-web` -----
+# ----- argument parsing: ONLY `deploy`, `rollback`, `deploy-web`, `rollback-web` (sudoers grants exactly these; an explicit version is accepted too, for tests and a root shell) -----
 ACTION=""; TARGET=""; KIND=""
 parse_args() {
   ACTION=""; TARGET=""; KIND=""
   case "$#" in
-    1) case "$1" in rollback) ACTION=rollback; KIND=gateway;; rollback-web) ACTION=rollback; KIND=web;; *) return 1;; esac;;
+    1) case "$1" in rollback) ACTION=rollback; KIND=gateway;; rollback-web) ACTION=rollback; KIND=web;;
+         deploy) ACTION=deploy; KIND=gateway;; deploy-web) ACTION=deploy; KIND=web;;    # bare form (what sudoers allows): the version is the one staged
+         *) return 1;; esac;;
     2) case "$1" in deploy) KIND=gateway;; deploy-web) KIND=web;; *) return 1;; esac
        valid_version "$2" || { KIND=""; return 1; }
        ACTION=deploy; TARGET=$2;;
@@ -103,7 +105,7 @@ parse_args() {
   esac
   return 0
 }
-usage() { printf 'usage: deploy <X.Y.Z> | rollback | deploy-web <X.Y.Z> | rollback-web   (X.Y.Z must be higher than the installed version)\n' >&2; }
+usage() { printf 'usage: deploy | rollback | deploy-web | rollback-web   (deploys the one staged release; its version must be higher than the installed one)\n' >&2; }
 
 # ----- small helpers (all absolute paths) -----
 require_root() { [ "$(/usr/bin/id -u)" = 0 ] || die "must run as root (via sudo)"; }
@@ -180,6 +182,20 @@ copy_staged() {
   COPY_PID=""
   sz=$(stat_size "$dst")
   [ "$sz" -gt 0 ] && [ "$sz" -le "$max" ] || die "bad size for ${src##*/}"
+}
+
+resolve_target() { # bare "deploy": the version is that of the single staged release of this kind (the signed manifest must say the same)
+  [ -z "$TARGET" ] || return 0
+  local f n v cnt=0 found=""
+  [ -d "$STAGING" ] && [ ! -L "$STAGING" ] || die "staging dir $STAGING is missing"
+  for f in "$STAGING"/eve-"$KIND"-*.MANIFEST; do
+    [ -e "$f" ] || continue
+    n=${f##*/}; v=${n#eve-"$KIND"-}; v=${v%.MANIFEST}
+    valid_version "$v" || continue                       # other names are ignored, never used
+    cnt=$((cnt + 1)); found=$v
+  done
+  [ "$cnt" = 1 ] || die "need exactly one staged $KIND release, found $cnt (run: fetch $KIND X.Y.Z)"
+  TARGET=$found
 }
 
 # ----- the MANIFEST: strict, allow-listed key=value lines (parsed BEFORE the signature is checked only to learn what to check it against) -----
@@ -474,6 +490,7 @@ main() {
   require_root
   umask 077
   check_caller
+  [ "$ACTION" != deploy ] || resolve_target
   load_state
   take_lock
   trap cleanup EXIT               # normal exits and every `exit` (die, abort_run)

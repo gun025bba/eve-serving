@@ -16,10 +16,10 @@ s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun0
 
 It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
 (`cosign` and the trust root are pinned by sha256 inside the installer), a state directory under `/private/var/db/eve-deploy`, a
-staging directory owned by you, and `/etc/sudoers.d/eve-deploy` with **one user, one exact path, four fixed verbs, no SETENV**:
+staging directory owned by you, and `/etc/sudoers.d/eve-deploy` with **one user, one exact path, four exact verbs (no wildcard), no SETENV**:
 
 ```
-deploy <X.Y.Z>   deploy-web <X.Y.Z>   rollback   rollback-web
+deploy   deploy-web   rollback   rollback-web
 ```
 
 No key is generated, copied or read. The installer refuses if a directory in the chain is user-writable, if `visudo -c` fails, or if the
@@ -35,17 +35,17 @@ Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/e
 4. On the Mac, as the deploy user (no sudo for the download; staging is yours):
 
 ```
-/usr/local/libexec/eve/fetch gateway X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy X.Y.Z
+/usr/local/libexec/eve/fetch gateway X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy
 sudo /usr/local/libexec/eve/deploy rollback            # back to the single kept previous version
 ```
 
 **UI (`eve-web`)**: copy `eve-web-release.yml.example` to `.github/workflows/release.yml` in the eve-web repo (it calls the same reusable workflow, which
-packs the tracked UI files). Then `fetch web X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy-web X.Y.Z` and `rollback-web`. The gateway and the UI
+packs the tracked UI files). Then `fetch web X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy-web` and `rollback-web`. The gateway and the UI
 have independent, strictly increasing version lines.
 
 What `deploy` checks before it changes anything (any failure leaves the live system untouched; a failed health check restores the previous version):
 the Sigstore signature of `MANIFEST` offline against the pinned trust root and the pinned CI identity (workflow file at `main`, repository,
-tag ref, `push` trigger), manifest shape and kind, `version` equals the requested one and is **higher** than the installed one, the schema is not
+tag ref, `push` trigger), manifest shape and kind, `version` equals the one staged (`fetch` leaves exactly one per kind; the bare verb takes it) and is **higher** than the installed one, the schema is not
 older than the database's, `ref` is that exact tag, `branch` is `main` or `release/X.Y.Z`, the sha256 of the tar and of every file, and the
 machine architecture. The files are first copied into a root-only directory and verified there, so the unprivileged staging dir cannot race it.
 

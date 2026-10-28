@@ -1,7 +1,7 @@
 #!/bin/bash
 # Downloads the three files of a CI-signed release into the staging dir. Run as the deploy user (NO sudo, no secrets, no keys):
-#   /usr/local/libexec/eve/fetch gateway 5.0.2 && sudo /usr/local/libexec/eve/deploy deploy 5.0.2
-#   /usr/local/libexec/eve/fetch web 1.10.0    && sudo /usr/local/libexec/eve/deploy deploy-web 1.10.0
+#   /usr/local/libexec/eve/fetch gateway 5.0.2 && sudo /usr/local/libexec/eve/deploy deploy
+#   /usr/local/libexec/eve/fetch web 1.10.0    && sudo /usr/local/libexec/eve/deploy deploy-web
 # Nothing downloaded here is trusted: the root entrypoint copies the files and verifies the signature, the pinned CI identity,
 # the version, the commit's branch and every sha256 before it installs anything. A wrong or hostile download can only make the deploy fail.
 # Installed at /usr/local/libexec/eve/fetch (root:wheel 0755). Written for macOS /bin/bash 3.2.
@@ -24,7 +24,7 @@ for f in "$N.MANIFEST" "$N.sigstore.json" "$N.tar"; do
   curl -fsSL --proto "$PROTO" --tlsv1.2 --retry 3 --max-time 600 --max-filesize 629145600 -o "$TMP/$f" "$BASE/$REPO/releases/download/v$VER/$f" || die "download failed: $f (is v$VER released?)"
   [ -s "$TMP/$f" ] || die "empty download: $f"
 done
-rm -f "$STAGING/$N.MANIFEST" "$STAGING/$N.sigstore.json" "$STAGING/$N.tar"
+rm -f "$STAGING/eve-$KIND-"*.MANIFEST "$STAGING/eve-$KIND-"*.sigstore.json "$STAGING/eve-$KIND-"*.tar    # one staged release per kind: the bare deploy takes it
 mv "$TMP/$N.tar" "$STAGING/$N.tar" && mv "$TMP/$N.sigstore.json" "$STAGING/$N.sigstore.json" && mv "$TMP/$N.MANIFEST" "$STAGING/$N.MANIFEST"
 echo "staged $N (unverified until the deploy runs):"
-case "$KIND" in gateway) echo "  sudo /usr/local/libexec/eve/deploy deploy $VER";; web) echo "  sudo /usr/local/libexec/eve/deploy deploy-web $VER";; esac
+case "$KIND" in gateway) echo "  sudo /usr/local/libexec/eve/deploy deploy";; web) echo "  sudo /usr/local/libexec/eve/deploy deploy-web";; esac

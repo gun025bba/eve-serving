@@ -3,7 +3,7 @@
 # The README gives the one line that downloads this file, checks its sha256 and pipes exactly the checked text into `sudo /bin/bash -s`.
 # No key is generated or copied: releases are signed by CI (Sigstore keyless); this installs the verifier (cosign, pinned by sha256),
 # the pinned trust root, the entrypoint, and a sudoers rule for exactly four fixed commands:
-#   deploy <X.Y.Z> | deploy-web <X.Y.Z> | rollback | rollback-web      (all via /usr/local/libexec/eve/deploy)
+#   deploy | deploy-web | rollback | rollback-web      (exact arguments, no wildcard; all via /usr/local/libexec/eve/deploy)
 # Remove it again with /usr/local/libexec/eve/uninstall, or by hand: sudo rm /etc/sudoers.d/eve-deploy. Never reads or prints secrets.
 #   optional: --schema N  --current X.Y.Z  --current-web X.Y.Z   (otherwise: newest migration, the live gateway's own version, the live UI's version)
 # Everything is inside main() and the file ends with the call, so when bash reads this script from a pipe nothing is left on stdin for a
@@ -155,13 +155,12 @@ else echo "note: keeping existing $STATE/current_web_version ($(head -1 "$STATE/
 [ -L "$LOGF" ] && die "$LOGF is a symlink"
 ( umask 077; : >>"$LOGF" ); chown "$OWNER" "$LOGF"; chmod 0600 "$LOGF"          # BSD install rejects /dev/null as a source
 
-# 5. sudoers: one user, one exact path, four fixed argument patterns, no SETENV, env reset. Validated before and after install.
+# 5. sudoers: one user, one exact path, four exact argument lists (no wildcard), no SETENV, env reset. Validated before and after install.
 TMP=$(mktemp "${TMPDIR:-/tmp}/eve-sudoers.XXXXXX") || die "mktemp failed"
-V='[0-9]*.[0-9]*.[0-9]*'
 cat >"$TMP" <<SUD
 # Managed by setup-deploy-nopasswd.sh. Remove with $LIBEXEC/uninstall or: rm $SUDOERS_FILE
 Defaults!$ENTRY env_reset, !setenv
-$USER_NAME ALL=(root) NOPASSWD: NOSETENV: $ENTRY deploy $V, $ENTRY deploy-web $V, $ENTRY rollback, $ENTRY rollback-web
+$USER_NAME ALL=(root) NOPASSWD: NOSETENV: $ENTRY deploy, $ENTRY deploy-web, $ENTRY rollback, $ENTRY rollback-web
 SUD
 visudo -c -q -f "$TMP" || die "sudoers snippet failed visudo -c (nothing installed)"
 install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0440 "$TMP" "$SUDOERS_FILE.new"
@@ -171,8 +170,8 @@ mv -f "$SUDOERS_FILE.new" "$SUDOERS_FILE"
 
 echo "installed cosign $(sha_of "$LIBEXEC/cosign" | cut -c1-12)…, trust root $(sha_of "$LIBEXEC/trusted_root.json" | cut -c1-12)…, entrypoint $(sha_of "$ENTRY" | cut -c1-12)…"
 echo "OK. From now on, WITHOUT a password and only for releases signed by the pinned CI workflow (user: $USER_NAME):"
-echo "  $LIBEXEC/fetch gateway <X.Y.Z> && sudo $ENTRY deploy <X.Y.Z>"
-echo "  $LIBEXEC/fetch web <X.Y.Z>     && sudo $ENTRY deploy-web <X.Y.Z>"
+echo "  $LIBEXEC/fetch gateway <X.Y.Z> && sudo $ENTRY deploy"
+echo "  $LIBEXEC/fetch web <X.Y.Z>     && sudo $ENTRY deploy-web"
 echo "  sudo $ENTRY rollback | rollback-web"
 echo "Remove: sudo $LIBEXEC/uninstall   (or: sudo rm $SUDOERS_FILE)"
 }

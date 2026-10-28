@@ -63,16 +63,18 @@ for pair in "5.0.0 bad" "bad 5.0.0" "5.0 5.0.0" "5.0.0 05.0.0" "5.0.0 ''"; do
 done
 yes_ "args deploy" parse_args deploy 5.0.1;      eq "deploy" "$ACTION $KIND $TARGET" "deploy gateway 5.0.1"
 yes_ "args deploy-web" parse_args deploy-web 1.2.3; eq "deploy-web" "$ACTION $KIND $TARGET" "deploy web 1.2.3"
+yes_ "args bare deploy" parse_args deploy; eq "bare deploy" "$ACTION $KIND [$TARGET]" "deploy gateway []"
+yes_ "args bare deploy-web" parse_args deploy-web; eq "bare deploy-web" "$ACTION $KIND [$TARGET]" "deploy web []"
 yes_ "args rollback" parse_args rollback;        eq "rollback" "$ACTION $KIND:$TARGET" "rollback gateway:"
 yes_ "args rollback-web" parse_args rollback-web; eq "rollback-web" "$ACTION $KIND:$TARGET" "rollback web:"
-for a in "" "deploy" "rollback now" "rollback-web 1.0.0" "deploy-web" "deploy 5.0" "deploy 5.0.1 extra" "Deploy 5.0.1" "ROLLBACK" "install 5.0.1" "--help" "-h" "-- 5.0.1" \
+for a in "" "rollback now" "rollback-web 1.0.0" "deploy 5.0" "deploy 5.0.1 extra" "Deploy 5.0.1" "ROLLBACK" "install 5.0.1" "--help" "-h" "-- 5.0.1" \
          "deploy --" "sh -c id" "5.0.1 deploy" "deploy rollback" "deploy-web 05.0.1" "deploy-web bad" "fetch 1.0.0" "deploy ."; do
   set -- $a; no_ "args [$a]" parse_args "$@"
 done
 no_ "args single quoted string" parse_args "deploy 5.0.1"
 no_ "args newline version" parse_args deploy $'5.0.1\n'
 no_ "args empty" parse_args ""
-for args in "" "deploy" "rollback x" "deploy 5.0" "deploy 5.0.1 x" "foo" "-h" "deploy 05.0.1" "deploy-web" "rollback-web x"; do
+for args in "" "rollback x" "deploy 5.0" "deploy 5.0.1 x" "foo" "-h" "deploy 05.0.1" "rollback-web x"; do
   bash "$ENTRY" $args >/dev/null 2>&1; eq "exec rejects [$args]" "$?" 2
 done
 bash "$ENTRY" deploy '' >/dev/null 2>&1; eq "exec rejects empty version" "$?" 2
@@ -130,6 +132,19 @@ run_main rollback; eq "rollback rc" "$?" 0
 eq "rollback live" "$(cat "$B/bin/gateway")/$(cat "$B/state/current_version")" "gw-old/9.0.0"
 run_main rollback; eq "second rollback refused" "$?" 1
 run_main deploy 9.0.0; eq "after rollback the same/lower version is refused" "$?" 1
+# the bare form (what sudoers grants): the version comes from the single staged release, and is still verified against the signed manifest
+new_box 60; stage gateway
+run_main deploy; eq "bare deploy: rc" "$?" 0
+eq "bare deploy: installed the staged release" "$(cat "$B/state/current_version")" "$FXV"
+new_box 61; stage gateway; for e in MANIFEST sigstore.json tar; do cp "$FX/eve-gateway-$FXV.$e" "$B/staging/eve-gateway-9.2.0.$e"; done
+run_main deploy; eq "bare deploy: two staged releases are refused" "$?" 1
+eq "bare deploy: nothing changed" "$(cat "$B/state/current_version")" 9.0.0
+new_box 62; run_main deploy; eq "bare deploy: nothing staged is refused" "$?" 1
+new_box 63; stage web
+run_main deploy-web; eq "bare deploy-web: rc" "$?" 0
+eq "bare deploy-web: installed the staged release" "$(cat "$B/state/current_web_version")" "$FXV"
+new_box 64; stage gateway; touch "$B/staging/eve-gateway-notaversion.MANIFEST" "$B/staging/eve-gateway-1.2.MANIFEST"
+run_main deploy; eq "bare deploy: other file names in staging are ignored" "$?" 0
 
 # 2. DOWNGRADE / replay: a validly signed older (or equal) release is refused when something newer is installed
 new_box 2; stage gateway; echo 9.2.0 >"$B/state/current_version"
@@ -446,7 +461,7 @@ tail -5 "$S/out" | grep -q '^OK\.' && ok || bad "setup via stdin printed OK"
 F=$S/sudoers.d/eve-deploy; EP=$S/libexec/deploy
 yes_ "sudoers snippet passes visudo -c" /usr/sbin/visudo -c -q -f "$F"
 eq "sudoers: exactly one rule line + one Defaults" "$(grep -vc '^#' "$F")" 2
-eq "sudoers: the rule" "$(grep -v '^#' "$F" | grep -v '^Defaults' )" "$ME ALL=(root) NOPASSWD: NOSETENV: $EP deploy [0-9]*.[0-9]*.[0-9]*, $EP deploy-web [0-9]*.[0-9]*.[0-9]*, $EP rollback, $EP rollback-web"
+eq "sudoers: the rule" "$(grep -v '^#' "$F" | grep -v '^Defaults' )" "$ME ALL=(root) NOPASSWD: NOSETENV: $EP deploy, $EP deploy-web, $EP rollback, $EP rollback-web"
 eq "sudoers: env_reset, no setenv" "$(grep -c "^Defaults!$EP env_reset, !setenv\$" "$F")" 1
 if grep -v '^#' "$F" | grep -Eq ', *ALL|: *ALL *$|\(ALL|[ :]SETENV:|NOPASSWD: *[^N ]*ALL'; then bad "sudoers has an ALL command / SETENV"; else ok; fi
 eq "sudoers: only the entrypoint is ever named" "$(grep -v '^#' "$F" | grep -v '^Defaults' | grep -o "$S/libexec/[a-z-]*" | sort -u | tr '\n' ' ')" "$EP "
@@ -473,10 +488,10 @@ printf '#!/bin/sh\necho 5.0.1+abc1234\n' >"$S/opt/bin/gateway"
 new_box 50; stage gateway
 ( env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin bash -c ". '$S/libexec/deploy'; sandbox() { :; }; STATE=$B/state; BIN_DIR=$B/bin; WEB_DIR=$B/web; STAGING=$B/staging; LOGF=$B/log; OWNER_ARGS=''; CHOWN_SPEC=''; ROOT_UID=$MYUID; SUDO_USER=$ME; SUDO_UID=$MYUID; GW_UID=999999; COSIGN='$S/libexec/cosign'; TRUSTED_ROOT='$S/libexec/trusted_root.json'; SIGNER_IDENTITY='$FX_ID'; REPO_GATEWAY='$FX_REPO'; REF_FMT='$FX_REF'; HOST_ARCH_WANT=\$(uname -m); require_root() { :; }; svc_restart() { :; }; health_ok() { return 0; }; main deploy $FXV" ) >/dev/null 2>&1
 eq "installed entrypoint + installed cosign + installed trust root deploy the CI-signed fixture" "$?" 0
-# sudoers wildcard semantics: whatever the glob lets through, the entrypoint's strict parser is the gate (shown above); the glob never matches other verbs
-for good in "deploy 5.0.2" "deploy-web 10.20.30"; do case "$good" in deploy\ [0-9]*.[0-9]*.[0-9]*|deploy-web\ [0-9]*.[0-9]*.[0-9]*) ok;; *) bad "sudoers glob should match [$good]";; esac; done
-for other in "deploy" "rollback now" "sh -c id" "install 5.0.2" "-h" "deployx 5.0.2" "fetch 5.0.2" ""; do case "$other" in deploy\ [0-9]*.[0-9]*.[0-9]*|deploy-web\ [0-9]*.[0-9]*.[0-9]*|rollback|rollback-web) bad "sudoers glob must not match [$other]";; *) ok;; esac; done
-for sneaky in "deploy 1.0.0 x.1.1" "deploy 1.0.0 --foo 1.1.1"; do set -- $sneaky; no_ "entrypoint rejects glob-sneaky args [$sneaky]" parse_args "$@"; done
+# sudoers has NO wildcard (sudo-rs rejects them, and an exact argument list cannot be widened by a clever argument)
+if grep -v '^#' "$F" | grep -v '^Defaults' | grep -q '[*?[]'; then bad "sudoers rule must contain no wildcard"; else ok; fi
+for sneaky in "deploy 1.0.0 x.1.1" "deploy 1.0.0 --foo 1.1.1" "deploy --foo" "deploy-web x" "rollback now" "sh -c id" "install 5.0.2" "-h" "deployx" "fetch 5.0.2" "deploy 01.2.3"; do set -- $sneaky; no_ "entrypoint rejects [$sneaky]" parse_args "$@"; done
+for good in deploy deploy-web rollback rollback-web "deploy 5.0.2" "deploy-web 10.20.30"; do set -- $good; yes_ "entrypoint accepts [$good]" parse_args "$@"; done
 # no temp files left behind
 setup_env TMPDIR="$S/tmp" bash "$S/inst.sh" >/dev/null 2>&1; eq "setup success leaves no temp files" "$(ls -A "$S/tmp" | wc -l | tr -d ' ')" 0
 ( setup_env TMPDIR="$S/tmp" bash "$S/inst-badpin.sh" ) >/dev/null 2>&1; eq "setup failure leaves no temp files" "$(ls -A "$S/tmp" | wc -l | tr -d ' ')" 0

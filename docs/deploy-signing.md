@@ -15,7 +15,7 @@ release.yml  --calls-->  gun025bba/eve-serving/.github/workflows/deploy-sign.yml
    |  MANIFEST: version, git_sha, repo, ref, branch, schema, sha256 of the tar and of each member
    |  cosign sign-blob --bundle   (keyless: Fulcio certificate bound to this workflow run + Rekor entry)
    v  GitHub release: eve-<kind>-X.Y.Z.{MANIFEST,sigstore.json,tar}
-Mac:  fetch (user, downloads, trusts nothing)  ->  sudo deploy <verb> X.Y.Z (root, fixed verbs)
+Mac:  fetch (user, downloads, trusts nothing)  ->  sudo deploy <verb> (root, exact verbs, no argument)
         copies the three files into a root-only dir and, on the copies: verifies the signature OFFLINE, then the manifest, then the shas
 ```
 
@@ -43,13 +43,14 @@ that the production pins reject them). eve-web calls the same reusable workflow 
 
 ## What the Mac verifies (all before anything is installed; the live system is untouched on any failure)
 
-1. Sudoers lets the deploy user run only `deploy <X.Y.Z>`, `deploy-web <X.Y.Z>`, `rollback`, `rollback-web` on one exact path; the entrypoint re-validates
-   the arguments itself (the sudoers `*` is only a coarse filter).
+1. Sudoers lets the deploy user run only `deploy`, `deploy-web`, `rollback`, `rollback-web` on one exact path, with **exactly those arguments and no wildcard**
+   (a sudoers glob would also be rejected by sudo-rs, and an exact list cannot be widened by a crafted argument). The version is not an argument: `deploy` takes the
+   one staged release of that kind (`fetch` leaves exactly one; more or none is refused) and the signed manifest must carry that very version. The entrypoint also re-validates its arguments.
 2. The entrypoint's own environment is clean (`bash -p`, fixed PATH, no inherited variables), the caller is the allowed user, and the files are **copied**
    into a root-only directory first: everything below runs on the copies (no check/use race against the user-writable staging dir).
 3. `cosign` and `trusted_root.json` match the sha256 pinned in the entrypoint (and the installer pins the entrypoint by sha256).
 4. `cosign verify-blob --bundle --trusted-root`, with `--certificate-oidc-issuer`, `--certificate-identity` (the workflow at `@main`),
-   `--certificate-github-workflow-{repository,ref,sha,trigger}` all pinned. The ref must be `refs/tags/<requested version>`, the trigger `push`, the repository the kind's repository.
+   `--certificate-github-workflow-{repository,ref,sha,trigger}` all pinned. The ref must be `refs/tags/v<staged version>`, the trigger `push`, the repository the kind's repository.
 5. `MANIFEST` is parsed with a strict allow-list (known keys only, no duplicates, bounded size, safe characters); `kind`, `version` (equals the
    request), `ref`, `branch` (`main` or `release/X.Y.Z`; set by CI after the ancestry check), `git_sha` equal to the certificate's commit, the architecture, and `schema` (not older than the database).
 6. **Monotonic version**: strictly greater than the installed version of that kind (separate lines for gateway and UI, stored root-only).
@@ -65,7 +66,7 @@ check Git ancestry offline and relies on the pinned workflow (at `main`) for it.
 |---|---|---|
 | **Repository compromise: attacker can push a branch or tag** | A tag on a commit outside `main`/`release/*` is not signed (ancestry check) and the Mac re-checks the signed `branch`. A modified `deploy-sign.yml` or `release.yml` on that branch or tag cannot produce the pinned subject (`@refs/heads/main`). A fork or another repository has a different `repository` claim. | Attacker who can **merge to `main`** (or to `release/*`) gets code signed, exactly as with any CD. Today **`main` has no branch protection** (checked: the API returns 404); see "Settings to apply". Attacker who can change `deploy-sign.yml` on `main` controls the trust root: same control needed. |
 | **CI secret theft** | No signing key and no deploy secret exist anywhere. The only credential is the job's OIDC token, minted inside the run, audience-restricted, short-lived, and only usable to obtain a certificate that names this run. Actions and `cosign` are pinned by commit sha / sha256; the job does not execute code from the tagged commit (it builds and packs; the web kind only tars files). | A step that runs in the signing job could sign what it likes **during that run**; hence the pinned third-party actions, minimal permissions (`contents: write`, `id-token: write` on the one job), and the `deploy` environment as an optional approval gate. The release is public and logged in Rekor, so a rogue signature is detectable after the fact. |
-| **Downgrade** | Strictly increasing version per kind, root-only state; the signed `version` must equal the requested one; an equal or lower version is refused even if validly signed. The schema must not be older than the database. `rollback` only restores the single previous version (no signature needed: it re-installs what root had installed, protected by a tree digest). | None for versions at or below the installed one. |
+| **Downgrade** | Strictly increasing version per kind, root-only state; the signed `version` must equal the staged one (the file name the bare verb read); an equal or lower version is refused even if validly signed. The schema must not be older than the database. `rollback` only restores the single previous version (no signature needed: it re-installs what root had installed, protected by a tree digest). | None for versions at or below the installed one. |
 | **Replay of an old signed release** | Signature binds version, commit, ref, repository, kind and every sha256; a signed `X.Y.Z` cannot be relabelled (version/ref/sha mismatch tests). | A genuinely signed release **newer than the installed one** can be re-offered (for example 5.0.3 when 5.0.1 is installed; there is no revocation list). Mitigation: deploy promptly, keep the deploy user from fetching from arbitrary hosts (the fetcher only talks to `github.com/<pinned repo>/releases`), and never delete the release a bad build came from without also shipping a higher fixed one. |
 | **Tag moved or re-created** | The certificate records the commit; `git_sha` in the manifest must equal it; the version ratchet makes a re-signed tag of an installed version unusable. | Protect `v*` tags (below) so a tag cannot be moved before its first deploy. |
 | **Tampered download or staging dir** | Nothing in staging is trusted: copy, then verify the copies; sha256 of every file from the signed manifest; hostile tars rejected. | None identified. |
