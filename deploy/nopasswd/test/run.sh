@@ -220,6 +220,7 @@ no_ "setup: unknown arg" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --
 ( setup_env SUDO_USER=root bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup: root user refused" "$?" 1
 [ ! -e "$S/sudoers.d/eve-deploy" ] && ok || bad "failed setups must install nothing"
 yes_ "setup: ok" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+[ -f "$S/sudoers.d/eve-deploy" ] || { sed 's/^/  setup output: /' "$S/out"; setup_env bash -x "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 2>&1 | tail -15 | sed 's/^/  trace: /'; }
 [ -f "$S/sudoers.d/eve-deploy" ]
 F=$S/sudoers.d/eve-deploy
 yes_ "sudoers snippet passes visudo -c" /usr/sbin/visudo -c -q -f "$F"
