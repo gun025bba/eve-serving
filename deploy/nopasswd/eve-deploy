@@ -10,6 +10,16 @@
 # Does not touch config, secrets, the database, or run migrations. Written for macOS /bin/bash 3.2.
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
 
+# ----- clean slate when executed (not when sourced by the tests): drop every inherited variable and imported function -----
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  builtin set +o posix 2>/dev/null
+  for _f in $(builtin compgen -A function); do builtin unset -f "$_f"; done
+  for _v in $(builtin compgen -e); do case "$_v" in SUDO_USER|SUDO_UID) ;; *) builtin unset "$_v" 2>/dev/null;; esac; done
+  SUDO_USER=${SUDO_USER-}; SUDO_UID=${SUDO_UID-}
+  unset _f _v
+  IFS=$' \t\n'
+fi
+
 # ----- fixed locations (plain assignments: the environment can never override them) -----
 SAFE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LIBEXEC=/usr/local/libexec/eve
@@ -66,6 +76,12 @@ usage() { printf 'usage: deploy <X.Y.Z> | rollback   (X.Y.Z must be higher than 
 # ----- small helpers (all absolute paths) -----
 require_root() { [ "$(/usr/bin/id -u)" = 0 ] || die "must run as root (via sudo)"; }
 stat_uid() { /usr/bin/stat -c %u "$1" 2>/dev/null || /usr/bin/stat -f %u "$1" 2>/dev/null; }   # GNU first: BSD stat rejects -c, GNU stat misreads -f
+stat_mode() { /usr/bin/stat -c %a "$1" 2>/dev/null || /usr/bin/stat -f %Lp "$1" 2>/dev/null; }
+dir_ok() { # $1 dir: exists, root-owned, not writable by group/other (-L: a symlink is judged by its target)
+  [ -d "$1" ] && [ "$(/usr/bin/stat -L -c %u "$1" 2>/dev/null || /usr/bin/stat -L -f %u "$1" 2>/dev/null)" = "$ROOT_UID" ] || return 1
+  local m; m=$(/usr/bin/stat -L -c %a "$1" 2>/dev/null || /usr/bin/stat -L -f %Lp "$1" 2>/dev/null) || return 1
+  [ $(( 0$m & 0022 )) = 0 ]
+}
 stat_size() { /usr/bin/stat -c %s "$1" 2>/dev/null || /usr/bin/stat -f %z "$1" 2>/dev/null; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
 read_state() { # $1 file; first line only, must be a plain token
@@ -82,7 +98,7 @@ inst() { # $1 src $2 dst: atomic replace, root:wheel 0755
   /usr/bin/install $OWNER_ARGS -m 0755 "$1" "$2.new" && /bin/mv -f "$2.new" "$2"
 }
 svc_restart() { /bin/launchctl kickstart -k "system/$LABEL" >/dev/null 2>&1; }
-health_ok() { local _ b; for _ in $(/usr/bin/seq 1 30); do
+health_ok() { local _ b; for _ in $(/usr/bin/seq 1 60); do
     b=$(/usr/bin/curl -s -m 3 "$HEALTH_URL" 2>/dev/null || true)
     [ "$b" = '{"status":"ok"}' ] && return 0
     /bin/sleep 1; done; return 1; }
@@ -122,32 +138,43 @@ manifest_get() { # $1 file $2 key -> value of the single line key=value
   [ "$n" = 1 ] || return 1
   /usr/bin/grep -E "^$2=" "$1" | /usr/bin/sed "s/^$2=//"
 }
-unpack_bundle() { # $1 verified copy of the tar, $2 empty dir
+unpack_bundle() { # $1 verified copy of the tar, $2 empty dir. Members: MANIFEST + gateway (+ eve-gw, optional)
   local names; names=$(/usr/bin/tar -tf "$1" 2>/dev/null | /usr/bin/sort | /usr/bin/tr '\n' ' ') || die "unreadable bundle"
-  [ "$names" = "MANIFEST eve-gw gateway " ] || die "bundle must contain exactly MANIFEST, eve-gw, gateway"
+  case "$names" in "MANIFEST eve-gw gateway "|"MANIFEST gateway ") ;; *) die "bundle must contain exactly MANIFEST, gateway and optionally eve-gw";; esac
   /usr/bin/tar -tvf "$1" 2>/dev/null | /usr/bin/awk '{print substr($1,1,1)}' | /usr/bin/grep -qv -- '-' && die "bundle has non-regular entries"
   /usr/bin/tar -xof "$1" -C "$2" 2>/dev/null || die "cannot unpack bundle"
-  local f; for f in MANIFEST eve-gw gateway; do [ -f "$2/$f" ] && [ ! -L "$2/$f" ] || die "bad bundle member $f"; done
+  local f; for f in $names; do [ -f "$2/$f" ] && [ ! -L "$2/$f" ] || die "bad bundle member $f"; done
 }
 
 # ----- install / restore -----
-snapshot_live() { # $1 dir: copy of the live binaries + their hashes + versions
+# eve-gw is optional on the host (the runbooks install only `gateway`): it is handled only if present.
+bindir_ok() { dir_ok "$(/usr/bin/dirname "$BIN_DIR")" && dir_ok "$BIN_DIR" && [ -f "$BIN_DIR/gateway" ] && [ ! -L "$BIN_DIR/gateway" ]; }
+snapshot_live() { # $1 dir: copy of the live binaries + hashes + version; line 2 of sha256 is "-" when the host has no eve-gw
   /bin/mkdir -p "$1" && /bin/chmod 0700 "$1" || return 1
-  [ -f "$BIN_DIR/gateway" ] && [ -f "$BIN_DIR/eve-gw" ] || { log "live binaries missing"; return 1; }
-  /bin/cp -p "$BIN_DIR/gateway" "$1/gateway" && /bin/cp -p "$BIN_DIR/eve-gw" "$1/eve-gw" || return 1
-  printf '%s\n%s\n' "$(sha_of "$1/gateway")" "$(sha_of "$1/eve-gw")" >"$1/sha256" || return 1
+  [ -f "$BIN_DIR/gateway" ] || { log "live gateway missing"; return 1; }
+  /bin/cp -p "$BIN_DIR/gateway" "$1/gateway" || return 1
+  local h2=-
+  if [ -f "$BIN_DIR/eve-gw" ]; then /bin/cp -p "$BIN_DIR/eve-gw" "$1/eve-gw" || return 1; h2=$(sha_of "$1/eve-gw"); fi
+  printf '%s\n%s\n' "$(sha_of "$1/gateway")" "$h2" >"$1/sha256" || return 1
   printf '%s\n' "$CUR_VER" >"$1/version" && printf '%s\n' "$CUR_SCHEMA" >"$1/schema"
 }
 check_snapshot() { # $1 dir made by snapshot_live: the files must still match their recorded hashes
   local h1 h2; { IFS= read -r h1; IFS= read -r h2; } <"$1/sha256" || return 1
-  [ "$(sha_of "$1/gateway")" = "$h1" ] && [ "$(sha_of "$1/eve-gw")" = "$h2" ] || { log "snapshot hash mismatch"; return 1; }
+  [ "$(sha_of "$1/gateway")" = "$h1" ] || { log "snapshot hash mismatch (gateway)"; return 1; }
+  if [ "$h2" = - ]; then [ ! -e "$1/eve-gw" ] || { log "snapshot has an unexpected eve-gw"; return 1; }
+  else [ -f "$1/eve-gw" ] && [ "$(sha_of "$1/eve-gw")" = "$h2" ] || { log "snapshot hash mismatch (eve-gw)"; return 1; }; fi
+}
+apply_dir() { # $1 dir with gateway [+ eve-gw]; $2 = exact: remove a live eve-gw that $1 does not have
+  inst "$1/gateway" "$BIN_DIR/gateway" || return 1
+  if [ -f "$1/eve-gw" ]; then inst "$1/eve-gw" "$BIN_DIR/eve-gw" || return 1
+  elif [ "$2" = exact ]; then /bin/rm -f "$BIN_DIR/eve-gw" || return 1; fi
 }
 restore_from() { # $1 dir made by snapshot_live; verifies hashes first
   check_snapshot "$1" || return 1
-  inst "$1/gateway" "$BIN_DIR/gateway" && inst "$1/eve-gw" "$BIN_DIR/eve-gw"
+  apply_dir "$1" exact
 }
-swap_and_check() { # $1 dir with new gateway + eve-gw; $2 snapshot dir to fall back to. 0 = healthy
-  if inst "$1/gateway" "$BIN_DIR/gateway" && inst "$1/eve-gw" "$BIN_DIR/eve-gw" && svc_restart && health_ok; then return 0; fi
+swap_and_check() { # $1 dir with the new binaries; $2 snapshot dir to fall back to; $3 exact|keep. 0 = healthy
+  if apply_dir "$1" "$3" && svc_restart && health_ok; then return 0; fi
   log "new binaries did not come up healthy: restoring the previous binaries"
   if restore_from "$2" && svc_restart && health_ok; then log "automatic rollback OK (database was not touched)"
   else log "ROLLBACK NOT HEALTHY: manual recovery needed (see rollback-5.0.0.md)"; fi
@@ -176,10 +203,12 @@ do_deploy() {
   [ "$(manifest_get "$WORK/x/MANIFEST" version)" = "$v" ] || die "manifest version != requested version"
   [ "$(manifest_get "$WORK/x/MANIFEST" schema)" = "$CUR_SCHEMA" ] || die "schema differs from installed: use the migration deploy script"
   [ "$(manifest_get "$WORK/x/MANIFEST" sha256.gateway)" = "$(sha_of "$WORK/x/gateway")" ] || die "gateway hash != manifest"
-  [ "$(manifest_get "$WORK/x/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
+  if [ -f "$WORK/x/eve-gw" ]; then [ "$(manifest_get "$WORK/x/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
+  else manifest_get "$WORK/x/MANIFEST" sha256.eve-gw >/dev/null && die "manifest lists eve-gw but the bundle has none"; fi
   log "signature OK, manifest OK for $v (gateway $(sha_of "$WORK/x/gateway"))"
+  bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
   snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
-  if swap_and_check "$WORK/x" "$WORK/snap"; then
+  if swap_and_check "$WORK/x" "$WORK/snap" keep; then
     /bin/rm -rf "$STATE/previous" && /bin/mv "$WORK/snap" "$STATE/previous" || die "cannot keep the previous version"
     write_state current_version "$v" || die "cannot record the new version (binaries ARE v$v)"
     log "deploy $v OK; previous $CUR_VER kept for rollback"
@@ -198,10 +227,11 @@ do_rollback() {
   [ "$ps" = "$CUR_SCHEMA" ] || die "schema differs between $pv and $CUR_VER: automatic rollback refused (no DB down-migration here)"
   log "rollback to $pv requested by $SUDO_USER (installed $CUR_VER)"
   make_work
+  bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
   snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
-  [ -f "$STATE/previous/gateway" ] && [ -f "$STATE/previous/eve-gw" ] || die "kept binaries missing"
+  [ -f "$STATE/previous/gateway" ] || die "kept binaries missing"
   check_snapshot "$STATE/previous" || die "kept previous binaries fail their recorded hashes"
-  if swap_and_check "$STATE/previous" "$WORK/snap"; then
+  if swap_and_check "$STATE/previous" "$WORK/snap" exact; then
     /bin/rm -rf "$STATE/previous"
     write_state current_version "$pv" || die "cannot record the version (binaries ARE v$pv)"
     log "rollback to $pv OK (no further rollback is kept)"
@@ -219,14 +249,9 @@ main() {
   load_state
   take_lock
   trap cleanup EXIT
+  trap '' INT TERM HUP QUIT       # a half-finished swap must run to its health check / automatic restore
   case "$ACTION" in deploy) do_deploy;; rollback) do_rollback;; esac
 }
 
-# run only when executed (tests source this file and call the functions). Start from a clean environment first.
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  if [ "${EVE_DEPLOY_CLEAN:-}" != 1 ]; then
-    exec /usr/bin/env -i PATH="$SAFE_PATH" EVE_DEPLOY_CLEAN=1 SUDO_USER="${SUDO_USER:-}" SUDO_UID="${SUDO_UID:-}" \
-      /bin/bash "$0" "$@"
-  fi
-  main "$@"
-fi
+# run only when executed (tests source this file and call the functions); the clean slate is at the top of the file.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main "$@"; fi

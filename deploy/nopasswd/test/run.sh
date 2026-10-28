@@ -2,13 +2,14 @@
 # Tests for the passwordless-deploy entrypoint (eve-deploy) and its install/uninstall/sign scripts.
 # Runs unprivileged: eve-deploy is SOURCED (it only runs main when executed) and its fixed paths are pointed at a temp dir.
 #   bash deploy/nopasswd/test/run.sh
-# Needs: bash, ssh-keygen, tar, visudo (sudo package), install, sha256sum or shasum.
+# Needs: bash, ssh-keygen, tar, visudo (sudo package), install, sha256sum or shasum. Runs on Linux and macOS (bash 3.2).
 # shellcheck disable=all
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 D=$(cd "$HERE/.." && pwd)
 ENTRY=$D/eve-deploy
-T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+umask 022
+T=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
 PASS=0; FAILN=0
 ok()   { PASS=$((PASS + 1)); }
 bad()  { FAILN=$((FAILN + 1)); echo "FAIL: $*"; }
@@ -16,6 +17,8 @@ eq()   { if [ "$2" = "$3" ]; then ok; else bad "$1: got [$2] want [$3]"; fi; }
 yes_() { local n=$1; shift; if "$@" >/dev/null 2>&1; then ok; else bad "$n: expected success: $*"; fi; }
 no_()  { local n=$1; shift; if "$@" >/dev/null 2>&1; then bad "$n: expected failure: $*"; else ok; fi; }
 
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+modeof() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 # shellcheck source=../eve-deploy
 . "$ENTRY"
 
@@ -100,7 +103,8 @@ sandbox_env() {
   GW_UID=$((MYUID + 100000))
 }
 sign() { # $1 version  $2 schema  [key] [namespace]
-  bash "$D/sign-deploy-bundle.sh" --key "${3:-$KEY}" --gateway "$B/gw" --eve-gw "$B/eg" --version "$1" --schema "$2" --out "$B/out" >/dev/null 2>&1
+  local egarg="--eve-gw $B/eg"; [ -z "${NOEG:-}" ] || egarg=""
+  bash "$D/sign-deploy-bundle.sh" --key "${3:-$KEY}" --gateway "$B/gw" $egarg --version "$1" --schema "$2" --out "$B/out" >/dev/null 2>&1
   if [ -n "${4:-}" ]; then rm -f "$B/out/eve-$1.tar.sig"; ssh-keygen -Y sign -f "${3:-$KEY}" -n "$4" "$B/out/eve-$1.tar" >/dev/null 2>&1; fi
 }
 stage() { cp "$B/out/eve-$1.tar" "$B/staging/eve-$2.tar"; cp "$B/out/eve-$1.tar.sig" "$B/staging/eve-$2.tar.sig"; }
@@ -167,7 +171,7 @@ new_box 11; sign 5.0.1 8; stage 5.0.1 5.0.1
   orig_verify=$(declare -f verify_sig)
   eval "orig_${orig_verify#verify_sig }"           # keep the original as orig_verify_sig
   verify_sig() {
-    echo "mode:$(stat -c %a "$(dirname "$1")" 2>/dev/null || stat -f %Lp "$(dirname "$1")")" >"$B/workmode"
+    echo "mode:$(modeof "$(dirname "$1")")" >"$B/workmode"
     case "$1" in "$STATE"/work.*/*) echo inside-state >"$B/workloc";; esac
     echo garbage >"$STAGING/eve-5.0.1.tar"; echo garbage >"$STAGING/eve-5.0.1.tar.sig"    # attacker swaps the originals now
     orig_verify_sig "$@"
@@ -205,35 +209,93 @@ eq "caller guards: live untouched" "$(live)" "gw-old/eg-old/5.0.0"
 # the log never holds key material or paths of the private key
 if grep -qi 'PRIVATE' "$B/log" 2>/dev/null; then bad "log leaks key text"; else ok; fi
 
+# 12. eve-gw is optional: gateway-only bundle on a gateway-only host, and on a host that has eve-gw
+new_box 16; rm -f "$B/bin/eve-gw"; NOEG=1 sign 5.0.1 8; stage 5.0.1 5.0.1
+run_main deploy 5.0.1; eq "gateway-only deploy rc" "$?" 0
+eq "gateway-only deploy: gateway live" "$(cat "$B/bin/gateway")" gw-16
+[ ! -e "$B/bin/eve-gw" ] && ok || bad "gateway-only host must not gain eve-gw"
+run_main rollback; eq "gateway-only rollback rc" "$?" 0
+eq "gateway-only rollback: gateway back" "$(cat "$B/bin/gateway")" gw-old
+new_box 17; NOEG=1 sign 5.0.1 8; stage 5.0.1 5.0.1
+run_main deploy 5.0.1; eq "gateway-only bundle on host with eve-gw: rc" "$?" 0
+eq "bundle without eve-gw leaves a live eve-gw alone" "$(cat "$B/bin/eve-gw")" eg-old
+run_main rollback; eq "…and rollback restores it exactly" "$(live)" "gw-old/eg-old/5.0.0"
+# a bundle that ADDS eve-gw to a gateway-only host: rollback removes it again
+new_box 18; rm -f "$B/bin/eve-gw"; sign 5.0.1 8; stage 5.0.1 5.0.1
+run_main deploy 5.0.1; eq "bundle adds eve-gw: rc" "$?" 0
+eq "bundle adds eve-gw: installed" "$(cat "$B/bin/eve-gw")" eg-18
+run_main rollback; eq "rollback of added eve-gw: rc" "$?" 0
+[ ! -e "$B/bin/eve-gw" ] && ok || bad "rollback must remove an eve-gw the rolled-back version added"
+# failed health check on a gateway-only host also leaves no eve-gw behind
+new_box 19; rm -f "$B/bin/eve-gw"; sign 5.0.1 8; stage 5.0.1 5.0.1
+( sandbox_env; health_ok() { [ -f "$B/restored" ] ; }; svc_restart() { [ "$(cat "$B/bin/gateway")" = gw-old ] && touch "$B/restored"; echo r >>"$B/svc"; }; main deploy 5.0.1 ) >/dev/null 2>&1
+eq "failed health, gateway-only host: rc" "$?" 1
+[ ! -e "$B/bin/eve-gw" ] && eq "failed health: old gateway restored" "$(cat "$B/bin/gateway")" gw-old || bad "failed health left eve-gw behind"
+# manifest listing eve-gw without the member is refused
+new_box 20; sign 5.0.1 8; mkdir "$B/t" && ( cd "$B/t" && tar -xf "$B/out/eve-5.0.1.tar" && rm eve-gw && tar -cf "$B/out/eve-5.0.1.tar" MANIFEST gateway ) \
+  && ssh-keygen -Y sign -f "$KEY" -n eve-deploy "$B/out/eve-5.0.1.tar" >/dev/null 2>&1 || true
+rm -f "$B/out/eve-5.0.1.tar.sig"; ssh-keygen -Y sign -f "$KEY" -n eve-deploy "$B/out/eve-5.0.1.tar" >/dev/null 2>&1; stage 5.0.1 5.0.1
+run_main deploy 5.0.1; eq "manifest lists eve-gw but bundle has none: refused" "$?" 1
+
+# 13. BIN_DIR must be root-owned and closed to group/world writes (checked at deploy time)
+new_box 21; sign 5.0.1 8; stage 5.0.1 5.0.1; chmod 0777 "$B/bin"
+run_main deploy 5.0.1; eq "world-writable BIN_DIR refused" "$?" 1
+chmod 0775 "$B/bin"; run_main deploy 5.0.1; eq "group-writable BIN_DIR refused" "$?" 1
+chmod 0755 "$B/bin"; chmod 0777 "$B"; run_main deploy 5.0.1; eq "writable parent of BIN_DIR refused" "$?" 1; chmod 0755 "$B"
+( sandbox_env; ROOT_UID=$((MYUID + 1)); main deploy 5.0.1 ) >/dev/null 2>&1; eq "BIN_DIR not root-owned refused" "$?" 1
+eq "refused BIN_DIR: live untouched" "$(live)" "gw-old/eg-old/5.0.0"
+chmod 0755 "$B/bin"; run_main deploy 5.0.1; eq "closed BIN_DIR accepted" "$?" 0
+
+# 14. a TERM/INT/HUP during the swap must not leave new binaries live with old state
+new_box 22; sign 5.0.1 8; stage 5.0.1 5.0.1
+( sandbox_env; svc_restart() { echo restart >>"$B/svc"; sh -c 'kill -TERM $PPID; kill -INT $PPID; kill -HUP $PPID'; sleep 1; }; main deploy 5.0.1 ) >/dev/null 2>&1
+eq "signals during the swap: deploy still completes" "$?" 0
+eq "signals during the swap: consistent end state" "$(live)" "gw-22/eg-22/5.0.1"
+
+# 15. relative --out of the signing script
+new_box 23; ( cd "$B" && bash "$D/sign-deploy-bundle.sh" --key "$KEY" --gateway gw --eve-gw eg --version 5.0.1 --schema 8 --out out/rel ) >/dev/null 2>&1; eq "sign with relative --out: rc" "$?" 0
+[ -s "$B/out/rel/eve-5.0.1.tar" ] && [ -s "$B/out/rel/eve-5.0.1.tar.sig" ] && ok || bad "relative --out must produce tar + sig"
+( cd "$B" && bash "$D/sign-deploy-bundle.sh" --key "$KEY" --gateway gw --version 5.0.1 --schema 8 --out . ) >/dev/null 2>&1; eq "sign with --out . and no eve-gw: rc" "$?" 0
+eq "no-eve-gw bundle members" "$(tar -tf "$B/eve-5.0.1.tar" | sort | tr '\n' ' ')" "MANIFEST gateway "
+cp "$B/out/rel/eve-5.0.1.tar" "$B/staging/eve-5.0.1.tar"; cp "$B/out/rel/eve-5.0.1.tar.sig" "$B/staging/eve-5.0.1.tar.sig"
+run_main deploy 5.0.1; eq "relatively-signed bundle deploys" "$?" 0
+
+# 16. the entrypoint starts from a clean environment and ignores inherited functions (executed path)
+new_box 24
+( env -i PATH=/usr/bin:/bin BASH_FUNC_printf%%='() { echo pwned >"'"$B"'/pwn"; }' EVE_STATE=/nonexistent bash "$ENTRY" rollback ) >/dev/null 2>&1; eq "executed as non-root: rc" "$?" 1
+[ ! -e "$B/pwn" ] && ok || bad "inherited exported function ran"
+
 # ---------------- setup / uninstall (sandboxed; real run needs root + macOS) ----------------
 S=$T/setup; mkdir -p "$S/sudoers.d"; echo "#includedir $S/sudoers.d" >"$S/sudoers"
-SHA=$(sha256sum "$ENTRY" | cut -d' ' -f1)
+SHA=$(sha256 "$ENTRY")
+FP=$(ssh-keygen -l -f "$KEY.pub" | awk '{print $2}')
+mkdir -p "$S/bin"; echo gw >"$S/bin/gateway"
 setup_env() { env EVE_LIBEXEC=$S/libexec EVE_STATE=$S/state EVE_SUDOERS_D=$S/sudoers.d EVE_SUDOERS_MAIN=$S/sudoers EVE_LOGF=$S/log \
-  EVE_OWNER="$ME:$(id -gn)" EVE_SKIP_ROOT=1 EVE_SKIP_CHAIN=1 EVE_SKIP_FULL_VISUDO=1 SUDO_USER="$ME" "$@"; }
+  EVE_OWNER="$ME:$(id -gn)" EVE_SKIP_ROOT=1 EVE_CHAIN_UID=$MYUID EVE_CHAIN_STOP=$T EVE_BIN_DIR=$S/bin EVE_SKIP_FULL_VISUDO=1 SUDO_USER="$ME" "$@"; }
 run_setup() { setup_env bash "$D/setup-deploy-nopasswd.sh" "$@" >"$S/out" 2>&1; }
 no_ "setup: no args" run_setup
-no_ "setup: wrong sha" run_setup --expect-sha256 0000 --pubkey "$KEY.pub" --current 5.0.0 --schema 8
-no_ "setup: bad version" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0 --schema 8
-no_ "setup: bad schema" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema x
-no_ "setup: private key refused as pubkey" run_setup --expect-sha256 "$SHA" --pubkey "$KEY" --current 5.0.0 --schema 8
-no_ "setup: unknown arg" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 --evil 1
-( setup_env SUDO_USER=root bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup: root user refused" "$?" 1
+no_ "setup: wrong sha" run_setup --expect-sha256 0000 --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+no_ "setup: bad version" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0 --schema 8
+no_ "setup: bad schema" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema x
+no_ "setup: private key refused as pubkey" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY" --current 5.0.0 --schema 8
+no_ "setup: unknown arg" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 --evil 1
+( setup_env SUDO_USER=root bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup: root user refused" "$?" 1
 [ ! -e "$S/sudoers.d/eve-deploy" ] && ok || bad "failed setups must install nothing"
-yes_ "setup: ok" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+yes_ "setup: ok" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
 F=$S/sudoers.d/eve-deploy
 yes_ "sudoers snippet passes visudo -c" /usr/sbin/visudo -c -q -f "$F"
 eq "sudoers: exactly one rule line + one Defaults" "$(grep -vc '^#' "$F")" 2
 eq "sudoers: rule is user + exact path" "$(grep -v '^#' "$F" | grep -c "^$ME ALL=(root) NOPASSWD: NOSETENV: $S/libexec/deploy\$")" 1
 if grep -v '^#' "$F" | grep -Eq '[*?]|[ :]SETENV:|, *ALL|: *ALL *$|\(ALL'; then bad "sudoers has wildcard / ALL command"; else ok; fi
 eq "sudoers: env_reset, no setenv" "$(grep -c "^Defaults!$S/libexec/deploy env_reset, !setenv\$" "$F")" 1
-eq "sudoers mode 0440" "$(stat -c %a "$F" 2>/dev/null || stat -f %Lp "$F")" 440
-eq "entrypoint mode 0755" "$(stat -c %a "$S/libexec/deploy" 2>/dev/null || stat -f %Lp "$S/libexec/deploy")" 755
-eq "allowed_signers mode 0644" "$(stat -c %a "$S/libexec/allowed_signers" 2>/dev/null || stat -f %Lp "$S/libexec/allowed_signers")" 644
+eq "sudoers mode 0440" "$(modeof "$F")" 440
+eq "entrypoint mode 0755" "$(modeof "$S/libexec/deploy")" 755
+eq "allowed_signers mode 0644" "$(modeof "$S/libexec/allowed_signers")" 644
 eq "allowed_signers is namespace-pinned" "$(cut -d' ' -f1,2 "$S/libexec/allowed_signers")" 'eve-release namespaces="eve-deploy"'
-eq "state dir 0700" "$(stat -c %a "$S/state" 2>/dev/null || stat -f %Lp "$S/state")" 700
-eq "staging dir 0700" "$(stat -c %a "$S/libexec/staging" 2>/dev/null || stat -f %Lp "$S/libexec/staging")" 700
+eq "state dir 0700" "$(modeof "$S/state")" 700
+eq "staging dir 0700" "$(modeof "$S/libexec/staging")" 700
 eq "state seeded" "$(cat "$S/state/current_version")/$(cat "$S/state/schema")/$(cat "$S/state/allowed_user")" "5.0.0/8/$ME"
-eq "installed entrypoint == reviewed file" "$(sha256sum "$S/libexec/deploy" | cut -d' ' -f1)" "$SHA"
+eq "installed entrypoint == reviewed file" "$(sha256 "$S/libexec/deploy")" "$SHA"
 # a bundle signed by the key that setup pinned verifies through the real ssh-keygen path
 ( SIGNERS=$S/libexec/allowed_signers; ROOT_UID=$MYUID; B=$T/box.1; SUDO_USER=$ME; verify_sig "$B/out/eve-5.0.1.tar" "$B/out/eve-5.0.1.tar.sig" ) >/dev/null 2>&1; eq "setup-pinned key verifies a signed bundle" "$?" 0
 # uninstall: sudoers goes first and always; --purge is the only thing that deletes state
@@ -245,12 +307,46 @@ yes_ "uninstall: plain" run_un
 yes_ "uninstall: purge" run_un --purge
 [ ! -e "$S/state" ] && ok || bad "purge removes state"
 
+# ---- setup: H1/H2/M1/M3 -- the chain check runs for real (no skip), fingerprint is required, copies are what gets installed ----
+rm -rf "$S/libexec" "$S/state" "$S/log" "$S/sudoers.d/eve-deploy"
+no_ "setup: fingerprint required" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+no_ "setup: wrong fingerprint refused" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "SHA256:$(printf 'A%.0s' $(seq 1 43))" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+no_ "setup: malformed fingerprint refused" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "SHA256:short" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+no_ "setup: other key's fingerprint refused" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$(ssh-keygen -l -f "$KEY2.pub" | awk '{print $2}')" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+[ ! -e "$S/libexec" ] && ok || bad "refused setups must not create anything"
+yes_ "setup prints the fingerprint" run_setup --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
+grep -q "signing key fingerprint: $FP" "$S/out" && ok || bad "setup must print the fingerprint"
+eq "log file mode 0600 (no install /dev/null)" "$(modeof "$S/log")" 600
+if grep -n 'install .*/dev/null' "$D/setup-deploy-nopasswd.sh" | grep -v '^[0-9]*:[[:space:]]*#' | grep -v 'BSD install rejects' | grep -q .; then bad "setup must not 'install … /dev/null' (BSD install rejects it)"; else ok; fi
+# chain: group-writable parent, a parent that resolves (through a symlink) to a world-writable dir, wrong owner, missing gateway, BIN_DIR perms
+CH=$T/chain; mkdir -p "$CH/real/lib" "$CH/ww" "$CH/bin"; chmod 0777 "$CH/ww"; echo gw >"$CH/bin/gateway"
+chain_setup() { # $1 libexec  $2 state  [env…]
+  local l=$1 st=$2; shift 2
+  env EVE_LIBEXEC="$l" EVE_STATE="$st" EVE_SUDOERS_D=$S/sudoers.d EVE_SUDOERS_MAIN=$S/sudoers EVE_LOGF=$S/log2 EVE_OWNER="$ME:$(id -gn)" EVE_SKIP_ROOT=1 \
+    EVE_CHAIN_UID=$MYUID EVE_CHAIN_STOP=$T EVE_BIN_DIR=$CH/bin EVE_SKIP_FULL_VISUDO=1 SUDO_USER="$ME" "$@" \
+    bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 >"$S/out" 2>&1; }
+yes_ "chain: normal sandbox passes" chain_setup "$CH/ok/libexec" "$CH/ok/state"
+chmod 0775 "$CH/real"; no_ "chain: group-writable parent refused" chain_setup "$CH/real/libexec" "$CH/real/state"; chmod 0755 "$CH/real"
+ln -s "$CH/real" "$CH/ln"; yes_ "chain: symlinked parent that resolves to a closed dir is fine (macOS /var)" chain_setup "$CH/ln/libexec" "$CH/ln/state"
+ln -s "$CH/ww" "$CH/lnw"; no_ "chain: symlinked parent resolving to a world-writable dir refused" chain_setup "$CH/lnw/libexec" "$CH/lnw/state"
+mkdir -p "$CH/fin"; ln -s "$CH/real/lib" "$CH/fin/libexec"; no_ "chain: install dir itself a symlink refused" chain_setup "$CH/fin/libexec" "$CH/fin/state"
+no_ "chain: wrong owner refused" chain_setup "$CH/own/libexec" "$CH/own/state" EVE_CHAIN_UID=$((MYUID + 1))
+no_ "chain: BIN_DIR without gateway refused" chain_setup "$CH/nb/libexec" "$CH/nb/state" EVE_BIN_DIR=$CH/ww
+chmod 0775 "$CH/bin"; no_ "chain: group-writable BIN_DIR refused" chain_setup "$CH/gb/libexec" "$CH/gb/state"; chmod 0755 "$CH/bin"
+# without the stop dir the real /tmp (world-writable) ancestors make the chain fail: the check is live, not skipped
+no_ "chain: runs for real (sandbox under a world-writable parent refused)" chain_setup "$CH/rl/libexec" "$CH/rl/state" EVE_CHAIN_STOP=
+
 # ---------------- static checks on the entrypoint ----------------
 if grep -nE '\beval\b|\bsource\b|^\s*\. |\bsh -c\b|\bbash -c\b' "$ENTRY" | grep -v '^[0-9]*:\s*#' | grep -q .; then bad "entrypoint must not eval/source/sh -c"; else ok; fi
 if grep -nE '(^|[ ;(`|&])(rm|cp|mv|install|chmod|chown|tar|mktemp|head|cat|sed|awk|grep|sort|tr|id|curl|stat|ssh-keygen|launchctl|logger|seq|sleep|date|shasum|sha256sum|mkdir|rmdir) ' "$ENTRY" | grep -vE '^[0-9]+:\s*#' | grep -vE '/(usr/)?(s?bin)/' | grep -E '^[0-9]+:\s*[a-z]' | grep -vE '^[0-9]+:\s*(local|log|die|case|if|for|\[)' | grep -q .; then
   echo "note: review unqualified command names in eve-deploy"; fi
 no_ "entrypoint reads no getenv-style overrides" grep -nE '\$\{(LIBEXEC|STATE|SIGNERS|BIN_DIR|STAGING|LOGF)[:=-]' "$ENTRY"
 eq "entrypoint is executable bash 3.2-safe (no assoc arrays / \${,,})" "$(grep -cE 'declare -A|\$\{[A-Za-z_]+(,,|\^\^)\}|mapfile|readarray' "$ENTRY")" 0
+
+# the README one-liner pins the real hashes of the three root-run scripts
+for f in eve-deploy setup-deploy-nopasswd.sh uninstall-deploy-nopasswd.sh; do
+  grep -q "$(sha256 "$D/$f")" "$D/README.md" && ok || bad "README hash for $f is stale (update the one-line install command)"
+done
 
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]

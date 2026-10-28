@@ -6,6 +6,15 @@ on:
 permissions:
   contents: read
 jobs:
+  deploy-nopasswd-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: passwordless-deploy tests on macOS (system bash 3.2, BSD tools, no sudo)
+        run: |
+          set -eux
+          /bin/bash --version | head -1
+          /bin/bash deploy/nopasswd/test/run.sh
   test:
     runs-on: ubuntu-latest
     services:
