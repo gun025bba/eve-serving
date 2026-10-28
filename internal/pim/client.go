@@ -57,7 +57,24 @@ type Event struct {
 	End      string `json:"end"`
 	AllDay   bool   `json:"all_day"`
 	Calendar string `json:"calendar"`
+	// CalendarID is opaque; it is the value calendar_add_event takes.
+	CalendarID string `json:"calendar_id"`
 }
+
+// Calendar is what the helper's list_calendars returns: id, name and whether
+// events may be added. Never any event content.
+type Calendar struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Writable bool   `json:"writable"`
+}
+
+type Calendars struct {
+	Calendars []Calendar `json:"calendars"`
+}
+
+// MaxCalendars bounds a list_calendars answer.
+const MaxCalendars = 200
 
 type Reminder struct {
 	ID    string  `json:"id"`
@@ -82,6 +99,8 @@ type Reminders struct {
 type Reader interface {
 	ListEvents(ctx context.Context, from, to time.Time) (Events, error)
 	ListReminders(ctx context.Context, dueBefore *time.Time, includeDone bool) (Reminders, error)
+	// ListCalendars is the helper's read-only list_calendars (id, name, writable).
+	ListCalendars(ctx context.Context) (Calendars, error)
 }
 
 // Client talks to eve-pim over its unix socket, one request per connection.
@@ -147,6 +166,15 @@ func (c *Client) ListReminders(ctx context.Context, dueBefore *time.Time, includ
 	err := c.call(ctx, "list_reminders", p, &out)
 	if len(out.Reminders) > MaxReminders {
 		out.Reminders, out.Truncated = out.Reminders[:MaxReminders], true
+	}
+	return out, err
+}
+
+func (c *Client) ListCalendars(ctx context.Context) (Calendars, error) {
+	var out Calendars
+	err := c.call(ctx, "list_calendars", struct{}{}, &out)
+	if len(out.Calendars) > MaxCalendars {
+		out.Calendars = out.Calendars[:MaxCalendars]
 	}
 	return out, err
 }

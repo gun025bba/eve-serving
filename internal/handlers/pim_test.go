@@ -27,7 +27,11 @@ func (f *fakePim) ListEvents(context.Context, time.Time, time.Time) (pim.Events,
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	return pim.Events{Events: []pim.Event{{ID: "e1", Title: "치과 예약", Start: "s", End: "e", Calendar: "c"}}}, f.err
+	return pim.Events{Events: []pim.Event{{ID: "e1", Title: "치과 예약", Start: "2026-10-28T09:30:00Z", End: "2026-10-28T10:00:00Z", Calendar: "c", CalendarID: "cal1"}}}, f.err
+}
+
+func (f *fakePim) ListCalendars(context.Context) (pim.Calendars, error) {
+	return pim.Calendars{}, f.err
 }
 
 func (f *fakePim) ListReminders(context.Context, *time.Time, bool) (pim.Reminders, error) {
