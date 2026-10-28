@@ -12,8 +12,10 @@ public enum PimMethod: String, CaseIterable, Sendable {
     case listReminders = "list_reminders"
     case addReminder = "add_reminder"
     case completeReminder = "complete_reminder"
+    case listCalendars = "list_calendars"
+    case addEvent = "add_event"
 
-    public var isWrite: Bool { self == .addReminder || self == .completeReminder }
+    public var isWrite: Bool { self == .addReminder || self == .completeReminder || self == .addEvent }
 
     /// Exact params keys per method (required + optional).
     var allowedParams: Set<String> {
@@ -22,6 +24,8 @@ public enum PimMethod: String, CaseIterable, Sendable {
         case .listReminders: return ["due_before", "include_done"]
         case .addReminder: return ["title", "due", "list"]
         case .completeReminder: return ["id"]
+        case .listCalendars: return []
+        case .addEvent: return ["title", "start", "end", "all_day", "location", "notes", "calendar_id"]
         }
     }
 }
@@ -51,6 +55,10 @@ public enum Limits {
     public static let maxIDChars = 256
     public static let maxListChars = 100
     public static let maxRequestIDChars = 64
+    public static let maxLocationChars = 200
+    public static let maxNotesChars = 500
+    public static let maxEventSeconds: TimeInterval = 7 * 24 * 3600
+    public static let maxAllDaySeconds: TimeInterval = 31 * 24 * 3600
 }
 
 public enum PimRequest: Equatable, Sendable {
@@ -58,6 +66,8 @@ public enum PimRequest: Equatable, Sendable {
     case listReminders(dueBefore: Date?, includeDone: Bool)
     case addReminder(title: String, due: Date?, list: String?)
     case completeReminder(id: String)
+    case listCalendars
+    case addEvent(title: String, start: Date, end: Date, allDay: Bool, location: String?, notes: String?, calendarID: String?)
 
     public var method: PimMethod {
         switch self {
@@ -65,6 +75,8 @@ public enum PimRequest: Equatable, Sendable {
         case .listReminders: return .listReminders
         case .addReminder: return .addReminder
         case .completeReminder: return .completeReminder
+        case .listCalendars: return .listCalendars
+        case .addEvent: return .addEvent
         }
     }
 }
@@ -99,6 +111,10 @@ private struct ListEventsParams: Decodable { let from: String; let to: String }
 private struct ListRemindersParams: Decodable { let due_before: String?; let include_done: Bool? }
 private struct AddReminderParams: Decodable { let title: String; let due: String?; let list: String? }
 private struct CompleteReminderParams: Decodable { let id: String }
+private struct AddEventParams: Decodable {
+    let title: String; let start: String; let end: String; let all_day: Bool?
+    let location: String?; let notes: String?; let calendar_id: String?
+}
 private struct ParamsWrapper<P: Decodable>: Decodable { let params: P }
 
 /// The id of a request, if it can be read, so that error responses can echo it.
@@ -165,6 +181,30 @@ public func parseRequest(_ raw: Data) throws -> ParsedRequest {
         let p = try decode(CompleteReminderParams.self)
         guard let id = try text(p.id, max: Limits.maxIDChars) else { throw PimError(.invalidRequest) }
         req = .completeReminder(id: id)
+    case .listCalendars:
+        req = .listCalendars
+    case .addEvent:
+        let p = try decode(AddEventParams.self)
+        guard let title = try text(p.title, max: Limits.maxTitleChars),
+              let start = try date(p.start), let end = try date(p.end), end > start
+        else { throw PimError(.invalidRequest) }
+        let allDay = p.all_day ?? false
+        let maxLen = allDay ? Limits.maxAllDaySeconds : Limits.maxEventSeconds
+        if end.timeIntervalSince(start) > maxLen { throw PimError(.rangeTooLong) }
+        req = .addEvent(title: title, start: start, end: end, allDay: allDay,
+                        location: try text(p.location, max: Limits.maxLocationChars),
+                        notes: try text(p.notes, max: Limits.maxNotesChars),
+                        calendarID: try text(p.calendar_id, max: Limits.maxIDChars))
     }
     return ParsedRequest(id: env.id, request: req)
+}
+
+/// EventKit stores an all-day event's end as the last second of its last day
+/// (some sources use the start of the last day). The gateway contract is
+/// "exclusive next-day 00:00": the start of the day after the last day.
+public func allDayExclusiveEnd(start: Date, end: Date, tz: TimeZone) -> Date {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = tz
+    let lastDay = cal.startOfDay(for: end > start ? end.addingTimeInterval(-1) : start)
+    return cal.date(byAdding: .day, value: 1, to: lastDay) ?? end
 }
