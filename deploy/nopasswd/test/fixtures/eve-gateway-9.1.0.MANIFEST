@@ -1,0 +1,13 @@
+eve-deploy-manifest=2
+kind=gateway
+version=9.1.0
+git_sha=19d3711160ecc21f5b9746d80e7731c0a8e09218
+repo=gun025bba/eve-serving
+ref=refs/heads/fixture/ci-signed-deploy
+branch=main
+built_at=2026-10-28T13:37:50Z
+schema=8
+target=darwin-arm64
+sha256.gateway=621a09916482367f836056ba4794382cbfa40adce4d08c37447e862aa5426df7
+sha256.eve-gw=b38a99b6ffaec86964f24292b5cf4f095357cae1fd550674f100d3532dfb5ec9
+sha256.bundle=cd7c4f4c12b58023df2f5539ef6488c42337b88be4fd2b004b958a36bbc86aeb

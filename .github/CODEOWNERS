@@ -1,0 +1,7 @@
+# Code owners for the paths that decide what the Mac will install as root.
+# With the main ruleset's "Require review from Code Owners" (docs/deploy-signing.md, pre-install checklist) every change to the
+# signing workflow, the deploy scripts and their documentation needs the owner's approval. The last matching pattern wins.
+/.github/                              @gun025bba
+/deploy/nopasswd/                      @gun025bba
+/docs/deploy-signing.md                @gun025bba
+/docs/runbooks/passwordless-deploy.md  @gun025bba

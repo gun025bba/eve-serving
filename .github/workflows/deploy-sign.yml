@@ -1,0 +1,194 @@
+# Reusable release + signing workflow. THIS FILE IS THE TRUST ROOT of the passwordless deploy: the Mac's entrypoint accepts a release only
+# if its Sigstore certificate says it was produced by `.../.github/workflows/deploy-sign.yml@refs/heads/main`, called by a push of the
+# tag vX.Y.Z in the pinned repository. Callers must reference it as  gun025bba/eve-serving/.github/workflows/deploy-sign.yml@main
+# (NOT ./.github/...: a local call from the tagged commit would run the tag's own copy and get a different, rejected, identity).
+# Keep main protected (see docs/deploy-signing.md); changing this file changes who can ship to the Mac.
+#
+# Rules that must never come back (deploy/nopasswd/test/run.sh fails if one does):
+#   - no test / fixture / bypass input: the inputs below are the only ones, and none of them can relax a check;
+#   - the release guard (push event, tag ref, commit == tip of main) runs first and unconditionally;
+#   - every repository script runs from the checkout of main (.eve-tools), never from the tagged commit;
+#   - three jobs: build (no credentials), sign (id-token only, runs no repository code), publish (contents: write only).
+# Test fixtures are signed by a different workflow file (deploy-sign-fixture.yml): the Mac does not trust that identity.
+name: deploy-sign
+on:
+  workflow_call:
+    inputs:
+      kind:
+        description: gateway | web
+        type: string
+        required: true
+      web-dir:
+        description: web kind - directory with the UI tree (tracked files are packed)
+        type: string
+        default: "."
+      web-exclude:
+        description: web kind - ERE of tracked paths NOT shipped
+        type: string
+        default: '^(\.github/|tests/|review-shots/|README\.md$|\.gitignore$|\.gitattributes$)'
+      migrations-dir:
+        description: gateway kind - goose migrations; the highest NNNNN_ number is the schema version in the manifest
+        type: string
+        default: internal/store/postgres/migrations
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read             # no id-token, no write: this job compiles code from the tagged commit
+    outputs:
+      version: ${{ steps.guard.outputs.version }}
+    env:
+      KIND: ${{ inputs.kind }}
+      WEB_DIR: ${{ inputs.web-dir }}
+      WEB_EXCLUDE: ${{ inputs.web-exclude }}
+      MIGRATIONS_DIR: ${{ inputs.migrations-dir }}
+      REPO: ${{ github.repository }}
+      REF: ${{ github.ref }}
+      SHA: ${{ github.sha }}
+      EVENT: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          repository: gun025bba/eve-serving     # every script below comes from main of the signing repo, never from the tagged commit
+          ref: main
+          path: .eve-tools
+          persist-credentials: false
+      - name: Release guard (push of tag vX.Y.Z, commit is the tip of main)
+        id: guard
+        run: bash .eve-tools/deploy/nopasswd/release-guard.sh
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff   # v5.6.0
+        if: inputs.kind == 'gateway'
+        with:
+          go-version-file: go.mod
+      - name: Build (gateway)
+        if: inputs.kind == 'gateway'
+        env:
+          VER: ${{ steps.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          export GOOS=darwin GOARCH=arm64 CGO_ENABLED=0
+          go build -trimpath -ldflags "-s -w -X main.version=$VER" -o "$RUNNER_TEMP/bin/gateway" ./cmd/gateway
+          go build -trimpath -ldflags "-s -w -X main.version=$VER" -o "$RUNNER_TEMP/bin/eve-gw" ./cmd/eve-gw
+          ls -l "$RUNNER_TEMP/bin"
+      - name: Pack + manifest
+        env:
+          VER: ${{ steps.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$KIND" = gateway ]; then
+            SCHEMA=$(ls "$MIGRATIONS_DIR" | sed -nE 's/^0*([0-9]+)_.*\.sql$/\1/p' | sort -n | tail -1)
+            [ -n "$SCHEMA" ] || { echo "no migrations found in $MIGRATIONS_DIR"; exit 1; }
+            bash .eve-tools/deploy/nopasswd/make-release.sh --kind gateway --version "$VER" --git-sha "$SHA" --repo "$REPO" --ref "$REF" --branch main \
+              --schema "$SCHEMA" --gateway "$RUNNER_TEMP/bin/gateway" --eve-gw "$RUNNER_TEMP/bin/eve-gw" --out "$RUNNER_TEMP/out"
+          else
+            bash .eve-tools/deploy/nopasswd/make-release.sh --kind web --version "$VER" --git-sha "$SHA" --repo "$REPO" --ref "$REF" --branch main \
+              --web-dir "$WEB_DIR" --web-exclude "$WEB_EXCLUDE" --out "$RUNNER_TEMP/out"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
+        with:
+          name: eve-build-${{ inputs.kind }}-${{ steps.guard.outputs.version }}
+          path: ${{ runner.temp }}/out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: deploy          # protection point: tag policy v* (and optional reviewers) under Settings > Environments
+    permissions:
+      id-token: write            # the keyless signing identity (OIDC). The ONLY permission; this job checks out and runs no repository code.
+    env:
+      KIND: ${{ inputs.kind }}
+      REPO: ${{ github.repository }}
+      REF: ${{ github.ref }}
+      SHA: ${{ github.sha }}
+      EVENT: ${{ github.event_name }}
+      BUILD_VERSION: ${{ needs.build.outputs.version }}
+      COSIGN_VERSION: v3.1.4
+      COSIGN_LINUX_AMD64_SHA256: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
+    steps:
+      - name: Re-check the trigger and read the version from the ref (the build job's output is not trusted)
+        id: v
+        run: |
+          set -euo pipefail
+          case "$KIND" in gateway|web) ;; *) echo "bad kind"; exit 1;; esac
+          [ "$EVENT" = push ] || { echo "releases are signed for a tag push only (got $EVENT)"; exit 1; }
+          [[ "$REF" =~ ^refs/tags/v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] || { echo "ref is not refs/tags/vX.Y.Z: $REF"; exit 1; }
+          VER=${REF#refs/tags/v}
+          [ "$BUILD_VERSION" = "$VER" ] || { echo "build job version '$BUILD_VERSION' != $VER"; exit 1; }
+          echo "version=$VER" >>"$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4.3.0
+        with:
+          name: eve-build-${{ inputs.kind }}-${{ needs.build.outputs.version }}
+          path: ${{ runner.temp }}/out
+      - name: Check that the manifest to be signed is exactly this run's release
+        env:
+          VER: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          [ "$(ls | LC_ALL=C sort | tr '\n' ' ')" = "eve-$KIND-$VER.MANIFEST eve-$KIND-$VER.tar " ] || { echo "unexpected build output"; ls -l; exit 1; }
+          M="eve-$KIND-$VER.MANIFEST"
+          for kv in "eve-deploy-manifest=2" "kind=$KIND" "version=$VER" "git_sha=$SHA" "repo=$REPO" "ref=$REF" "branch=main"; do
+            [ "$(grep -c -x -F -- "$kv" "$M")" = 1 ] || { echo "manifest line missing or duplicated: $kv"; exit 1; }
+          done
+          h=$(sha256sum "eve-$KIND-$VER.tar" | cut -d' ' -f1)
+          [ "$(grep -c -x -- "sha256.bundle=$h" "$M")" = 1 ] || { echo "manifest does not match the tar"; exit 1; }
+      - name: Install cosign (pinned by sha256)
+        run: |
+          set -euo pipefail
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/cosign" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_LINUX_AMD64_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/cosign"
+      - name: Sign the manifest (Sigstore keyless; the bundle carries the certificate and the transparency-log proof)
+        env:
+          VER: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          "$RUNNER_TEMP/cosign" sign-blob --yes --bundle "eve-$KIND-$VER.sigstore.json" "eve-$KIND-$VER.MANIFEST"
+          "$RUNNER_TEMP/cosign" verify-blob --bundle "eve-$KIND-$VER.sigstore.json" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/gun025bba/eve-serving/.github/workflows/deploy-sign.yml@refs/heads/main" \
+            --certificate-github-workflow-repository "$REPO" --certificate-github-workflow-ref "$REF" --certificate-github-workflow-sha "$SHA" \
+            --certificate-github-workflow-trigger push \
+            "eve-$KIND-$VER.MANIFEST"
+          ls -l
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
+        with:
+          name: eve-release-${{ inputs.kind }}-${{ steps.v.outputs.version }}
+          path: ${{ runner.temp }}/out/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write            # create the GitHub release. No id-token here, and no repository code is run.
+    env:
+      KIND: ${{ inputs.kind }}
+      REPO: ${{ github.repository }}
+      SHA: ${{ github.sha }}
+      VER: ${{ needs.build.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4.3.0
+        with:
+          name: eve-release-${{ inputs.kind }}-${{ needs.build.outputs.version }}
+          path: ${{ runner.temp }}/out
+      - name: Publish the GitHub release
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          [ "$(ls | LC_ALL=C sort | tr '\n' ' ')" = "eve-$KIND-$VER.MANIFEST eve-$KIND-$VER.sigstore.json eve-$KIND-$VER.tar " ] || { echo "unexpected release files"; ls -l; exit 1; }
+          gh release create "v$VER" --repo "$REPO" --verify-tag --title "$KIND v$VER" \
+            --notes "Signed by CI (Sigstore keyless). Verified on the Mac by /usr/local/libexec/eve/deploy; commit $SHA." \
+            "eve-$KIND-$VER.MANIFEST" "eve-$KIND-$VER.sigstore.json" "eve-$KIND-$VER.tar"

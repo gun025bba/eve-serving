@@ -1,0 +1,9 @@
+eve-deploy-manifest=2
+kind=web
+version=9.1.0
+git_sha=19d3711160ecc21f5b9746d80e7731c0a8e09218
+repo=gun025bba/eve-serving
+ref=refs/heads/fixture/ci-signed-deploy
+branch=main
+built_at=2026-10-28T13:37:51Z
+sha256.bundle=c953d1735f60de3b98f47e81c31e8618cf2dcf21bfde52f985c01281274ca2b2

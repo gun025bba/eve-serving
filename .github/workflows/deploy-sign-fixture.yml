@@ -1,0 +1,63 @@
+# TEST FIXTURES ONLY. Regenerates real Sigstore-signed stub bundles for deploy/nopasswd/test/run.sh (never published to a release).
+# This is a DIFFERENT workflow file from deploy-sign.yml on purpose: the certificate's identity names THIS file, which the Mac does not
+# trust (it pins deploy-sign.yml@refs/heads/main), so nothing signed here can ever be deployed. It is not reusable (no workflow_call),
+# runs only from a throwaway branch fixture/** (push) or by hand, and has no contents: write.
+# Download the artifacts and commit them under deploy/nopasswd/test/fixtures/ (the test's FX_WORKFLOW must then name this file).
+name: deploy-sign-fixture
+on:
+  push:
+    branches: ["fixture/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        kind: [gateway, web]
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      KIND: ${{ matrix.kind }}
+      VER: "9.1.0"
+      REPO: ${{ github.repository }}
+      REF: ${{ github.ref }}
+      SHA: ${{ github.sha }}
+      BRANCH: ${{ github.ref_name }}
+      COSIGN_VERSION: v3.1.4
+      COSIGN_LINUX_AMD64_SHA256: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Install cosign (pinned by sha256)
+        run: |
+          set -euo pipefail
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/cosign" "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
+          echo "$COSIGN_LINUX_AMD64_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/cosign"
+      - name: Pack the stub bundle + manifest
+        run: |
+          set -euo pipefail
+          T=deploy/nopasswd
+          if [ "$KIND" = gateway ]; then
+            bash "$T/make-release.sh" --fixture --kind gateway --version "$VER" --git-sha "$SHA" --repo "$REPO" --ref "$REF" --branch "$BRANCH" --schema 8 \
+              --gateway "$T/test/fixture-src/gateway" --eve-gw "$T/test/fixture-src/eve-gw" --out "$RUNNER_TEMP/out"
+          else
+            bash "$T/make-release.sh" --fixture --kind web --version "$VER" --git-sha "$SHA" --repo "$REPO" --ref "$REF" --branch "$BRANCH" \
+              --web-dir "$T/test/web-fixture" --web-exclude '^$' --out "$RUNNER_TEMP/out"
+          fi
+      - name: Sign the manifest (keyless)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/out"
+          "$RUNNER_TEMP/cosign" sign-blob --yes --bundle "eve-$KIND-$VER.sigstore.json" "eve-$KIND-$VER.MANIFEST"
+          ls -l
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
+        with:
+          name: eve-fixture-${{ matrix.kind }}-9.1.0
+          path: ${{ runner.temp }}/out/*
+          if-no-files-found: error
+          retention-days: 7
