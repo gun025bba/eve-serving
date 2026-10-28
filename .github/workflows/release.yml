@@ -1,0 +1,16 @@
+# Tag a commit that is on main (or release/X.Y.Z) as vX.Y.Z -> this builds darwin/arm64 gateway + eve-gw, signs the manifest keylessly
+# and publishes the three files (MANIFEST, .sigstore.json, .tar) as a GitHub release. No key, no secret, no laptop.
+name: release
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+permissions:
+  contents: read
+jobs:
+  gateway:
+    permissions:
+      contents: write
+      id-token: write
+    uses: gun025bba/eve-serving/.github/workflows/deploy-sign.yml@main   # fixed identity, see deploy-sign.yml
+    with:
+      kind: gateway

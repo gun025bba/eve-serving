@@ -2,11 +2,19 @@
 # eve-deploy: root-owned deploy entrypoint, the ONLY command sudoers allows without a password.
 # Installed (by setup-deploy-nopasswd.sh) at /usr/local/libexec/eve/deploy, root:wheel 0755.
 #
-#   sudo /usr/local/libexec/eve/deploy deploy <X.Y.Z>   # install the signed bundle staged for X.Y.Z (must be > current)
-#   sudo /usr/local/libexec/eve/deploy rollback         # back to the ONE previous version this script kept
+#   sudo /usr/local/libexec/eve/deploy deploy <X.Y.Z>       # gateway (+ eve-gw): install the release staged for X.Y.Z (must be > current)
+#   sudo /usr/local/libexec/eve/deploy rollback             # gateway: back to the ONE previous version this script kept
+#   sudo /usr/local/libexec/eve/deploy deploy-web <X.Y.Z>   # web UI bundle (eve-web), same rules, own version line
+#   sudo /usr/local/libexec/eve/deploy rollback-web         # web UI: back to the ONE previous tree
 #
-# Every other argument is rejected. Nothing here trusts the environment, the caller's PATH or any user-owned file
-# except the staged bundle, which is first copied to a root-only temp dir and verified THERE (never in place).
+# Trust model: a release is trusted only if its MANIFEST carries a Sigstore (keyless) signature made by the pinned CI signing
+# workflow (see docs/deploy-signing.md). Nothing is trusted from the staging directory, the environment or the caller's PATH:
+# the three staged files are copied to a root-only work dir and checked THERE:
+#   1. cosign verify-blob: Fulcio certificate chain + Rekor/TSA proof against the PINNED trusted_root.json (offline), the
+#      certificate identity (signing workflow file @ main), issuer, source repo, triggering ref (refs/tags/vX.Y.Z), commit sha, trigger
+#   2. the MANIFEST is parsed strictly (allow-listed keys); version, kind, repo, ref, branch (main | release/X.Y.Z), schema, arch must match
+#   3. sha256 of the artifact tar == manifest, then of every file inside the tar == manifest
+#   4. version is strictly higher than the installed one (monotonic: downgrade, replay of an older release and "same" are refused)
 # Does not touch config, secrets, the database, or run migrations. Written for macOS /bin/bash 3.2.
 # The shebang is `#!/bin/bash -p` (privileged mode): bash then ignores BASH_ENV/ENV/SHELLOPTS and imports no exported functions,
 # even if the caller's environment is not reset (sudo's env_reset is a second layer, not the only one).
@@ -25,21 +33,40 @@ fi
 # ----- fixed locations (plain assignments: the environment can never override them) -----
 SAFE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LIBEXEC=/usr/local/libexec/eve
-SIGNERS=$LIBEXEC/allowed_signers        # root:wheel 0644, holds the signing PUBLIC key
-STAGING=$LIBEXEC/staging                # owned by the deploy user; only eve-<ver>.tar and eve-<ver>.tar.sig are read
-STATE=/var/db/eve-deploy                # root:wheel 0700: current_version, schema, allowed_user, previous/, work dirs
+COSIGN=$LIBEXEC/cosign                  # root:wheel 0755, pinned by sha256 below (installed by setup from the sigstore release)
+TRUSTED_ROOT=$LIBEXEC/trusted_root.json # root:wheel 0644, Sigstore public-good trust root, pinned by sha256 below
+STAGING=$LIBEXEC/staging                # owned by the deploy user; only eve-<kind>-<ver>.{tar,MANIFEST,sigstore.json} are read
+STATE=/var/db/eve-deploy                # root:wheel 0700: current_version, current_web_version, schema, allowed_user, previous/, previous-web/, work dirs
 LOGF=/var/log/eve-deploy.log            # root:wheel 0600
 BIN_DIR=/opt/eve-gw/bin                 # live gateway + eve-gw (root:wheel 0755)
+WEB_DIR=/opt/eve-gw/web                 # live UI tree (root:wheel 0755), served by the gateway as static_dir
 LABEL=com.llmserving.gateway
 HEAD=/usr/bin/head                      # the only command that can block on a staged file (tests replace it with a slow stub)
 HEALTH_URL=http://127.0.0.1:8000/health
-SIG_NAMESPACE=eve-deploy
-SIG_IDENTITY=eve-release
+UI_URL=http://127.0.0.1:8000/ui/
 MAX_BUNDLE=$((600 * 1024 * 1024))
-MAX_SIG=65536
+MAX_MANIFEST=4096
+MAX_SIGBUNDLE=262144
+MAX_WEB_FILES=5000
 OWNER_ARGS="-o root -g wheel"           # tests clear this
-ROOT_UID=0                              # uid that must own the signers file (tests change this)
+CHOWN_SPEC="root:wheel"                 # tests clear this
+ROOT_UID=0                              # uid that must own cosign / trusted root / web tree (tests change this)
 GW_UID=451                              # _evegw: may never call this script
+HOST_ARCH_WANT=arm64                    # `uname -m` must say this for a gateway release (tests change this)
+
+# ----- the pinned trust root (changing any of these = a new, reviewed entrypoint + a new one-time install) -----
+OIDC_ISSUER=https://token.actions.githubusercontent.com
+# The signing job lives in a REUSABLE workflow on main, called from the tag. The certificate's SAN is the reusable workflow
+# (job_workflow_ref), so a modified workflow file on the tagged commit cannot produce a certificate with this identity.
+SIGNER_IDENTITY=https://github.com/gun025bba/eve-serving/.github/workflows/deploy-sign.yml@refs/heads/main
+SIGNER_TRIGGER=push                     # the run that signed must have been a tag push (not workflow_dispatch / pull_request)
+REPO_GATEWAY=gun025bba/eve-serving      # repo (certificate claim) allowed to sign `kind=gateway`
+REPO_WEB=gun025bba/eve-web              # repo (certificate claim) allowed to sign `kind=web`
+REF_FMT='refs/tags/v%s'                 # the triggering ref must be this tag for the version being installed
+BRANCH_RE='^(main|release/(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8}))$'
+# cosign v3.1.4 (darwin-arm64, darwin-amd64) and the trust root, from sigstore.dev; setup installs exactly these bytes
+COSIGN_SHA256S="9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4 9d1e4abe2b6be279ed0d2ff706fde1ccd738747c834e3e6d44039c238867334f"
+TRUSTED_ROOT_SHA256=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 
 log() { # never log secrets: callers pass only versions, names and hashes
   local m; m="$(date '+%Y-%m-%dT%H:%M:%S%z') $*"
@@ -63,18 +90,20 @@ ver_cmp() {
 }
 valid_schema() { [[ "$1" =~ ^(0|[1-9][0-9]{0,5})$ ]]; }
 
-# ----- argument parsing: ONLY `deploy <version>` or `rollback` -----
-ACTION=""; TARGET=""
+# ----- argument parsing: ONLY `deploy <v>`, `rollback`, `deploy-web <v>`, `rollback-web` -----
+ACTION=""; TARGET=""; KIND=""
 parse_args() {
-  ACTION=""; TARGET=""
+  ACTION=""; TARGET=""; KIND=""
   case "$#" in
-    1) [ "$1" = rollback ] || return 1; ACTION=rollback;;
-    2) [ "$1" = deploy ] || return 1; valid_version "$2" || return 1; ACTION=deploy; TARGET=$2;;
+    1) case "$1" in rollback) ACTION=rollback; KIND=gateway;; rollback-web) ACTION=rollback; KIND=web;; *) return 1;; esac;;
+    2) case "$1" in deploy) KIND=gateway;; deploy-web) KIND=web;; *) return 1;; esac
+       valid_version "$2" || { KIND=""; return 1; }
+       ACTION=deploy; TARGET=$2;;
     *) return 1;;
   esac
   return 0
 }
-usage() { printf 'usage: deploy <X.Y.Z> | rollback   (X.Y.Z must be higher than the installed version)\n' >&2; }
+usage() { printf 'usage: deploy <X.Y.Z> | rollback | deploy-web <X.Y.Z> | rollback-web   (X.Y.Z must be higher than the installed version)\n' >&2; }
 
 # ----- small helpers (all absolute paths) -----
 require_root() { [ "$(/usr/bin/id -u)" = 0 ] || die "must run as root (via sudo)"; }
@@ -87,6 +116,7 @@ dir_ok() { # $1 dir: exists, root-owned, not writable by group/other (-L: a syml
 }
 stat_size() { /usr/bin/stat -c %s "$1" 2>/dev/null || /usr/bin/stat -f %z "$1" 2>/dev/null; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
+sha_stdin() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum | /usr/bin/awk '{print $1}'; fi; }
 read_state() { # $1 file; first line only, must be a plain token
   [ -f "$STATE/$1" ] && [ ! -L "$STATE/$1" ] || return 1
   local v; IFS= read -r v <"$STATE/$1" || true
@@ -105,6 +135,11 @@ health_ok() { local _ b; for _ in $(/usr/bin/seq 1 60); do
     b=$(/usr/bin/curl -s -m 3 "$HEALTH_URL" 2>/dev/null || true)
     [ "$b" = '{"status":"ok"}' ] && return 0
     /bin/sleep 1; done; return 1; }
+ui_ok() { local _ c; for _ in $(/usr/bin/seq 1 10); do   # the UI is served from disk per request: 200 on /ui/ after the swap
+    c=$(/usr/bin/curl -s -m 3 -o /dev/null -w '%{http_code}' "$UI_URL" 2>/dev/null || true)
+    [ "$c" = 200 ] && return 0
+    /bin/sleep 1; done; return 1; }
+host_arch() { /usr/bin/uname -m 2>/dev/null; }
 
 # who may call: exactly the user setup recorded; never root-by-itself, never _evegw
 check_caller() {
@@ -117,19 +152,23 @@ check_caller() {
   [ "${SUDO_UID:-}" = "$uid" ] || die "SUDO_UID mismatch"
 }
 
-WORK=""
-# From the moment the live binaries are about to be snapshotted until the new version is recorded, a half-finished swap must run to
+WORK=""; NEWWEB=""; OLDWEB=""
+# From the moment the live files are about to be snapshotted until the new version is recorded, a half-finished swap must run to
 # its health check / automatic restore, so INT/TERM/HUP/QUIT are ignored ONLY for that window. Before it (waiting for / reading
-# the staged files) the default action applies: Ctrl-C or kill aborts at once and the EXIT trap removes the work dir and the lock.
+# the staged files, verifying) the default action applies: Ctrl-C or kill aborts at once and the EXIT trap removes the work dir and the lock.
 swap_window() { trap '' INT TERM HUP QUIT; }
 # Outside the window a signal must end the run AND clean up. bash 3.2 (macOS) does not run the EXIT trap when a signal kills
 # the shell, so INT/TERM/HUP/QUIT are trapped to `exit`, and the one blocking read (copy_staged) runs in the background under
 # `wait`, which a trapped signal interrupts at once (a foreground read of a FIFO would defer the trap until it ends).
 COPY_PID=""
 abort_run() { [ -z "$COPY_PID" ] || kill "$COPY_PID" 2>/dev/null; log "aborted by a signal before the swap window"; exit 1; }
-cleanup() { [ -z "$WORK" ] || { /bin/rm -rf "$WORK"; WORK=""; }; /bin/rmdir "$STATE/lock" 2>/dev/null || true; }
+cleanup() {
+  [ -z "$NEWWEB" ] || { /bin/rm -rf "$NEWWEB"; NEWWEB=""; }
+  [ -z "$WORK" ] || { /bin/rm -rf "$WORK"; WORK=""; }
+  /bin/rmdir "$STATE/lock" 2>/dev/null || true
+}
 
-# ----- verification of the staged bundle -----
+# ----- staged files: copy first, verify the copy -----
 # copy ($1 src, $2 dst, $3 max bytes) a user-owned staging file into the root-only work dir.
 # The staging file must be a regular non-symlink owned by the deploy user; everything after this reads the COPY only.
 copy_staged() {
@@ -142,25 +181,102 @@ copy_staged() {
   sz=$(stat_size "$dst")
   [ "$sz" -gt 0 ] && [ "$sz" -le "$max" ] || die "bad size for ${src##*/}"
 }
-verify_sig() { # $1 bundle copy $2 signature copy: against the pinned public key only
-  [ -f "$SIGNERS" ] && [ ! -L "$SIGNERS" ] && [ "$(stat_uid "$SIGNERS")" = "$ROOT_UID" ] || die "signers file missing or not root-owned"
-  /usr/bin/ssh-keygen -Y verify -f "$SIGNERS" -I "$SIG_IDENTITY" -n "$SIG_NAMESPACE" -s "$2" <"$1" >/dev/null 2>&1 \
-    || die "signature verification FAILED"
-}
-manifest_get() { # $1 file $2 key -> value of the single line key=value
+
+# ----- the MANIFEST: strict, allow-listed key=value lines (parsed BEFORE the signature is checked only to learn what to check it against) -----
+MF_COMMON="eve-deploy-manifest kind version git_sha repo ref branch built_at sha256.bundle"
+MF_GATEWAY="schema target sha256.gateway sha256.eve-gw"
+manifest_get() { # $1 file $2 key -> value of the single line key=value (fails unless exactly one such line)
   local n; n=$(/usr/bin/grep -c -E "^$2=" "$1" || true)
   [ "$n" = 1 ] || return 1
   /usr/bin/grep -E "^$2=" "$1" | /usr/bin/sed "s/^$2=//"
 }
-unpack_bundle() { # $1 verified copy of the tar, $2 empty dir. Members: MANIFEST + gateway (+ eve-gw, optional)
+manifest_shape() { # $1 file $2 kind: size/line limits, line charset, only known keys, no duplicates, required keys present
+  local f=$1 kind=$2 line key allowed n=0 need k seen=" "
+  [ "$(stat_size "$f")" -le "$MAX_MANIFEST" ] || return 1
+  allowed=" $MF_COMMON "; [ "$kind" = gateway ] && allowed=" $MF_COMMON $MF_GATEWAY "
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); [ "$n" -le 30 ] || return 1
+    [[ "$line" =~ ^[a-z][a-z0-9.-]*=[A-Za-z0-9_./:+@-]*$ ]] || return 1
+    key=${line%%=*}
+    case "$allowed" in *" $key "*) ;; *) return 1;; esac
+    case "$seen" in *" $key "*) return 1;; esac
+    seen="$seen$key "
+  done <"$f"
+  need="$MF_COMMON"; [ "$kind" = gateway ] && need="$MF_COMMON schema target sha256.gateway"
+  for k in $need; do case "$seen" in *" $k "*) ;; *) return 1;; esac; done
+}
+# $1 manifest copy, $2 kind, $3 requested version, $4 installed schema (gateway). Sets MF_* globals. The text checks are cheap
+# and repeated by the signature (repo / ref / sha are certificate claims), so a forged manifest fails twice.
+MF_SHA=""; MF_REPO=""; MF_REF=""; MF_BUNDLE_SHA=""
+manifest_check() {
+  local f=$1 kind=$2 v=$3 sch=$4 x want_repo want_ref
+  manifest_shape "$f" "$kind" || die "manifest malformed"
+  [ "$(manifest_get "$f" eve-deploy-manifest)" = 2 ] || die "bad manifest format"
+  [ "$(manifest_get "$f" kind)" = "$kind" ] || die "manifest kind != $kind"
+  [ "$(manifest_get "$f" version)" = "$v" ] || die "manifest version != requested version"
+  MF_SHA=$(manifest_get "$f" git_sha); [[ "$MF_SHA" =~ ^[0-9a-f]{40}$ ]] || die "manifest git_sha malformed"
+  want_repo=$REPO_GATEWAY; [ "$kind" = web ] && want_repo=$REPO_WEB
+  MF_REPO=$(manifest_get "$f" repo); [ "$MF_REPO" = "$want_repo" ] || die "manifest repo is not the pinned $kind repo"
+  # shellcheck disable=SC2059
+  want_ref=$(printf "$REF_FMT" "$v"); MF_REF=$(manifest_get "$f" ref)
+  [ "$MF_REF" = "$want_ref" ] || die "manifest ref is not $want_ref"
+  x=$(manifest_get "$f" branch); [[ "$x" =~ $BRANCH_RE ]] || die "release commit is not on main or release/X.Y.Z"
+  x=$(manifest_get "$f" built_at); [[ "$x" =~ ^20[0-9]{2}-[01][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z$ ]] || die "manifest built_at malformed"
+  MF_BUNDLE_SHA=$(manifest_get "$f" sha256.bundle); [[ "$MF_BUNDLE_SHA" =~ ^[0-9a-f]{64}$ ]] || die "manifest bundle hash malformed"
+  if [ "$kind" = gateway ]; then
+    [ "$(manifest_get "$f" schema)" = "$sch" ] || die "schema differs from installed: use the migration deploy script"
+    [ "$(manifest_get "$f" target)" = darwin-arm64 ] || die "manifest target is not darwin-arm64"
+    [ "$(host_arch)" = "$HOST_ARCH_WANT" ] || die "this host is not $HOST_ARCH_WANT"
+    x=$(manifest_get "$f" sha256.gateway); [[ "$x" =~ ^[0-9a-f]{64}$ ]] || die "manifest gateway hash malformed"
+    if x=$(manifest_get "$f" sha256.eve-gw); then [[ "$x" =~ ^[0-9a-f]{64}$ ]] || die "manifest eve-gw hash malformed"; fi
+  fi
+}
+
+tool_ok() { # the pinned verifier and trust root: root-owned regular files with the pinned hashes (every deploy)
+  local h
+  [ -f "$COSIGN" ] && [ ! -L "$COSIGN" ] && [ "$(stat_uid "$COSIGN")" = "$ROOT_UID" ] && [ -x "$COSIGN" ] || die "cosign missing or not root-owned"
+  [ $(( 0$(stat_mode "$COSIGN") & 0022 )) = 0 ] || die "cosign is group/world writable"
+  h=$(sha_of "$COSIGN"); case " $COSIGN_SHA256S " in *" $h "*) ;; *) die "cosign hash is not the pinned one";; esac
+  [ -f "$TRUSTED_ROOT" ] && [ ! -L "$TRUSTED_ROOT" ] && [ "$(stat_uid "$TRUSTED_ROOT")" = "$ROOT_UID" ] || die "trusted root missing or not root-owned"
+  [ $(( 0$(stat_mode "$TRUSTED_ROOT") & 0022 )) = 0 ] || die "trusted root is group/world writable"
+  [ "$(sha_of "$TRUSTED_ROOT")" = "$TRUSTED_ROOT_SHA256" ] || die "trusted root hash is not the pinned one"
+}
+# $1 manifest copy $2 sigstore bundle copy $3 repo $4 ref $5 commit sha. Offline: bundle + pinned trusted root, cosign never
+# initialises TUF, and runs with an empty environment in the work dir. Any failure (bad signature, wrong identity/issuer/repo/ref/
+# sha/trigger, expired or foreign certificate, missing transparency proof, ...) is a refusal.
+verify_sig() {
+  tool_ok
+  /bin/mkdir -p "$WORK/home" "$WORK/tmp"
+  ( cd "$WORK" && /usr/bin/env -i PATH="$SAFE_PATH" HOME="$WORK/home" TMPDIR="$WORK/tmp" LC_ALL=C "$COSIGN" verify-blob \
+      --bundle "$2" --trusted-root "$TRUSTED_ROOT" \
+      --certificate-oidc-issuer "$OIDC_ISSUER" --certificate-identity "$SIGNER_IDENTITY" \
+      --certificate-github-workflow-repository "$3" --certificate-github-workflow-ref "$4" \
+      --certificate-github-workflow-sha "$5" --certificate-github-workflow-trigger "$SIGNER_TRIGGER" "$1" ) >"$WORK/cosign.out" 2>&1 \
+    || { log "cosign said: $(/usr/bin/head -c 400 "$WORK/cosign.out" | /usr/bin/tr '\n' ' ')"; die "signature verification FAILED"; }
+}
+# copy + verify + check the three staged files of one release. $1 kind $2 version $3 installed schema. Leaves the verified
+# artifact tar at $WORK/bundle.tar and its manifest at $WORK/MANIFEST.
+stage_and_verify() {
+  local kind=$1 v=$2 base
+  base="$STAGING/eve-$kind-$v"
+  copy_staged "$base.MANIFEST" "$WORK/MANIFEST" "$MAX_MANIFEST"
+  copy_staged "$base.sigstore.json" "$WORK/MANIFEST.sigstore.json" "$MAX_SIGBUNDLE"
+  copy_staged "$base.tar" "$WORK/bundle.tar" "$MAX_BUNDLE"
+  manifest_check "$WORK/MANIFEST" "$kind" "$v" "$3"
+  verify_sig "$WORK/MANIFEST" "$WORK/MANIFEST.sigstore.json" "$MF_REPO" "$MF_REF" "$MF_SHA"
+  log "signature OK for $kind $v (commit $MF_SHA, $(manifest_get "$WORK/MANIFEST" branch), built $(manifest_get "$WORK/MANIFEST" built_at))"
+  [ "$(sha_of "$WORK/bundle.tar")" = "$MF_BUNDLE_SHA" ] || die "artifact hash != manifest"
+}
+
+unpack_bundle() { # $1 verified copy of the tar, $2 empty dir. Members: gateway (+ eve-gw, optional)
   local names; names=$(/usr/bin/tar -tf "$1" 2>/dev/null | /usr/bin/sort | /usr/bin/tr '\n' ' ') || die "unreadable bundle"
-  case "$names" in "MANIFEST eve-gw gateway "|"MANIFEST gateway ") ;; *) die "bundle must contain exactly MANIFEST, gateway and optionally eve-gw";; esac
+  case "$names" in "eve-gw gateway "|"gateway ") ;; *) die "bundle must contain exactly gateway and optionally eve-gw";; esac
   /usr/bin/tar -tvf "$1" 2>/dev/null | /usr/bin/awk '{print substr($1,1,1)}' | /usr/bin/grep -qv -- '-' && die "bundle has non-regular entries"
   /usr/bin/tar -xof "$1" -C "$2" 2>/dev/null || die "cannot unpack bundle"
   local f; for f in $names; do [ -f "$2/$f" ] && [ ! -L "$2/$f" ] || die "bad bundle member $f"; done
 }
 
-# ----- install / restore -----
+# ----- gateway install / restore -----
 # eve-gw is optional on the host (the runbooks install only `gateway`): it is handled only if present.
 bindir_ok() { dir_ok "$(/usr/bin/dirname "$BIN_DIR")" && dir_ok "$BIN_DIR" && [ -f "$BIN_DIR/gateway" ] && [ ! -L "$BIN_DIR/gateway" ]; }
 snapshot_live() { # $1 dir: copy of the live binaries + hashes + version; line 2 of sha256 is "-" when the host has no eve-gw
@@ -195,10 +311,59 @@ swap_and_check() { # $1 dir with the new binaries; $2 snapshot dir to fall back 
   return 1
 }
 
+# ----- web UI install / restore (a whole tree under WEB_DIR; the gateway reads it per request, so no restart) -----
+webdir_ok() { dir_ok "$(/usr/bin/dirname "$WEB_DIR")" && dir_ok "$WEB_DIR" && [ ! -L "$WEB_DIR" ]; }
+web_tree_clean() { # $1 tree: only regular files and directories, nothing group/world writable
+  [ -z "$(/usr/bin/find "$1" ! -type f ! -type d -print 2>/dev/null | /usr/bin/head -c 1)" ] || return 1
+  [ -z "$(/usr/bin/find "$1" \( -perm -0020 -o -perm -0002 \) -print 2>/dev/null | /usr/bin/head -c 1)" ]
+}
+tree_digest() { # $1 tree: sha256 over the sorted "<sha256>  <relative path>" lines (detects any content change; used for the kept previous tree)
+  ( cd "$1" && /usr/bin/find . -type f -print0 | while IFS= read -r -d '' f; do printf '%s  %s\n' "$(sha_of "$f")" "$f"; done | LC_ALL=C /usr/bin/sort | sha_stdin )
+}
+unpack_web() { # $1 verified copy of the tar, $2 new (empty, root-owned) dir on the same filesystem as WEB_DIR
+  local list t n
+  list=$(/usr/bin/tar -tf "$1" 2>/dev/null) || die "unreadable web bundle"
+  n=$(printf '%s\n' "$list" | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+  [ "$n" -ge 1 ] && [ "$n" -le "$MAX_WEB_FILES" ] || die "web bundle has an unreasonable number of entries"
+  # names: relative, no "." / ".." components, plain characters only (nothing a shell, a path walker or the URL space could trip on)
+  printf '%s\n' "$list" | /usr/bin/awk '
+    !/^[A-Za-z0-9_@+-][A-Za-z0-9._@+\/-]*$/ { exit 1 }
+    /(^|\/)\.\.?(\/|$)/ { exit 1 }
+    /\/\// { exit 1 }' || die "web bundle has an unsafe member name"
+  t=$(/usr/bin/tar -tvf "$1" 2>/dev/null | /usr/bin/awk '{print substr($1,1,1)}' | /usr/bin/sort -u | /usr/bin/tr -d '\n')
+  case "$t" in "-"|"-d"|"d") ;; *) die "web bundle has entries that are not plain files and directories";; esac
+  printf '%s\n' "$list" | /usr/bin/grep -qx 'index.html' || die "web bundle has no index.html"
+  /usr/bin/tar -xof "$1" -C "$2" 2>/dev/null || die "cannot unpack web bundle"
+  web_tree_clean "$2" || die "unpacked web tree has links, special files or group/world-writable entries"
+  [ -f "$2/index.html" ] && [ ! -L "$2/index.html" ] || die "unpacked web tree has no index.html"
+  [ -z "$CHOWN_SPEC" ] || /usr/bin/chown -R "$CHOWN_SPEC" "$2" || die "cannot chown the web tree"
+  /bin/chmod -R u=rwX,go=rX "$2" || die "cannot chmod the web tree"
+}
+web_swap() { # $1 new tree  $2 where the live tree goes. Two renames in one directory; puts the live tree back if the second fails.
+  [ ! -e "$2" ] || return 1
+  /bin/mv "$WEB_DIR" "$2" || return 1
+  /bin/mv "$1" "$WEB_DIR" && return 0
+  /bin/mv "$2" "$WEB_DIR"; return 1
+}
+web_swap_and_check() { # $1 new tree  $2 where the old tree is parked. 0 = healthy; otherwise the old tree is live again
+  if web_swap "$1" "$2"; then
+    ui_ok && return 0
+    log "new web tree did not come up healthy: restoring the previous tree"
+    /bin/rm -rf "$WEB_DIR.failed"
+    if /bin/mv "$WEB_DIR" "$WEB_DIR.failed" && /bin/mv "$2" "$WEB_DIR" && ui_ok; then log "automatic web rollback OK"; /bin/rm -rf "$WEB_DIR.failed"
+    else log "WEB ROLLBACK NOT HEALTHY: manual recovery needed"; fi
+    return 1
+  fi
+  log "web swap failed (the live tree was left in place)"
+  return 1
+}
+
 load_state() {
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || die "not installed ($STATE missing)"
   CUR_VER=$(read_state current_version) && valid_version "$CUR_VER" || die "current_version invalid"
   CUR_SCHEMA=$(read_state schema) && valid_schema "$CUR_SCHEMA" || die "schema state invalid"
+  CUR_WEB=$(read_state current_web_version 2>/dev/null) || CUR_WEB=""
+  [ -z "$CUR_WEB" ] || valid_version "$CUR_WEB" || die "current_web_version invalid"
 }
 take_lock() { /bin/mkdir "$STATE/lock" 2>/dev/null || die "another deploy is running (or stale $STATE/lock)"; }
 make_work() { WORK=$(umask 077; /usr/bin/mktemp -d "$STATE/work.XXXXXX") || die "mktemp failed"; /bin/chmod 0700 "$WORK"; }
@@ -207,26 +372,21 @@ do_deploy() {
   local v=$TARGET c
   c=$(ver_cmp "$v" "$CUR_VER") || die "version compare failed"
   [ "$c" = 1 ] || die "version $v is not higher than installed $CUR_VER (downgrade/same refused; use rollback)"
-  log "deploy $v requested by $SUDO_USER (installed $CUR_VER)"
+  log "deploy gateway $v requested by $SUDO_USER (installed $CUR_VER)"
   make_work
-  copy_staged "$STAGING/eve-$v.tar" "$WORK/bundle.tar" "$MAX_BUNDLE"
-  copy_staged "$STAGING/eve-$v.tar.sig" "$WORK/bundle.tar.sig" "$MAX_SIG"
-  verify_sig "$WORK/bundle.tar" "$WORK/bundle.tar.sig"          # on the root-only COPY
+  stage_and_verify gateway "$v" "$CUR_SCHEMA"
   /bin/mkdir "$WORK/x" && unpack_bundle "$WORK/bundle.tar" "$WORK/x"
-  [ "$(manifest_get "$WORK/x/MANIFEST" eve-deploy-bundle)" = 1 ] || die "bad manifest format"
-  [ "$(manifest_get "$WORK/x/MANIFEST" version)" = "$v" ] || die "manifest version != requested version"
-  [ "$(manifest_get "$WORK/x/MANIFEST" schema)" = "$CUR_SCHEMA" ] || die "schema differs from installed: use the migration deploy script"
-  [ "$(manifest_get "$WORK/x/MANIFEST" sha256.gateway)" = "$(sha_of "$WORK/x/gateway")" ] || die "gateway hash != manifest"
-  if [ -f "$WORK/x/eve-gw" ]; then [ "$(manifest_get "$WORK/x/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
-  else manifest_get "$WORK/x/MANIFEST" sha256.eve-gw >/dev/null && die "manifest lists eve-gw but the bundle has none"; fi
-  log "signature OK, manifest OK for $v (gateway $(sha_of "$WORK/x/gateway"))"
+  [ "$(manifest_get "$WORK/MANIFEST" sha256.gateway)" = "$(sha_of "$WORK/x/gateway")" ] || die "gateway hash != manifest"
+  if [ -f "$WORK/x/eve-gw" ]; then [ "$(manifest_get "$WORK/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
+  else manifest_get "$WORK/MANIFEST" sha256.eve-gw >/dev/null && die "manifest lists eve-gw but the bundle has none"; fi
+  log "manifest OK for gateway $v (gateway $(sha_of "$WORK/x/gateway"))"
   swap_window
   bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
   snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
   if swap_and_check "$WORK/x" "$WORK/snap" keep; then
     /bin/rm -rf "$STATE/previous" && /bin/mv "$WORK/snap" "$STATE/previous" || die "cannot keep the previous version"
     write_state current_version "$v" || die "cannot record the new version (binaries ARE v$v)"
-    log "deploy $v OK; previous $CUR_VER kept for rollback"
+    log "deploy gateway $v OK; previous $CUR_VER kept for rollback"
   else
     exit 1
   fi
@@ -240,7 +400,7 @@ do_rollback() {
   c=$(ver_cmp "$pv" "$CUR_VER") || die "version compare failed"
   [ "$c" = -1 ] || die "kept version $pv is not lower than installed $CUR_VER"
   [ "$ps" = "$CUR_SCHEMA" ] || die "schema differs between $pv and $CUR_VER: automatic rollback refused (no DB down-migration here)"
-  log "rollback to $pv requested by $SUDO_USER (installed $CUR_VER)"
+  log "rollback gateway to $pv requested by $SUDO_USER (installed $CUR_VER)"
   make_work
   swap_window
   bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
@@ -250,9 +410,61 @@ do_rollback() {
   if swap_and_check "$STATE/previous" "$WORK/snap" exact; then
     /bin/rm -rf "$STATE/previous"
     write_state current_version "$pv" || die "cannot record the version (binaries ARE v$pv)"
-    log "rollback to $pv OK (no further rollback is kept)"
+    log "rollback gateway to $pv OK (no further rollback is kept)"
   else
     exit 1
+  fi
+}
+
+do_deploy_web() {
+  local v=$TARGET c parent
+  [ -n "$CUR_WEB" ] || die "web version not initialised (current_web_version missing): re-run setup"
+  c=$(ver_cmp "$v" "$CUR_WEB") || die "version compare failed"
+  [ "$c" = 1 ] || die "web version $v is not higher than installed $CUR_WEB (downgrade/same refused; use rollback-web)"
+  log "deploy web $v requested by $SUDO_USER (installed $CUR_WEB)"
+  make_work
+  stage_and_verify web "$v" "$CUR_SCHEMA"
+  swap_window
+  webdir_ok || die "$WEB_DIR is not a root-owned, non-group/world-writable directory (or its parent is not)"
+  parent=$(/usr/bin/dirname "$WEB_DIR")
+  NEWWEB=$(umask 077; /usr/bin/mktemp -d "$parent/.web-new.XXXXXX") || die "cannot create the new web dir"
+  unpack_web "$WORK/bundle.tar" "$NEWWEB"
+  OLDWEB="$parent/.web-old.$$"
+  if web_swap_and_check "$NEWWEB" "$OLDWEB"; then
+    NEWWEB=""
+    /bin/rm -rf "$STATE/previous-web" && /bin/mkdir -m 0700 "$STATE/previous-web" || die "cannot keep the previous web tree"
+    printf '%s\n' "$CUR_WEB" >"$STATE/previous-web/version" && tree_digest "$OLDWEB" >"$STATE/previous-web/digest" \
+      && /bin/mv "$OLDWEB" "$STATE/previous-web/tree" || die "cannot keep the previous web tree"
+    write_state current_web_version "$v" || die "cannot record the new web version (the UI IS v$v)"
+    log "deploy web $v OK; previous $CUR_WEB kept for rollback-web"
+  else
+    exit 1       # never delete $OLDWEB here: if the automatic restore failed it is the only copy of the old tree
+  fi
+}
+
+do_rollback_web() {
+  local pv c d parent
+  [ -d "$STATE/previous-web" ] && [ ! -L "$STATE/previous-web" ] && [ -d "$STATE/previous-web/tree" ] && [ ! -L "$STATE/previous-web/tree" ] || die "no previous web tree is kept"
+  [ -n "$CUR_WEB" ] || die "web version not initialised"
+  pv=$(/usr/bin/head -1 "$STATE/previous-web/version" 2>/dev/null) && valid_version "$pv" || die "previous web version invalid"
+  c=$(ver_cmp "$pv" "$CUR_WEB") || die "version compare failed"
+  [ "$c" = -1 ] || die "kept web version $pv is not lower than installed $CUR_WEB"
+  log "rollback web to $pv requested by $SUDO_USER (installed $CUR_WEB)"
+  make_work
+  swap_window
+  webdir_ok || die "$WEB_DIR is not a root-owned, non-group/world-writable directory (or its parent is not)"
+  web_tree_clean "$STATE/previous-web/tree" || die "kept web tree has links or special files"
+  d=$(/usr/bin/head -1 "$STATE/previous-web/digest" 2>/dev/null); [ "$(tree_digest "$STATE/previous-web/tree")" = "$d" ] || die "kept previous web tree fails its recorded digest"
+  parent=$(/usr/bin/dirname "$WEB_DIR")
+  NEWWEB=$(umask 077; /usr/bin/mktemp -d "$parent/.web-new.XXXXXX") || die "cannot create the web dir"
+  /bin/rmdir "$NEWWEB" && /bin/cp -RP "$STATE/previous-web/tree" "$NEWWEB" || die "cannot copy the kept web tree"
+  OLDWEB="$parent/.web-old.$$"
+  if web_swap_and_check "$NEWWEB" "$OLDWEB"; then
+    NEWWEB=""; /bin/rm -rf "$OLDWEB" "$STATE/previous-web"
+    write_state current_web_version "$pv" || die "cannot record the web version (the UI IS v$pv)"
+    log "rollback web to $pv OK (no further rollback is kept)"
+  else
+    exit 1       # never delete $OLDWEB here: if the automatic restore failed it is the only copy of the old tree
   fi
 }
 
@@ -266,7 +478,10 @@ main() {
   take_lock
   trap cleanup EXIT               # normal exits and every `exit` (die, abort_run)
   trap abort_run INT TERM HUP QUIT   # until swap_window() replaces this with "ignore"
-  case "$ACTION" in deploy) do_deploy;; rollback) do_rollback;; esac
+  case "$KIND:$ACTION" in
+    gateway:deploy) do_deploy;; gateway:rollback) do_rollback;;
+    web:deploy) do_deploy_web;; web:rollback) do_rollback_web;;
+  esac
 }
 
 # run only when executed (tests source this file and call the functions); the clean slate is at the top of the file.

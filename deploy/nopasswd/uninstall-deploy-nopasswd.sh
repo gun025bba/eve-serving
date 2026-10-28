@@ -1,7 +1,7 @@
 #!/bin/bash
 # Removes the passwordless deploy path (sudoers FIRST, so the privilege is gone before anything else).
-#   sudo /bin/bash uninstall-deploy-nopasswd.sh            # keeps /var/db/eve-deploy (version state, kept previous binaries) and the log
-#   sudo /bin/bash uninstall-deploy-nopasswd.sh --purge    # also deletes that state, the staging dir and the log (data deletion: only on purpose)
+#   sudo /usr/local/libexec/eve/uninstall            # keeps /var/db/eve-deploy (version state, kept previous binaries) and the log
+#   sudo /usr/local/libexec/eve/uninstall --purge    # also deletes that state, the staging dir and the log (data deletion: only on purpose)
 set -Eeuo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # --- drop EVE_* overrides when running as root ---
@@ -22,9 +22,10 @@ case "${1:-}" in "") ;; --purge) PURGE=1;; *) die "unknown argument: $1";; esac
 
 rm -f "$SUDOERS_D/eve-deploy"                       # 1. the privilege
 if command -v visudo >/dev/null 2>&1; then visudo -c -q -f "$SUDOERS_MAIN" || die "visudo -c fails after removal: check $SUDOERS_D by hand"; fi
-rm -f "$LIBEXEC/deploy" "$LIBEXEC/allowed_signers"  # 2. the entrypoint and the pinned key
+rm -f "$LIBEXEC/deploy" "$LIBEXEC/fetch" "$LIBEXEC/cosign" "$LIBEXEC/trusted_root.json" "$LIBEXEC/allowed_signers"  # 2. the entrypoint, verifier and trust root
 if [ "$PURGE" = 1 ]; then
   rm -rf "$STATE" "$LIBEXEC/staging" "$LOGF"
+  rm -f "$LIBEXEC/uninstall"
   rmdir "$LIBEXEC" 2>/dev/null || true
   echo "purged state, staging and log"
 else
