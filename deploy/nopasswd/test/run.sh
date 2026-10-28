@@ -252,6 +252,39 @@ new_box 22; sign 5.0.1 8; stage 5.0.1 5.0.1
 eq "signals during the swap: deploy still completes" "$?" 0
 eq "signals during the swap: consistent end state" "$(live)" "gw-22/eg-22/5.0.1"
 
+# 14b. outside the swap window (waiting for / reading the staged files) a TERM/HUP aborts at once and cleans up the lock and work dir
+for sig in TERM HUP; do
+  new_box "30$sig"; sign 5.0.1 8; stage 5.0.1 5.0.1
+  ( sandbox_env; copy_staged() { sleep 30; }; main deploy 5.0.1 ) >/dev/null 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do [ -d "$B/state/lock" ] && break; sleep 0.1; done
+  [ -d "$B/state/lock" ] && ok || bad "$sig test: the deploy never reached the staged-file copy"
+  kill -$sig $pid 2>/dev/null
+  for _ in $(seq 1 50); do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
+  if kill -0 $pid 2>/dev/null; then bad "$sig outside the swap window must abort the deploy"; kill -9 $pid 2>/dev/null; else ok; fi
+  { wait $pid; } 2>/dev/null   # reap quietly (bash prints "Hangup"/"Terminated" otherwise)
+  [ ! -d "$B/state/lock" ] && ok || bad "$sig outside the swap window: lock dir left behind"
+  eq "$sig outside the swap window: no work dir left" "$(ls "$B/state" | grep -c '^work\.')" 0
+  eq "$sig outside the swap window: live untouched" "$(live)" "gw-old/eg-old/5.0.0"
+done 2>/dev/null   # bash reports the killed background job ("Hangup"/"Terminated") on stderr: expected here
+# the window itself is only the swap: the file must ignore the signals in swap_window() and nowhere else
+eq "signals are ignored in exactly one place" "$(grep -c "trap '' INT" "$ENTRY")" 1
+eq "swap_window is entered once per action" "$(grep -c '^  swap_window$' "$ENTRY")" 2
+
+# 14c. `#!/bin/bash -p`: the executed file ignores BASH_ENV and exported functions even when the caller's environment is NOT reset
+eq "shebang is #!/bin/bash -p" "$(head -1 "$ENTRY")" '#!/bin/bash -p'
+new_box 31; cp "$ENTRY" "$B/ed"; chmod 0755 "$B/ed"
+printf 'echo pwned-benv >"%s/pwn-benv"\n' "$B" >"$B/benv"
+( env -i PATH=/usr/bin:/bin BASH_ENV="$B/benv" bash "$B/ed" rollback ) >/dev/null 2>&1
+[ -e "$B/pwn-benv" ] && ok || bad "control: plain bash must run BASH_ENV (otherwise this test proves nothing)"
+rm -f "$B/pwn-benv"
+( env -i PATH=/usr/bin:/bin BASH_ENV="$B/benv" "$B/ed" rollback ) >/dev/null 2>&1; eq "executed via shebang: rc (non-root refused)" "$?" 1
+[ ! -e "$B/pwn-benv" ] && ok || bad "BASH_ENV ran although the shebang is bash -p"
+for fn in builtin '[' printf; do
+  ( env -i PATH=/usr/bin:/bin "BASH_FUNC_${fn}%%=() { echo pwned >\"$B/pwn-fn\"; }" "$B/ed" rollback ) >/dev/null 2>&1
+  [ ! -e "$B/pwn-fn" ] && ok || bad "exported function $fn ran"
+done
+
 # 15. relative --out of the signing script
 new_box 23; ( cd "$B" && bash "$D/sign-deploy-bundle.sh" --key "$KEY" --gateway gw --eve-gw eg --version 5.0.1 --schema 8 --out out/rel ) >/dev/null 2>&1; eq "sign with relative --out: rc" "$?" 0
 [ -s "$B/out/rel/eve-5.0.1.tar" ] && [ -s "$B/out/rel/eve-5.0.1.tar.sig" ] && ok || bad "relative --out must produce tar + sig"
@@ -298,6 +331,27 @@ eq "state seeded" "$(cat "$S/state/current_version")/$(cat "$S/state/schema")/$(
 eq "installed entrypoint == reviewed file" "$(sha256 "$S/libexec/deploy")" "$SHA"
 # a bundle signed by the key that setup pinned verifies through the real ssh-keygen path
 ( SIGNERS=$S/libexec/allowed_signers; ROOT_UID=$MYUID; B=$T/box.1; SUDO_USER=$ME; verify_sig "$B/out/eve-5.0.1.tar" "$B/out/eve-5.0.1.tar.sig" ) >/dev/null 2>&1; eq "setup-pinned key verifies a signed bundle" "$?" 0
+
+# N4: setup leaves no temp files behind: neither the copy dir (eve-setup.*) nor the sudoers temp (eve-sudoers.*), on success or failure
+mkdir -p "$S/tmp"
+( setup_env TMPDIR="$S/tmp" bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup (tmp check): rc" "$?" 0
+eq "setup success leaves no temp files" "$(ls -A "$S/tmp" | wc -l | tr -d ' ')" 0
+( setup_env TMPDIR="$S/tmp" bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 0000 --expect-key-fingerprint "$FP" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup (bad sha): rc" "$?" 1
+eq "setup failure leaves no temp files" "$(ls -A "$S/tmp" | wc -l | tr -d ' ')" 0
+eq "setup has exactly one EXIT trap" "$(grep -c '^trap .* EXIT' "$D/setup-deploy-nopasswd.sh")" 1
+
+# N3: with uid 0 the EVE_* test knobs are dropped before they are read (the tests cannot run as root, so the block is run with a fake `id`)
+for f in setup-deploy-nopasswd.sh uninstall-deploy-nopasswd.sh; do
+  blk=$(sed -n '/^# --- drop EVE_\* overrides when running as root ---$/,/^# --- end drop ---$/p' "$D/$f" | grep -v '^#')
+  [ -n "$blk" ] && ok || bad "$f: root EVE_* block missing"
+  r=$( id() { echo 0; }; export EVE_STATE=/x EVE_BIN_DIR=/y EVE_SKIP_ROOT=1 KEEP_ME=1; eval "$blk"; echo "${EVE_STATE-unset}/${EVE_BIN_DIR-unset}/${EVE_SKIP_ROOT-unset}/${KEEP_ME-}" )
+  eq "$f: root drops EVE_*" "$r" "unset/unset/unset/1"
+  r=$( id() { echo 1000; }; export EVE_STATE=/x; eval "$blk"; echo "${EVE_STATE-unset}" )
+  eq "$f: non-root keeps EVE_* (tests)" "$r" "/x"
+  # the block must come before the first read of any EVE_ variable
+  first=$(grep -n 'EVE_[A-Z_]*:-\|EVE_[A-Z_]*:=' "$D/$f" | head -1 | cut -d: -f1); endb=$(grep -n '^# --- end drop ---$' "$D/$f" | cut -d: -f1)
+  [ "$endb" -lt "$first" ] && ok || bad "$f: EVE_* is read before the root drop"
+done
 # uninstall: sudoers goes first and always; --purge is the only thing that deletes state
 run_un() { setup_env bash "$D/uninstall-deploy-nopasswd.sh" "$@" >"$S/out" 2>&1; }
 no_ "uninstall: unknown arg" run_un --everything
@@ -342,6 +396,12 @@ if grep -nE '(^|[ ;(`|&])(rm|cp|mv|install|chmod|chown|tar|mktemp|head|cat|sed|a
   echo "note: review unqualified command names in eve-deploy"; fi
 no_ "entrypoint reads no getenv-style overrides" grep -nE '\$\{(LIBEXEC|STATE|SIGNERS|BIN_DIR|STAGING|LOGF)[:=-]' "$ENTRY"
 eq "entrypoint is executable bash 3.2-safe (no assoc arrays / \${,,})" "$(grep -cE 'declare -A|\$\{[A-Za-z_]+(,,|\^\^)\}|mapfile|readarray' "$ENTRY")" 0
+
+# N5: the one-liner runs the setup with an absolute bash (sudo on macOS has no secure_path)
+no_ "README one-liner has no bare 'sudo bash'" grep -nE 'sudo bash' "$D/README.md"
+yes_ "README one-liner uses sudo /bin/bash" grep -q 'sudo /bin/bash setup-deploy-nopasswd.sh' "$D/README.md"
+# the README must not claim what the code does not do
+no_ "README no longer says signals are ignored from the lock" grep -n 'from the moment the lock is taken' "$D/README.md"
 
 # the README one-liner pins the real hashes of the three root-run scripts
 for f in eve-deploy setup-deploy-nopasswd.sh uninstall-deploy-nopasswd.sh; do

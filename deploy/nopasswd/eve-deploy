@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # eve-deploy: root-owned deploy entrypoint, the ONLY command sudoers allows without a password.
 # Installed (by setup-deploy-nopasswd.sh) at /usr/local/libexec/eve/deploy, root:wheel 0755.
 #
@@ -8,9 +8,11 @@
 # Every other argument is rejected. Nothing here trusts the environment, the caller's PATH or any user-owned file
 # except the staged bundle, which is first copied to a root-only temp dir and verified THERE (never in place).
 # Does not touch config, secrets, the database, or run migrations. Written for macOS /bin/bash 3.2.
+# The shebang is `#!/bin/bash -p` (privileged mode): bash then ignores BASH_ENV/ENV/SHELLOPTS and imports no exported functions,
+# even if the caller's environment is not reset (sudo's env_reset is a second layer, not the only one).
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
 
-# ----- clean slate when executed (not when sourced by the tests): drop every inherited variable and imported function -----
+# ----- clean slate when executed (not when sourced by the tests): drop every inherited variable and function (defence in depth after `bash -p`) -----
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   builtin set +o posix 2>/dev/null
   for _f in $(builtin compgen -A function); do builtin unset -f "$_f"; done
@@ -115,6 +117,10 @@ check_caller() {
 }
 
 WORK=""
+# From the moment the live binaries are about to be snapshotted until the new version is recorded, a half-finished swap must run to
+# its health check / automatic restore, so INT/TERM/HUP/QUIT are ignored ONLY for that window. Before it (waiting for / reading
+# the staged files) the default action applies: Ctrl-C or kill aborts at once and the EXIT trap removes the work dir and the lock.
+swap_window() { trap '' INT TERM HUP QUIT; }
 cleanup() { [ -z "$WORK" ] || { /bin/rm -rf "$WORK"; WORK=""; }; /bin/rmdir "$STATE/lock" 2>/dev/null || true; }
 
 # ----- verification of the staged bundle -----
@@ -206,6 +212,7 @@ do_deploy() {
   if [ -f "$WORK/x/eve-gw" ]; then [ "$(manifest_get "$WORK/x/MANIFEST" sha256.eve-gw)" = "$(sha_of "$WORK/x/eve-gw")" ] || die "eve-gw hash != manifest"
   else manifest_get "$WORK/x/MANIFEST" sha256.eve-gw >/dev/null && die "manifest lists eve-gw but the bundle has none"; fi
   log "signature OK, manifest OK for $v (gateway $(sha_of "$WORK/x/gateway"))"
+  swap_window
   bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
   snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
   if swap_and_check "$WORK/x" "$WORK/snap" keep; then
@@ -227,6 +234,7 @@ do_rollback() {
   [ "$ps" = "$CUR_SCHEMA" ] || die "schema differs between $pv and $CUR_VER: automatic rollback refused (no DB down-migration here)"
   log "rollback to $pv requested by $SUDO_USER (installed $CUR_VER)"
   make_work
+  swap_window
   bindir_ok || die "$BIN_DIR is not a root-owned, non-group/world-writable directory with a gateway in it"
   snapshot_live "$WORK/snap" || die "cannot snapshot the live binaries"
   [ -f "$STATE/previous/gateway" ] || die "kept binaries missing"
@@ -248,8 +256,7 @@ main() {
   check_caller
   load_state
   take_lock
-  trap cleanup EXIT
-  trap '' INT TERM HUP QUIT       # a half-finished swap must run to its health check / automatic restore
+  trap cleanup EXIT               # runs on normal exit and on INT/TERM/HUP outside the swap window
   case "$ACTION" in deploy) do_deploy;; rollback) do_rollback;; esac
 }
 

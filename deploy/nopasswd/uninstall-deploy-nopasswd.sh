@@ -1,9 +1,14 @@
 #!/bin/bash
 # Removes the passwordless deploy path (sudoers FIRST, so the privilege is gone before anything else).
-#   sudo bash uninstall-deploy-nopasswd.sh            # keeps /var/db/eve-deploy (version state, kept previous binaries) and the log
-#   sudo bash uninstall-deploy-nopasswd.sh --purge    # also deletes that state, the staging dir and the log (data deletion: only on purpose)
+#   sudo /bin/bash uninstall-deploy-nopasswd.sh            # keeps /var/db/eve-deploy (version state, kept previous binaries) and the log
+#   sudo /bin/bash uninstall-deploy-nopasswd.sh --purge    # also deletes that state, the staging dir and the log (data deletion: only on purpose)
 set -Eeuo pipefail
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+# --- drop EVE_* overrides when running as root ---
+# The EVE_* knobs exist for the unprivileged tests (they redirect even the --purge `rm -rf`). A root run must never honour them.
+if [ "$(id -u)" = 0 ]; then for _v in $(compgen -e); do case "$_v" in EVE_*) unset "$_v";; esac; done; fi
+unset _v
+# --- end drop ---
 LIBEXEC=${EVE_LIBEXEC:-/usr/local/libexec/eve}
 STATE=${EVE_STATE:-/var/db/eve-deploy}
 SUDOERS_D=${EVE_SUDOERS_D:-/etc/sudoers.d}

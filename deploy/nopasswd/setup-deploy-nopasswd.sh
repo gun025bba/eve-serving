@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-time install of the passwordless deploy path. Run it YOURSELF with sudo (it changes sudoers = a privilege boundary):
-#   sudo bash setup-deploy-nopasswd.sh --expect-sha256 <sha256 of eve-deploy> --expect-key-fingerprint SHA256:<...> \
+#   sudo /bin/bash setup-deploy-nopasswd.sh --expect-sha256 <sha256 of eve-deploy> --expect-key-fingerprint SHA256:<...> \
 #        --pubkey <signing key .pub> --current <X.Y.Z> --schema <N>
 # After this, ONLY `sudo /usr/local/libexec/eve/deploy deploy <X.Y.Z>` and `... rollback` run without a password, and only
 # for releases signed by the pinned key. Remove it with uninstall-deploy-nopasswd.sh. It never reads or prints secrets.
@@ -8,6 +8,13 @@
 set -Eeuo pipefail
 umask 022
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+# --- drop EVE_* overrides when running as root ---
+# The EVE_* knobs below exist for the unprivileged tests. A root run must never honour them (they point installs, chain checks and
+# sudoers at other paths), so with uid 0 they are unset before anything reads them.
+if [ "$(id -u)" = 0 ]; then for _v in $(compgen -e); do case "$_v" in EVE_*) unset "$_v";; esac; done; fi
+unset _v
+# --- end drop ---
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 LIBEXEC=${EVE_LIBEXEC:-/usr/local/libexec/eve}            # EVE_* overrides exist for tests only; real runs use the defaults
@@ -51,8 +58,10 @@ U_GID=$(id -g "$USER_NAME")
 [[ "$SCHEMA" =~ ^(0|[1-9][0-9]{0,5})$ ]] || die "--schema must be a number (newest goose migration)"
 
 # 1. take private copies first (root-only dir), then verify and install ONLY the copies: no check-then-use gap on user-owned files
+WORKD="" TMP=""
+cleanup() { [ -z "$WORKD" ] || rm -rf "$WORKD"; [ -z "$TMP" ] || rm -f "$TMP"; }   # ONE exit trap: a second `trap ... EXIT` would replace it
+trap cleanup EXIT
 WORKD=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/eve-setup.XXXXXX") || die "mktemp failed"
-trap 'rm -rf "$WORKD"' EXIT
 chmod 0700 "$WORKD"
 SRC=$HERE/eve-deploy
 [ -f "$SRC" ] && [ ! -L "$SRC" ] || die "$SRC missing"
@@ -114,7 +123,7 @@ else echo "note: keeping existing $STATE/current_version ($(head -1 "$STATE/curr
 ( umask 077; : >>"$LOGF" ); chown "$OWNER" "$LOGF"; chmod 0600 "$LOGF"          # BSD install rejects /dev/null as a source
 
 # 5. sudoers: one user, one exact path, no wildcard, no SETENV, env reset. Validated before and after install.
-TMP=$(mktemp "${TMPDIR:-/tmp}/eve-sudoers.XXXXXX"); trap 'rm -f "$TMP"' EXIT
+TMP=$(mktemp "${TMPDIR:-/tmp}/eve-sudoers.XXXXXX") || die "mktemp failed"
 cat >"$TMP" <<SUD
 # Managed by setup-deploy-nopasswd.sh. Remove with uninstall-deploy-nopasswd.sh.
 Defaults!$ENTRY env_reset, !setenv
@@ -128,4 +137,4 @@ mv -f "$SUDOERS_FILE.new" "$SUDOERS_FILE"
 
 echo "OK. From now on (no password): sudo $ENTRY deploy <X.Y.Z> | rollback   (user: $USER_NAME)"
 echo "Stage bundles in $LIBEXEC/staging as eve-<X.Y.Z>.tar + eve-<X.Y.Z>.tar.sig (made by sign-deploy-bundle.sh on the signing machine)."
-echo "Remove: sudo bash uninstall-deploy-nopasswd.sh"
+echo "Remove: sudo /bin/bash uninstall-deploy-nopasswd.sh"

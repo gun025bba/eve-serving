@@ -28,7 +28,7 @@ The entrypoint accepts **only**:
   no leading zeros, no suffixes), and
 - `rollback` to the **one** previous version it kept (must be lower, same DB schema, hashes unchanged). No second rollback.
 
-Everything else exits `2`. It does not trust the environment (every inherited variable and imported shell function is dropped at the top of the script, fixed `PATH`, absolute command paths, `LC_ALL=C`; sudoers also resets the environment).
+Everything else exits `2`. It does not trust the environment: the shebang is `#!/bin/bash -p` (privileged mode: `BASH_ENV`, `ENV`, `SHELLOPTS` are ignored and no exported function is imported, even if the caller's environment was not reset), then every inherited variable and function is dropped at the top of the script, `PATH` is fixed, commands use absolute paths, `LC_ALL=C`; sudoers also resets the environment (`env_reset`).
 Only the recorded deploy user may call it (not root-by-itself, not `_evegw`; checked again against `SUDO_UID`). Nothing in the
 gateway or over HTTP can trigger it.
 
@@ -38,7 +38,7 @@ file, not a symlink, owned by the deploy user, size-capped) → **verify the cop
 regular files) → manifest `version` equals the argument, `schema` equals the installed schema (a schema change goes through the
 normal migration deploy script), hashes match → check `/opt/eve-gw` and `/opt/eve-gw/bin` are root-owned and closed to group/world writes → snapshot the live binaries → atomic replace (`root:wheel 0755`, never writable
 by `_evegw`) → `launchctl kickstart -k` → `/health` must return `{"status":"ok"}` → on failure the snapshot is restored
-automatically (signals are ignored from the moment the lock is taken until the swap has been checked or restored, so a Ctrl-C cannot leave new binaries live with old state). The database, config and secrets are never touched and no migration (up or down) runs.
+automatically. `INT`/`TERM`/`HUP`/`QUIT` are ignored **only during the swap window**: from just before the live binaries are snapshotted until the new version is recorded (or the old binaries are restored), so a Ctrl-C cannot leave new binaries live with old state. Before that window (while the staged files are copied and verified) the default action applies: Ctrl-C or `kill` aborts at once and the exit trap removes the work dir and the lock. The database, config and secrets are never touched and no migration (up or down) runs.
 
 ### What is in a bundle (and what is not)
 
@@ -64,11 +64,11 @@ Copy only `eve-deploy-signing.pub` to the Mac, and read its fingerprint **on the
 ssh-keygen -l -f eve-deploy-signing.pub        # prints SHA256:<43 chars> ...  (compare it out-of-band with what the Mac shows)
 ```
 
-Then, from a checkout at the reviewed commit, run this **one line** (one `sudo`, at the very end). It stops before `sudo` if the
+Then, from a checkout at the reviewed commit, run this **one line** (one `sudo`, at the very end; `sudo /bin/bash` because macOS `sudo` has no `secure_path`, so a bare `bash` would be looked up in the caller's `PATH`). It stops before `sudo` if the
 checkout is not the reviewed commit, is dirty, or any of the three scripts differs from the hashes below:
 
 ```
-cd <checkout> && [ "$(git rev-parse HEAD)" = <REVIEWED_COMMIT> ] && git diff --quiet HEAD -- deploy/nopasswd && cd deploy/nopasswd && printf '%s  %s\n' 9ac53befd1397270d75b2b68197a5b4b93163d62da14ce75c47c0e81c8b8c356 setup-deploy-nopasswd.sh 2e73f98a0de55f46203f1725b650b08e36ba56ce0bc9fc7a2e1a376101d2fa03 eve-deploy d2a39c20ff12219d609d50a4c87f5f2149062924e815896b801653a402a1949d uninstall-deploy-nopasswd.sh | shasum -a 256 -c - && sudo bash setup-deploy-nopasswd.sh --expect-sha256 2e73f98a0de55f46203f1725b650b08e36ba56ce0bc9fc7a2e1a376101d2fa03 --expect-key-fingerprint <SHA256:fingerprint> --pubkey <path>/eve-deploy-signing.pub --current <installed X.Y.Z> --schema <newest goose version>
+cd <checkout> && [ "$(git rev-parse HEAD)" = <REVIEWED_COMMIT> ] && git diff --quiet HEAD -- deploy/nopasswd && cd deploy/nopasswd && printf '%s  %s\n' 0afa70da4c5bfab1e920883da86213ad7ad019b66e22f802eb7bf02e2eb9a81e setup-deploy-nopasswd.sh b31fbe779dfc67c1b5698aa98a39ff02ccdd3ee32bd04e9ee1e78f8d7d1ab9bb eve-deploy 333d1f1125267171be69b416240aee72c05d81e6cf611f2456601eaa4115ccb9 uninstall-deploy-nopasswd.sh | shasum -a 256 -c - && sudo /bin/bash setup-deploy-nopasswd.sh --expect-sha256 b31fbe779dfc67c1b5698aa98a39ff02ccdd3ee32bd04e9ee1e78f8d7d1ab9bb --expect-key-fingerprint <SHA256:fingerprint> --pubkey <path>/eve-deploy-signing.pub --current <installed X.Y.Z> --schema <newest goose version>
 ```
 
 `<REVIEWED_COMMIT>` is the full commit SHA announced with the review (a README cannot contain its own commit). The three hashes
@@ -80,7 +80,9 @@ or `/opt/eve-gw/bin` is not root-owned or is group/world writable (paths are res
 `/private/var` symlink is handled; the install directories themselves must not be symlinks); `/opt/eve-gw/bin/gateway` does not
 exist; or `visudo -c` fails (it then installs nothing / removes its sudoers file). The entrypoint and the key are first copied to a
 root-only temp directory and **only the verified copies are hashed, syntax-checked and installed**, so a swap of the checkout
-files after the check cannot change what gets installed.
+files after the check cannot change what gets installed. Out of scope (documented): another process running as **the same user** can still replace the checkout's `setup-deploy-nopasswd.sh` between `shasum` and `sudo`; such a process could equally read your sudo password prompt or change `PATH`, so this adds no real exposure. Setup also ignores every `EVE_*` variable when it runs as root (those knobs exist for the unprivileged tests only).
+
+**After the install, run the verification checklist on the Mac:** [`docs/runbooks/passwordless-deploy.md`](../../docs/runbooks/passwordless-deploy.md). If any step fails, run `sudo rm /etc/sudoers.d/eve-deploy` and report.
 
 ## Releasing and deploying
 
@@ -103,8 +105,8 @@ sudo /usr/local/libexec/eve/deploy rollback
 ## Remove
 
 ```
-sudo bash deploy/nopasswd/uninstall-deploy-nopasswd.sh            # sudoers first, then entrypoint + pinned key; keeps state and log
-sudo bash deploy/nopasswd/uninstall-deploy-nopasswd.sh --purge    # also deletes /var/db/eve-deploy, staging and the log
+sudo /bin/bash deploy/nopasswd/uninstall-deploy-nopasswd.sh            # sudoers first, then entrypoint + pinned key; keeps state and log
+sudo /bin/bash deploy/nopasswd/uninstall-deploy-nopasswd.sh --purge    # also deletes /var/db/eve-deploy, staging and the log
 sudo -n -l /usr/local/libexec/eve/deploy                           # must now ask for a password / not be allowed
 ```
 
@@ -122,15 +124,15 @@ Equivalent by hand: `sudo rm /etc/sudoers.d/eve-deploy`.
   refuses it when schemas differ).
 - **Health wait** is up to 60 s after `launchctl kickstart -k`.
 - **Known limits.** The staged files are checked (`regular file`, owner, size) and then opened by path. The deploy user swapping a
-  staged file for a FIFO between those two steps can only make the deploy hang (Ctrl-C works); it can never get unsigned content
-  installed, because everything that is installed was copied first and verified afterwards. `BASH_ENV`/`SHELLOPTS` are stripped by
-  sudo's `env_reset`.
+  staged file for a FIFO between those two steps can only make the deploy hang until Ctrl-C/`kill` (which abort it cleanly: the swap window has not started yet); it can never get unsigned content
+  installed, because everything that is installed was copied first and verified afterwards. `BASH_ENV`/`SHELLOPTS` are ignored by the `bash -p` shebang
+  and stripped by sudo's `env_reset`.
 
 ## Tests
 
 `bash deploy/nopasswd/test/run.sh` (also a CI step): argument whitelist, version validation and comparison (malformed,
 leading zeros, 5.9.0 vs 5.10.0), signatures (wrong key, wrong namespace, tampered, wrong name), TOCTOU (staged file swapped
-after the copy), health-failure restore, optional `eve-gw`, `BIN_DIR` guards, signals during the swap, relative `--out`, rollback guards,
+after the copy), health-failure restore, optional `eve-gw`, `BIN_DIR` guards, signals during the swap (and that they abort the deploy outside it), the `bash -p` shebang (`BASH_ENV`, exported `builtin`/`[`/`printf` functions), relative `--out`, rollback guards,
 caller guards, the setup chain check (symlinked parents, writable parents, wrong owner, with no skip switch), the key fingerprint,
 and the setup/uninstall output (sudoers content, modes). CI runs it on Ubuntu **and on `macos-latest`** (system `/bin/bash` 3.2, real
 BSD `install`/`tar`/`stat`, `ssh-keygen -Y`, and `visudo -c` against a temp file; nothing runs under sudo).
