@@ -99,7 +99,7 @@ The agent that prepares releases must use a separate GitHub account or App, **no
 
 ```json
 {
-  "name": "main",
+  "name": "main-protect",
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
@@ -107,24 +107,50 @@ The agent that prepares releases must use a separate GitHub account or App, **no
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
+    { "type": "required_linear_history" },
     { "type": "pull_request", "parameters": {
-        "required_approving_review_count": 1,
+        "required_approving_review_count": 0,
         "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
         "require_code_owner_review": true,
-        "require_last_push_approval": true,
-        "required_review_thread_resolution": true } },
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "require_extra_approval_for_unattributed_changes": true,
+        "allowed_merge_methods": [ "merge", "squash", "rebase" ] } },
     { "type": "required_status_checks", "parameters": {
         "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
         "required_status_checks": [ { "context": "test" }, { "context": "deploy-nopasswd-macos" } ] } }
   ]
 }
 ```
 
-   Linear history stays **off** (merge commits; the tag is cut on the tip after the merge). `require_last_push_approval` means the person who pushed last cannot be the approver.
-   CODEOWNERS (`.github/CODEOWNERS`, in this PR) names the owner for `.github/`, `deploy/nopasswd/` and the two signing docs, so `require_code_owner_review` turns every change to the trust root into a review by the owner.
-2. **Ruleset on tags** `v*` (target `tag`, include `refs/tags/v*`): rules `creation`, `update`, `deletion`. Only the designated human may create a release tag: make that person the one
-   bypass actor of **this** ruleset (for example the repository `admin` role), and nobody else. A tag that already exists then cannot be moved or deleted. Verify in the UI that creating
-   a tag as the agent account is refused: the exact bypass semantics differ between repository roles.
+   Linear history is **on** (`required_linear_history`): pull requests land by **squash or rebase** only, never as a merge commit (the `allowed_merge_methods` list still names `merge`, but
+   linear history makes GitHub refuse it); the tag is cut on the tip after the squash/rebase. The JSON above is the live ruleset (read with `gh api repos/gun025bba/eve-serving/rulesets/<id>`).
+   **Open points before install** (not yet in the live ruleset; the pre-install conditions from security): `required_approving_review_count` 1 instead of 0, and `require_last_push_approval` true
+   once the agent uses its own account, so the person who pushed last cannot be the approver.
+   CODEOWNERS (`.github/CODEOWNERS`) is a single rule, `* @gun025bba`: the owner for every path, so `require_code_owner_review` turns every change to the trust root into a review by the owner.
+2. **Ruleset on tags** `v*` (target `tag`, include `refs/tags/v*`), live as `release-tags`, enforcement `active`, **no bypass actors**:
+
+```json
+{
+  "name": "release-tags",
+  "target": "tag",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/tags/v*"], "exclude": [] } },
+  "bypass_actors": [],
+  "rules": [
+    { "type": "creation" },
+    { "type": "update" },
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
+  ]
+}
+```
+
+   With no bypass actor nobody can push a `v*` tag, so a release tag is created through the GitHub UI or API by a user with the ruleset bypass.
+   **Open point before install** (security's condition): make the designated human (the owner, for example via the repository `admin` role) the one bypass actor of **this** ruleset, and nobody else.
+   A tag that already exists cannot be moved or deleted. Verify that creating a tag as the agent account is refused: the exact bypass semantics differ between repository roles.
 3. **Environment `deploy`** (Settings, Environments): *Deployment branches and tags*: "Selected branches and tags" with a **tag** rule `v*` and nothing else. Required reviewers are optional
    (add one if every release should wait for approval). No secrets in the environment.
 4. **Immutable releases** (Settings, General, Releases): enabled, so published assets cannot be replaced or deleted and a tag of a release cannot be re-pointed.
