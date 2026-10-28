@@ -15,5 +15,5 @@ const ORIGIN = process.env.EVE_ORIGIN || BASE_URL;           // must be in GW_AL
 const MODEL = process.env.EVE_MODEL || 'mlx-community/Qwen3-30B-A3B-4bit';
 // Browser identity injection (Tailscale identity) does not exist yet; set when available.
 const BROWSER_IDENTITY = process.env.EVE_BROWSER_IDENTITY === '1';
-const EXPECT_UI_VERSION = process.env.EVE_EXPECT_UI_VERSION || '1.1.3';
+const EXPECT_UI_VERSION = process.env.EVE_EXPECT_UI_VERSION || '1.2.0';
 module.exports = { BASE_URL, ORIGIN, MODEL, apiKey, BROWSER_IDENTITY, EXPECT_UI_VERSION };

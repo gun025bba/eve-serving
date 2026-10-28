@@ -46,3 +46,6 @@ npx playwright show-report
 
 ## Memory P1
 Plan: `docs/memory-p1-test-plan.md`. API: `EVE_MEMORY_PROFILE=off|on|readonly|auditfail npx playwright test specs/api-memory.spec.js` (needs GW ≥ 4.1.0 on 8002, backend sets the profile). Go: `scripts/memory-go-checks.sh [ref]`. FS: `scripts/memory-fs-check.sh <data_dir> [--log gateway-test.log]`.
+
+## Release 5.0.x post-deploy bundle
+`release/run.sh` (cases 1–7: pairing survives, per-user memory, `/`→`/ui/`, source chips, rollback chain, calendar adapter off, UI regressions). Doc: `docs/release-5.0.md`.
