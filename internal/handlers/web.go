@@ -350,7 +350,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(res)
 	}
 	var memTaint []string
-	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
+	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
 	if memUser {
 		_, memTaint = s.historyTainted(r, clean, pr)
 	}

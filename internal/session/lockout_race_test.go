@@ -58,3 +58,34 @@ func TestPairLockoutConcurrent(t *testing.T) {
 		t.Fatalf("locked attempt reached the store (%d)", n)
 	}
 }
+
+// panicStore panics inside TakePairCode.
+type panicStore struct{ Store }
+
+func (panicStore) TakePairCode(context.Context, string, time.Time) (int64, bool, error) {
+	panic("store boom")
+}
+
+// A store panic must not leak the reserved guess slot (security #65 Info):
+// after MaxFailures panics, pairing must still not be wedged by inflight.
+func TestPairPanicReleasesSlot(t *testing.T) {
+	m, err := New(panicStore{Store: NewMemory()}, []byte(strings.Repeat("p", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < MaxFailures+2; i++ {
+		func() {
+			defer func() { _ = recover() }()
+			_, _, _ = m.Pair(context.Background(), "ABCD-EFGH")
+		}()
+	}
+	m.mu.Lock()
+	inflight, failures := m.inflight, m.failures
+	m.mu.Unlock()
+	if inflight != 0 {
+		t.Fatalf("inflight = %d after panics, want 0", inflight)
+	}
+	if failures != 0 || m.Locked() {
+		t.Fatalf("panics counted as failures (%d) or locked", failures)
+	}
+}
