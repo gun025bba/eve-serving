@@ -484,12 +484,22 @@ func TestRootRedirectsToUI(t *testing.T) {
 	}
 }
 
-// The redirect target is fixed: nothing in the query string or forwarded headers can steer it
-// (no open redirect), and the query is not carried over.
-func TestRootRedirectIgnoresQueryAndHeaders(t *testing.T) {
+// The redirect target is fixed: nothing in the query string or forwarded headers can steer the
+// path/host (no open redirect); only the raw query is carried over, after "/ui/".
+func TestRootRedirectKeepsQueryOnFixedPath(t *testing.T) {
 	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
 	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	for _, q := range []string{"?next=https://evil.example", "?next=//evil.example/x&url=/v1/me", "?", "?%2F%2Fevil.example", "?a=1&a=2"} {
+	for q, want := range map[string]string{
+		"":                                  "/ui/",
+		"?":                                 "/ui/",
+		"?a=b":                              "/ui/?a=b",
+		"?a=1&a=2":                          "/ui/?a=1&a=2",
+		"?next=https://evil.example":        "/ui/?next=https://evil.example",
+		"?next=//evil.example/x&url=/v1/me": "/ui/?next=//evil.example/x&url=/v1/me",
+		"?%2F%2Fevil.example":               "/ui/?%2F%2Fevil.example",
+		"?x=%0d%0aSet-Cookie:a=b":           "/ui/?x=%0d%0aSet-Cookie:a=b", // still percent-encoded: no header injection
+		"?" + strings.Repeat("a", 2049):     "/ui/",                        // too long: dropped
+	} {
 		for _, m := range []string{"GET", "HEAD"} {
 			req, _ := http.NewRequest(m, ts.URL+"/"+q, nil)
 			req.Header.Set("X-Forwarded-Host", "evil.example")
@@ -500,9 +510,25 @@ func TestRootRedirectIgnoresQueryAndHeaders(t *testing.T) {
 				t.Fatal(err)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != 302 || resp.Header.Get("Location") != "/ui/" {
-				t.Errorf("%s /%s: %d Location=%q, want 302 exactly /ui/", m, q, resp.StatusCode, resp.Header.Get("Location"))
+			loc := resp.Header.Get("Location")
+			if resp.StatusCode != 302 || loc != want {
+				t.Errorf("%s /%.40s: %d Location=%.80q, want 302 %.80q", m, q, resp.StatusCode, loc, want)
 			}
+			// whatever the query, the redirect stays on this origin under /ui/
+			if !strings.HasPrefix(loc, "/ui/") || strings.HasPrefix(loc, "//") || strings.ContainsAny(loc, "\r\n") {
+				t.Errorf("%s /%.40s: unsafe Location %.80q", m, q, loc)
+			}
+		}
+	}
+}
+
+// Characters that are not plain printable ASCII are never copied into Location.
+func TestRootRedirectTargetDropsUnsafeQuery(t *testing.T) {
+	for in, want := range map[string]string{
+		"a=b": "/ui/?a=b", "": "/ui/", "a=b c": "/ui/", "a=\r\nX: y": "/ui/", "a=\x00": "/ui/", "a=한": "/ui/", "a=\x7f": "/ui/",
+	} {
+		if got := rootRedirectTarget(in); got != want {
+			t.Errorf("rootRedirectTarget(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
