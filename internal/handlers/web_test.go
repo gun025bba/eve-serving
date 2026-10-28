@@ -161,8 +161,12 @@ func TestWebOffPathUnchanged(t *testing.T) {
 		t.Fatal(string(b))
 	}
 	q := e.requests()
-	if len(q) != 1 || q[0]["tools"] != nil || len(q[0]["messages"].([]any)) != 1 {
+	// only the gateway self-description is added (web off for this request)
+	if len(q) != 1 || q[0]["tools"] != nil || len(q[0]["messages"].([]any)) != 2 {
 		t.Fatal(q)
+	}
+	if c, _ := q[0]["messages"].([]any)[0].(map[string]any)["content"].(string); !strings.HasPrefix(c, selfDescPrefix) || !strings.Contains(c, "웹 검색(꺼짐") {
+		t.Fatal(c)
 	}
 	if e.fs.n != 0 {
 		t.Fatal("searched in off mode")

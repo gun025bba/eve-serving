@@ -110,10 +110,14 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools
 		}
 	}
 	c := s.Cfg.Web
+	wt := s.Web
+	if wt == nil {
+		wt = &WebTools{} // web disabled: memory-only tool path, no web call is ever executed
+	}
 	return tools.NewSession(tools.Deps{
-		Search: s.Web.Search, Fetch: s.Web.Fetch, Rate: s.Web.Rate,
+		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
 		Limits:   tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
-		Domains:  s.Web.Domains,
+		Domains:  wt.Domains,
 		Disabled: func() bool { return s.WebAuditBlocked || s.AuditBreaker.Open() },
 		OnStart:  func(tc tools.Call) { s.auditCall(r, pr, tc, audit.EvCallStarted) },
 		OnCall: func(tc tools.Call) {
@@ -315,21 +319,34 @@ func clipRunes(s string, n int) string {
 	return string(r)
 }
 
-// webChat serves a chat request with web tools (mode auto or force).
+// webChat serves a chat request on the tool path. In mode auto or force the
+// web tools are offered; in mode off it runs only for a user whose memory is
+// active, and then memory_propose is the only tool (web calls are refused).
 func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string]any, mode tools.Mode, pr *chatPersist) {
 	t0 := time.Now()
 	ctx := r.Context()
 	stream, _ := body["stream"].(bool)
 	msgs, _ := body["messages"].([]any)
-	clean, ok := tools.SanitizeHistory(msgs)
-	if !ok {
-		s.fail(w, r, apierr.BadRequest("System messages must not contain web tool content"))
-		return
+	webTools := mode != tools.ModeOff
+	clean := msgs
+	if webTools {
+		var ok bool
+		clean, ok = tools.SanitizeHistory(msgs)
+		if !ok {
+			s.fail(w, r, apierr.BadRequest("System messages must not contain web tool content"))
+			return
+		}
 	}
 	sess := s.newSession(r, clean, pr)
 	lim := sess.Limits()
+	if !webTools && lim.MaxRounds > 3 {
+		lim.MaxRounds = 3 // memory_propose only: propose, answer
+	}
 	// Trusted, fixed system text goes first; web content never enters a system message.
-	conv := append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
+	conv := append([]any{}, clean...)
+	if webTools {
+		conv = append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
+	}
 	out := &sseOut{w: w, on: stream, created: time.Now().Unix()}
 	if pr != nil {
 		pr.setHeaders(w.Header())
@@ -352,7 +369,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	var memTaint []string
 	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
 	if memUser {
-		_, memTaint = s.historyTainted(r, clean, pr)
+		_, memTaint = s.historyTainted(r, msgs, pr) // raw request history: client tool messages taint too
 	}
 	rounds := 0
 	var final upMsg
@@ -421,7 +438,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = s.withMemoryTool(tools.ToolDefs(), memUser)
+			var defs []any
+			if webTools {
+				defs = tools.ToolDefs()
+			}
+			b["tools"] = s.withMemoryTool(defs, memUser)
 			b["tool_choice"] = "auto"
 			lastResp, _, ferr = s.upstreamJSON(ctx, b)
 			if ferr != nil {
@@ -488,6 +509,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue
 				}
+				if !webTools {
+					// web tools were not offered on this request: refuse, never execute.
+					res := toolResult(map[string]any{"status": "denied", "error_code": "tool_unavailable"})
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
 				emitCall(rc)
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
@@ -499,7 +526,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 		if !done && ferr == nil {
 			// Round cap: final answer without tools.
-			conv = append(conv, map[string]any{"role": "system", "content": tools.FinalNotice})
+			notice := tools.FinalNotice
+			if !webTools {
+				notice = "The tool budget for this answer is used up. Answer now."
+			}
+			conv = append(conv, map[string]any{"role": "system", "content": notice})
 			b := base()
 			b["messages"] = conv
 			if stream {
@@ -545,7 +576,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			lastResp = map[string]any{"object": "chat.completion"}
 		}
 		lastResp["choices"] = []any{map[string]any{"index": 0, "finish_reason": "stop",
-			"message": map[string]any{"role": "assistant", "content": final.Content, "reasoning": nilIfEmpty(final.Reasoning), "sources": srcs}}}
+			"message": map[string]any{"role": "assistant", "content": final.Content, "reasoning": nilIfEmpty(final.Reasoning)}}}
+		if webTools {
+			lastResp["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)["sources"] = srcs
+		}
 		if pr != nil {
 			for k, x := range pr.ids() {
 				lastResp[k] = x
@@ -567,7 +601,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(map[string]any{"id": "web-" + rid(r), "object": "chat.completion.chunk", "model": body["model"],
 			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": final.Content}, "finish_reason": "stop"}}})
 	}
-	out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
+	if webTools {
+		out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
+	}
 	if pr != nil {
 		v := pr.ids()
 		v["object"], v["status"] = "chat.completion.persisted", pr.apiStatus(status)

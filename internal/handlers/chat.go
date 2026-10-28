@@ -148,6 +148,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer pr.releaseInflight()
+	// Order of the system prompt: Eve self-description, client system text, memory block (last).
+	s.injectSelfDescription(r, body, s.resolveWebMode(r.Context(), webMode, webExplicit, pr))
 	s.injectMemory(r, body)
 	if pr != nil {
 		// Saved chats run detached from the client connection (§3.8).
@@ -162,7 +164,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 // chatRun generates the reply. For saved chats r carries a context detached
 // from the client and w is the run's event log (genRun).
 func (s *Server) chatRun(w http.ResponseWriter, r *http.Request, body map[string]any, webMode tools.Mode, webExplicit bool, pr *chatPersist) {
-	if mode := s.resolveWebMode(r.Context(), webMode, webExplicit, pr); mode == tools.ModeAuto || mode == tools.ModeForce {
+	mode := s.resolveWebMode(r.Context(), webMode, webExplicit, pr)
+	// Tool path: web auto/force, or any request of a user with active memory
+	// (memory_propose is offered whenever memory is active, web on or off).
+	if mode == tools.ModeAuto || mode == tools.ModeForce || s.memoryActive(r) {
 		s.webChat(w, r, body, mode, pr)
 		return
 	}

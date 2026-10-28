@@ -1,6 +1,6 @@
 status: 200 OK
 --- upstream
-{"max_tokens":8192,"messages":[{"content":"see https://go.example/rel","role":"user"}],"model":"m1","stream":true,"stream_options":{"include_usage":true},"temperature":0.7,"top_p":0.9}
+{"max_tokens":8192,"messages":[{"content":"[Eve 자기 설명(게이트웨이 자동 생성). 기능을 물으면 이 내용만 근거로 답하고, 없는 기능을 있다고 하지 마세요.]\n- 버전: dev\n- 메모리: 이 연결에서는 사용할 수 없어요.\n- 도구: 웹 검색(꺼짐, 입력창 웹 검색 버튼으로 켬)","role":"system"},{"content":"see https://go.example/rel","role":"user"}],"model":"m1","stream":true,"stream_options":{"include_usage":true},"temperature":0.7,"top_p":0.9}
 --- response
 data: {"model":"m1","choices":[{"delta":{"content":"force "}}]}
 
