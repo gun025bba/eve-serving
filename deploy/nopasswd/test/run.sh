@@ -255,10 +255,11 @@ eq "signals during the swap: consistent end state" "$(live)" "gw-22/eg-22/5.0.1"
 # 14b. outside the swap window (waiting for / reading the staged files) a TERM/HUP aborts at once and cleans up the lock and work dir
 for sig in TERM HUP; do
   new_box "30$sig"; sign 5.0.1 8; stage 5.0.1 5.0.1
-  ( sandbox_env; copy_staged() { sleep 30; }; main deploy 5.0.1 ) >/dev/null 2>&1 &
+  printf '#!/bin/sh\ntouch "%s/head-started"\nexec sleep 30\n' "$B" >"$B/slowhead"; chmod 0755 "$B/slowhead"
+  ( sandbox_env; HEAD=$B/slowhead; main deploy 5.0.1 ) >/dev/null 2>&1 &     # the REAL copy_staged, its read blocks like a FIFO would
   pid=$!
-  for _ in $(seq 1 100); do [ -d "$B/state/lock" ] && break; sleep 0.1; done
-  [ -d "$B/state/lock" ] && ok || bad "$sig test: the deploy never reached the staged-file copy"
+  for _ in $(seq 1 100); do [ -e "$B/head-started" ] && break; sleep 0.1; done
+  [ -e "$B/head-started" ] && ok || bad "$sig test: the deploy never reached the blocking staged-file read"
   kill -$sig $pid 2>/dev/null
   for _ in $(seq 1 50); do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
   if kill -0 $pid 2>/dev/null; then bad "$sig outside the swap window must abort the deploy"; kill -9 $pid 2>/dev/null; else ok; fi

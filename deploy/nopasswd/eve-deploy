@@ -31,6 +31,7 @@ STATE=/var/db/eve-deploy                # root:wheel 0700: current_version, sche
 LOGF=/var/log/eve-deploy.log            # root:wheel 0600
 BIN_DIR=/opt/eve-gw/bin                 # live gateway + eve-gw (root:wheel 0755)
 LABEL=com.llmserving.gateway
+HEAD=/usr/bin/head                      # the only command that can block on a staged file (tests replace it with a slow stub)
 HEALTH_URL=http://127.0.0.1:8000/health
 SIG_NAMESPACE=eve-deploy
 SIG_IDENTITY=eve-release
@@ -121,6 +122,11 @@ WORK=""
 # its health check / automatic restore, so INT/TERM/HUP/QUIT are ignored ONLY for that window. Before it (waiting for / reading
 # the staged files) the default action applies: Ctrl-C or kill aborts at once and the EXIT trap removes the work dir and the lock.
 swap_window() { trap '' INT TERM HUP QUIT; }
+# Outside the window a signal must end the run AND clean up. bash 3.2 (macOS) does not run the EXIT trap when a signal kills
+# the shell, so INT/TERM/HUP/QUIT are trapped to `exit`, and the one blocking read (copy_staged) runs in the background under
+# `wait`, which a trapped signal interrupts at once (a foreground read of a FIFO would defer the trap until it ends).
+COPY_PID=""
+abort_run() { [ -z "$COPY_PID" ] || kill "$COPY_PID" 2>/dev/null; log "aborted by a signal before the swap window"; exit 1; }
 cleanup() { [ -z "$WORK" ] || { /bin/rm -rf "$WORK"; WORK=""; }; /bin/rmdir "$STATE/lock" 2>/dev/null || true; }
 
 # ----- verification of the staged bundle -----
@@ -130,7 +136,9 @@ copy_staged() {
   local src=$1 dst=$2 max=$3 sz
   [ -f "$src" ] && [ ! -L "$src" ] || die "staged file missing or not a regular file: ${src##*/}"
   [ "$(stat_uid "$src")" = "$(/usr/bin/id -u "$SUDO_USER")" ] || die "staged file not owned by the deploy user: ${src##*/}"
-  /usr/bin/head -c "$((max + 1))" <"$src" >"$dst" || die "cannot copy ${src##*/}"
+  "$HEAD" -c "$((max + 1))" <"$src" >"$dst" & COPY_PID=$!
+  wait "$COPY_PID" || { COPY_PID=""; die "cannot copy ${src##*/}"; }
+  COPY_PID=""
   sz=$(stat_size "$dst")
   [ "$sz" -gt 0 ] && [ "$sz" -le "$max" ] || die "bad size for ${src##*/}"
 }
@@ -256,7 +264,8 @@ main() {
   check_caller
   load_state
   take_lock
-  trap cleanup EXIT               # runs on normal exit and on INT/TERM/HUP outside the swap window
+  trap cleanup EXIT               # normal exits and every `exit` (die, abort_run)
+  trap abort_run INT TERM HUP QUIT   # until swap_window() replaces this with "ignore"
   case "$ACTION" in deploy) do_deploy;; rollback) do_rollback;; esac
 }
 
