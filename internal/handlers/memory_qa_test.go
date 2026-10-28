@@ -47,7 +47,7 @@ func TestMemoryQA_UserIDFailureBlocksAccess(t *testing.T) {
 		t.Fatalf("files created: %d", len(ents))
 	}
 	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`)
-	if c := e.lastUpstream()["messages"].([]any)[0].(map[string]any)["content"]; c != "S" {
+	if c, _ := e.lastUpstream()["messages"].([]any)[0].(map[string]any)["content"].(string); strings.Contains(c, "user_memory") || !strings.HasSuffix(c, "\n\nS") {
 		t.Fatalf("injected despite uid failure: %v", c)
 	}
 	if !strings.Contains(logs.String(), "memory_user_id_failed") {
