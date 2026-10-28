@@ -120,6 +120,29 @@ func TestPimConfig(t *testing.T) {
 	}
 }
 
+func TestPimWritesConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	base := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}
+	c, err := Load("/nonexistent.yaml", env(base))
+	if err != nil || c.Pim.WritesEnabled || c.Pim.WritesOn() {
+		t.Fatal("pim writes must default off", err)
+	}
+	on := map[string]string{"GW_PIM_WRITES_ENABLED": "true"}
+	for k, v := range base {
+		on[k] = v
+	}
+	if c, err = Load("/nonexistent.yaml", env(on)); err != nil || !c.Pim.WritesOn() {
+		t.Fatal(err, c.Pim)
+	}
+	// the writes flag never outlives the pim switch
+	if c, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_WRITES_ENABLED": "true"})); err != nil || c.Pim.WritesOn() {
+		t.Fatal("writes on without pim.enabled", err)
+	}
+	if _, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_WRITES_ENABLED": "maybe"})); err == nil {
+		t.Fatal("bad bool accepted")
+	}
+}
+
 func TestMemoryEnabledOffWins(t *testing.T) {
 	cases := []struct {
 		name, yaml, env string

@@ -17,6 +17,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"github.com/gun025bba/eve-serving/internal/store"
 )
 
@@ -219,7 +220,8 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 }
 
 // approveAction: POST /v1/actions/{id}/approve {confirm_token, payload_hash}.
-// Registered only while memory is on; only memory.propose cards execute.
+// Registered while memory is on or pim writes are on; only memory.propose
+// and (when GW_PIM_WRITES_ENABLED) reminders_add/reminders_complete/calendar_add_event cards execute.
 func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	if s.denyAPIKey(w, r) {
 		return
@@ -271,6 +273,12 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if subtle.ConstantTimeCompare([]byte(b.PayloadHash), []byte(a.PayloadHash)) != 1 || store.PayloadHash(a.Payload) != a.PayloadHash {
 		s.writeCode(w, r, "payload_mismatch")
+		return
+	}
+	if pim.IsWriteTool(a.Tool) {
+		// Jarvis M1 #70: same card, token and payload-hash checks as above;
+		// the executor is the eve-pim helper instead of the memory file.
+		s.approvePimWrite(w, r, ap, a, now)
 		return
 	}
 	if a.Tool != memory.ToolPropose {

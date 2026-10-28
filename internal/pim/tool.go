@@ -31,11 +31,13 @@ var registry = func() *tools.Registry {
 	return r
 }()
 
-// Names lists the read tools in a fixed order.
+// Names lists the read tools in a fixed order (write verbs: WriteNames).
 func Names() []string { return []string{ToolListEvents, ToolListReminders} }
 
-// IsTool reports whether name is a pim tool.
-func IsTool(name string) bool { return name == ToolListEvents || name == ToolListReminders }
+// IsTool reports whether name is a pim tool (read or write verb).
+func IsTool(name string) bool {
+	return name == ToolListEvents || name == ToolListReminders || IsWriteTool(name)
+}
 
 // Manifest returns the validated manifest for a pim tool.
 func Manifest(name string) (*tools.Manifest, bool) { return registry.Get(name) }
@@ -66,6 +68,9 @@ type Outcome struct {
 	// Card is the UI card (§11.2): the list card on success, the error card on
 	// failure. Stream-only, never stored.
 	Card map[string]any
+	// ActionID is the confirmation card of a write proposal (Status
+	// "pending_confirmation"); there is no card of its own then.
+	ActionID string
 }
 
 // Exec runs one read tool. now/loc anchor relative defaults. The returned

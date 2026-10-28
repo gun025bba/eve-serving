@@ -76,6 +76,15 @@ func FailOutcome(tool, code string) Outcome {
 	return Outcome{Tool: tool, Status: StatusOf(code), ErrorCode: code, Card: ErrorCard(code)}
 }
 
+// StatusPending is the tool_result status of a write proposal that became a
+// confirmation card.
+const StatusPending = "pending_confirmation"
+
+// PendingOutcome is the outcome of a write proposal that was stored.
+func PendingOutcome(tool, actionID string) Outcome {
+	return Outcome{Tool: tool, Status: StatusPending, Count: 1, ActionID: actionID}
+}
+
 // DeniedOutcome is the outcome of a call for a tool not exposed to this principal.
 func DeniedOutcome(tool string) Outcome { return FailOutcome(tool, CodeKillSwitch) }
 
@@ -84,6 +93,10 @@ func DeniedOutcome(tool string) Outcome { return FailOutcome(tool, CodeKillSwitc
 // an error card. PIM tools never carry sources or blocked_count.
 func (o Outcome) ResultFields() map[string]any {
 	out := map[string]any{"status": o.Status}
+	if o.Status == StatusPending {
+		out["action_id"] = o.ActionID // the confirmation event follows; no card here
+		return out
+	}
 	if o.Status == "ok" {
 		out["count"], out["truncated"], out["card"] = o.Count, o.Truncated, o.Card
 		return out

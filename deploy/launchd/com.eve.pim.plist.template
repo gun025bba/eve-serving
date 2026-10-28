@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- eve-pim (Jarvis M1, #68): user LaunchAgent in the owner's login session
-     (EventKit needs TCC). Writes stay off: no --writes-enabled. -->
+     (EventKit needs TCC). Writes stay off: the writes-enabled flag is not passed. -->
 <plist version="1.0"><dict>
 <key>Label</key><string>com.eve.pim</string>
 <key>ProgramArguments</key><array>

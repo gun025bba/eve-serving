@@ -1,7 +1,8 @@
-// Package pim is the gateway side of Jarvis M1 (issue #69): a client for the
-// eve-pim helper (pim/eve-pim, #68) and the read-only model tools
-// calendar_list_events and reminders_list. Only read methods are wired here;
-// writes (#70) are not implemented.
+// Package pim is the gateway side of Jarvis M1: a client for the eve-pim
+// helper (pim/eve-pim, #68), the read tools calendar_list_events and
+// reminders_list (#69) and the write verbs reminders_add / reminders_complete
+// (#70, write.go). Writes are off by default and only ever run from an
+// approved confirmation card.
 //
 // Nothing in this package logs or returns event or reminder content other
 // than through the tool result handed to the model.
@@ -26,6 +27,8 @@ const (
 	CodeKillSwitch       = "kill_switch"
 	CodeTimeout          = "timeout"
 	CodeInvalidArgs      = "invalid_arguments"
+	CodeWritesDisabled   = "writes_disabled" // helper runs without --writes-enabled
+	CodeNotFound         = "not_found"
 )
 
 // Caps (design §1, security condition). The helper enforces them too.
@@ -40,6 +43,31 @@ const (
 type Error struct{ Code string }
 
 func (e *Error) Error() string { return "pim: " + e.Code }
+
+// unknownOutcome marks an error raised after the request line may have
+// reached the helper (write error, timeout, garbled or missing reply). For a
+// write the reminder may or may not exist: EventKit has no idempotency key, so
+// callers must not retry on it.
+type unknownOutcome struct{ err *Error }
+
+func (u *unknownOutcome) Error() string { return u.err.Error() + " (outcome unknown)" }
+func (u *unknownOutcome) Unwrap() error { return u.err }
+
+func unknown(err error) error {
+	var pe *Error
+	if !errors.As(err, &pe) {
+		pe = &Error{CodeUnavailable}
+	}
+	return &unknownOutcome{pe}
+}
+
+// OutcomeUnknown reports whether a call failed after the helper may have
+// received it. False means it was certainly not executed (connect failure or
+// a refusal from the helper).
+func OutcomeUnknown(err error) bool {
+	var u *unknownOutcome
+	return errors.As(err, &u)
+}
 
 // CodeOf maps any error to one of the public codes.
 func CodeOf(err error) string {
@@ -179,6 +207,60 @@ func (c *Client) ListCalendars(ctx context.Context) (Calendars, error) {
 	return out, err
 }
 
+type addReminderParams struct {
+	Title string  `json:"title"`
+	Due   *string `json:"due,omitempty"`
+	List  *string `json:"list,omitempty"`
+}
+
+type completeReminderParams struct {
+	ID string `json:"id"`
+}
+
+// AddReminder creates one reminder. One attempt only, never retried.
+func (c *Client) AddReminder(ctx context.Context, title string, due *time.Time, list string) error {
+	p := addReminderParams{Title: title}
+	if due != nil {
+		s := rfc3339(*due)
+		p.Due = &s
+	}
+	if list != "" {
+		p.List = &list
+	}
+	return c.call(ctx, "add_reminder", p, &struct{}{})
+}
+
+type addEventParams struct {
+	Title      string  `json:"title"`
+	Start      string  `json:"start"`
+	End        string  `json:"end"`
+	AllDay     bool    `json:"all_day"`
+	Location   *string `json:"location,omitempty"`
+	Notes      *string `json:"notes,omitempty"`
+	CalendarID *string `json:"calendar_id,omitempty"`
+}
+
+// AddEvent creates one event from an approved card (add_event). One attempt
+// only, never retried: EventKit has no idempotency key.
+func (c *Client) AddEvent(ctx context.Context, e EventWrite) error {
+	p := addEventParams{Title: e.Title, Start: e.Start, End: e.End, AllDay: e.AllDay}
+	if e.Location != "" {
+		p.Location = &e.Location
+	}
+	if e.Notes != "" {
+		p.Notes = &e.Notes
+	}
+	if e.CalendarID != "" {
+		p.CalendarID = &e.CalendarID
+	}
+	return c.call(ctx, "add_event", p, &struct{}{})
+}
+
+// CompleteReminder marks one reminder done. One attempt only.
+func (c *Client) CompleteReminder(ctx context.Context, id string) error {
+	return c.call(ctx, "complete_reminder", completeReminderParams{id}, &struct{}{})
+}
+
 func (c *Client) call(ctx context.Context, method string, params, result any) error {
 	to := c.Timeout
 	if to <= 0 {
@@ -208,14 +290,14 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 	dl, _ := ctx.Deadline()
 	conn.SetDeadline(dl)
 	if _, err := conn.Write(line); err != nil {
-		return netErr(err)
+		return unknown(netErr(err))
 	}
 	raw, err := bufio.NewReaderSize(io.LimitReader(conn, maxResponse+1), 4096).ReadBytes('\n')
 	if err != nil && !(errors.Is(err, io.EOF) && len(raw) > 0) {
-		return netErr(err)
+		return unknown(netErr(err))
 	}
 	if len(raw) > maxResponse {
-		return &Error{CodeUnavailable}
+		return unknown(&Error{CodeUnavailable})
 	}
 	var resp struct {
 		V      int             `json:"v"`
@@ -224,16 +306,23 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		Result json.RawMessage `json:"result"`
 	}
 	if json.Unmarshal(raw, &resp) != nil || resp.V != 1 {
-		return &Error{CodeUnavailable}
+		return unknown(&Error{CodeUnavailable})
 	}
 	if !resp.OK {
-		if resp.Error == "permission_denied" {
+		switch resp.Error {
+		case "permission_denied":
 			return &Error{CodePermissionDenied}
+		case "writes_disabled":
+			return &Error{CodeWritesDisabled}
+		case "not_found":
+			return &Error{CodeNotFound}
+		case "internal":
+			return unknown(&Error{CodeUnavailable}) // may have failed half-way
 		}
 		return &Error{CodeUnavailable}
 	}
 	if json.Unmarshal(resp.Result, result) != nil {
-		return &Error{CodeUnavailable}
+		return unknown(&Error{CodeUnavailable})
 	}
 	return nil
 }
