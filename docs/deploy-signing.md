@@ -148,8 +148,9 @@ The agent that prepares releases must use a separate GitHub account or App, **no
 }
 ```
 
-   With no bypass actor nobody can push a `v*` tag, so a release tag is created through the GitHub UI or API by a user with the ruleset bypass.
-   **Open point before install** (security's condition): make the designated human (the owner, for example via the repository `admin` role) the one bypass actor of **this** ruleset, and nobody else.
+   With no bypass actor nobody can push a `v*` tag. Release tags are pushed by `deploy/nopasswd/release-tag.sh` with the **release-tag deploy key** (next section), which is the
+   **only** bypass actor of **this** ruleset (actor type "Deploy key"; no person, no bot account, no app, no repository role). The deploy key is in no other ruleset's bypass list, in particular not in `main-protect`.
+   **Open point before install** (security's condition): register the key and add it as that one bypass actor; then verify that creating a `v*` tag as the agent account is refused.
    A tag that already exists cannot be moved or deleted. Verify that creating a tag as the agent account is refused: the exact bypass semantics differ between repository roles.
 3. **Environment `deploy`** (Settings, Environments): *Deployment branches and tags*: "Selected branches and tags" with a **tag** rule `v*` and nothing else. Required reviewers are optional
    (add one if every release should wait for approval). No secrets in the environment.
@@ -170,6 +171,36 @@ gh api repos/gun025bba/eve-serving/environments/deploy/deployment-branch-policie
 gh api repos/gun025bba/eve-serving/immutable-releases                                              # enabled: true (if the endpoint is not available yet, check the UI)
 gh api repos/gun025bba/eve-serving/actions/permissions --jq '.sha_pinning_required'                # true
 ```
+
+## The release-tag deploy key
+
+Tags are what the signing workflow reacts to, so who can create one decides what can be signed. The tag is created by `deploy/nopasswd/release-tag.sh`, run by the owner on the Mac, with a
+key that exists for this one purpose.
+
+- **Location and permissions.** On the Mac, `$HOME/.eve-release-tagger/id_ed25519` (override with `EVE_RELEASE_TAG_KEY`), directory mode `0700`, file mode `0600` (`0400` also works), owned by the user who runs the script.
+  The script refuses a missing key, a symlink, another owner, or any mode that gives group or others access. The private key is never in the repository, in CI, in an Actions secret, in the bots' environment, or on the box
+  that prepares releases (any copy there was deleted); only the public half (`id_ed25519.pub`) is ever shown or registered. The script never reads, copies, prints or commits the key: it only passes its path to `ssh -i`.
+- **Registered as** a repository **deploy key** of `gun025bba/eve-serving` with write access (Settings, Deploy keys), titled `release-tagger`, and nowhere else (not an account SSH key).
+- **Bypass.** The deploy key is in the `release-tags` ruleset's bypass list **only** (checklist item 2). It is not a bypass actor of `main-protect`, so it cannot push to `main`; the script itself pushes exactly one ref,
+  `refs/tags/vX.Y.Z` (no branch, no force, no `--tags`/`--all`/`--delete`; `release-tag-test.sh` fails if that changes).
+- **Revocation: delete the deploy key.** If the key may have leaked (a copy of the file, a backup, a compromised Mac account), delete it in Settings, Deploy keys (or
+  `gh api -X DELETE repos/gun025bba/eve-serving/keys/<id>`, the id comes from `gh api repos/gun025bba/eve-serving/keys`). With the key deleted GitHub accepts nothing signed by it, and with it
+  disappears the only bypass of `release-tags`, so nobody can create a `v*` tag until a new key is registered. Then remove the file on the Mac, and review what the key could have done meanwhile:
+  `gh api repos/gun025bba/eve-serving/git/matching-refs/tags/v` (tags that you did not cut), the releases page, and the Rekor entries for the repository. A tag of an installed version cannot be re-used (the Mac only accepts higher versions)
+  and tags cannot be moved or deleted. To continue: `ssh-keygen -t ed25519 -f ~/.eve-release-tagger/id_ed25519` on the Mac (no passphrase is required by the script, a passphrase needs `ssh-agent` and is not supported by it), register the new public key, and put it in the bypass list again.
+- **What the script requires before it pushes** (it refuses, exit 1, and pushes nothing, unless all hold):
+  1. the target SHA equals the tip of `main` on the remote (`git ls-remote`, read again right before the push; the default target is that tip);
+  2. a pull request of that commit has a review, a review comment or a PR comment by the security reviewer whose text names the **full 40-character SHA** (a `DISMISSED`, `CHANGES_REQUESTED` or `PENDING` review does not count; a squash merge creates a new commit, so the reviewer names the merged commit in a comment on the merged PR);
+  3. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`;
+  4. the version is strictly greater than the highest existing `vX.Y.Z` tag on the remote.
+  A reviewer comment is only evidence if the reviewer writes the SHA **only to approve** it; a blocking comment must not repeat the SHA.
+- **Who is the security reviewer.** There is no default: set `EVE_SECURITY_REVIEWER` to the GitHub login that posts the security reviews. Determine it from a review you trust, for example
+  `gh api repos/gun025bba/eve-serving/pulls/<PR>/reviews --jq '.[] | {id, login: .user.login, state, commit_id}'` (match the review id of the approval you were shown), and make sure that account is **not** one a releasing agent can also post as:
+  if the same account writes the code and the review, check 2 proves nothing. (At the time of writing the security reviews of #99 and #100 were posted under the owner's login, not a separate one; that is a decision for the owner.)
+- **Use** (on the Mac, inside a clone, with `gh` logged in for reads and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
+  `EVE_SECURITY_REVIEWER=<login> bash deploy/nopasswd/release-tag.sh --dry-run 5.1.0` checks everything and pushes nothing; without `--dry-run` it creates the annotated tag and pushes it.
+  Add `github.com` to `~/.ssh/known_hosts` first by checking GitHub's published host key fingerprints (the script does not disable host key checking). If `ssh` is missing (`openssh-client`), the script stops with a message before touching anything.
+- **Tests**: `deploy/nopasswd/test/release-tag-test.sh` (run by `test/run.sh`, hence by both CI jobs) uses fakes for `gh`, `git` and `ssh` and a local bare repository; it needs no network and no key, and never creates a real tag.
 
 ## If a version that is too high was recorded
 

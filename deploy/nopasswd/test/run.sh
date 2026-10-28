@@ -727,5 +727,11 @@ if [ -f "$D/README.md" ]; then
   no_ "README does not mention generating keys on the laptop" grep -niE 'ssh-keygen -t|--pubkey|expect-key' "$D/README.md"
 fi
 
+# ---------------- release-tag.sh (offline, fake gh/git/ssh; separate script so it can also run alone) ----------------
+[ -x "$D/release-tag.sh" ] && ok || bad "release-tag.sh must be executable"
+rt_out=$(bash "$HERE/release-tag-test.sh" 2>&1); rt_rc=$?
+printf '%s\n' "$rt_out" | tail -n 5
+eq "release-tag tests" "$rt_rc" 0
+
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]
