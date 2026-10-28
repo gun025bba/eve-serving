@@ -22,11 +22,14 @@
   `GW_WEB_ENABLED=false`). In that case it is the only tool; a web tool call is refused (`tool_unavailable`) and never
   executed. Taint checks are unchanged and now look at the raw request history.
 - With web off and `stream: true` the memory loop streams: text reaches the client as it is generated and the gateway
-  only buffers once the model starts a tool call (native or textual), so first-token latency is that of plain chat.
+  only buffers once the model starts a tool call (native or textual), so a memory-active request is not held back by tool handling. Measured first token with memory on is about 1.15s versus 0.18s with memory off (a flat difference, not a regression of the streaming path).
 
 ### Security
 - Without a server-side thread (no `thread_id`), `memory_propose` is not offered when the request carries earlier
   assistant turns (they could hold web content the gateway cannot check). Documented in `docs/architecture/memory.md`.
+- The same rule applies to `thread_id: "new"`: the thread is created by that request, so assistant turns in its body are
+  client-supplied and do not count as trusted.
+- A negative `index` in a streamed tool-call delta is ignored instead of panicking (500).
 
 ### Changed
 - Requests of a user with active memory take the tool path even with web off (streamed, see above; non-streaming

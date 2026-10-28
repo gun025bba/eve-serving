@@ -74,4 +74,12 @@ func TestBuild_Compact(t *testing.T) {
 	if n := memory.EstimateTokens(got); n >= 200 {
 		t.Fatalf("self-description is %d tokens (budget 200):\n%s", n, got)
 	}
+	// forbidden product names, assembled from fragments so the source never
+	// spells them out
+	forbidden := []string{strings.Join([]string{"jar", "vis"}, ""), string([]rune{0xC790, 0xBE44, 0xC2A4})}
+	for _, w := range forbidden {
+		if strings.Contains(strings.ToLower(got), w) {
+			t.Fatal("forbidden word in the self-description")
+		}
+	}
 }

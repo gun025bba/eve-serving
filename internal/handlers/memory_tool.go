@@ -66,8 +66,9 @@ func (s *Server) markThreadTainted(r *http.Request, login, threadID string) {
 
 // memoryOffered: memory_propose is offered when the user's memory is active
 // and the request history can be checked for untrusted web content. Without a
-// server-side thread (no thread_id, so no stored messages/sources and no sticky
-// taint flag) the gateway cannot tell whether an earlier assistant turn the
+// server-side history (no thread_id, or thread_id "new": the thread is created
+// by this very request, so every assistant turn in the body is client-supplied
+// and nothing is stored, no sources, no sticky taint flag) the gateway cannot tell whether an earlier assistant turn the
 // client sends back carries web content, so any such turn means "not offered"
 // (fail-closed). The first message of a stateless conversation still offers it.
 // The memory block itself is still injected (read-only).
@@ -75,7 +76,7 @@ func (s *Server) memoryOffered(r *http.Request, body map[string]any, pr *chatPer
 	if !s.memoryActive(r) {
 		return false
 	}
-	if pr != nil && pr.threadID != "" {
+	if pr != nil && pr.threadID != "" && !pr.newThread {
 		return true
 	}
 	msgs, _ := body["messages"].([]any)
