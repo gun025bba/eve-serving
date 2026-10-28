@@ -209,7 +209,7 @@ if grep -qi 'PRIVATE' "$B/log" 2>/dev/null; then bad "log leaks key text"; else 
 S=$T/setup; mkdir -p "$S/sudoers.d"; echo "#includedir $S/sudoers.d" >"$S/sudoers"
 SHA=$(sha256sum "$ENTRY" | cut -d' ' -f1)
 setup_env() { env EVE_LIBEXEC=$S/libexec EVE_STATE=$S/state EVE_SUDOERS_D=$S/sudoers.d EVE_SUDOERS_MAIN=$S/sudoers EVE_LOGF=$S/log \
-  EVE_OWNER="$ME:$(id -gn)" EVE_SKIP_ROOT=1 EVE_SKIP_CHAIN=1 SUDO_USER="$ME" "$@"; }
+  EVE_OWNER="$ME:$(id -gn)" EVE_SKIP_ROOT=1 EVE_SKIP_CHAIN=1 EVE_SKIP_FULL_VISUDO=1 SUDO_USER="$ME" "$@"; }
 run_setup() { setup_env bash "$D/setup-deploy-nopasswd.sh" "$@" >"$S/out" 2>&1; }
 no_ "setup: no args" run_setup
 no_ "setup: wrong sha" run_setup --expect-sha256 0000 --pubkey "$KEY.pub" --current 5.0.0 --schema 8
@@ -220,8 +220,6 @@ no_ "setup: unknown arg" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --
 ( setup_env SUDO_USER=root bash "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 ) >/dev/null 2>&1; eq "setup: root user refused" "$?" 1
 [ ! -e "$S/sudoers.d/eve-deploy" ] && ok || bad "failed setups must install nothing"
 yes_ "setup: ok" run_setup --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8
-[ -f "$S/sudoers.d/eve-deploy" ] || { sed 's/^/  setup output: /' "$S/out"; setup_env bash -x "$D/setup-deploy-nopasswd.sh" --expect-sha256 "$SHA" --pubkey "$KEY.pub" --current 5.0.0 --schema 8 2>&1 | tail -15 | sed 's/^/  trace: /'; }
-[ -f "$S/sudoers.d/eve-deploy" ]
 F=$S/sudoers.d/eve-deploy
 yes_ "sudoers snippet passes visudo -c" /usr/sbin/visudo -c -q -f "$F"
 eq "sudoers: exactly one rule line + one Defaults" "$(grep -vc '^#' "$F")" 2

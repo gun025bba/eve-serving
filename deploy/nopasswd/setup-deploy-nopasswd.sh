@@ -17,6 +17,7 @@ LOGF=${EVE_LOGF:-/var/log/eve-deploy.log}
 OWNER=${EVE_OWNER:-root:wheel}
 SKIP_ROOT=${EVE_SKIP_ROOT:-0}
 SKIP_CHAIN=${EVE_SKIP_CHAIN:-0}
+SKIP_FULL=${EVE_SKIP_FULL_VISUDO:-0}                       # tests only: a sandbox include dir is not root-owned
 ENTRY=$LIBEXEC/deploy
 SUDOERS_FILE=$SUDOERS_D/eve-deploy
 
@@ -97,7 +98,7 @@ visudo -c -q -f "$TMP" || die "sudoers snippet failed visudo -c (nothing install
 install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0440 "$TMP" "$SUDOERS_FILE.new"
 visudo -c -q -f "$SUDOERS_FILE.new" || { rm -f "$SUDOERS_FILE.new"; die "installed snippet failed visudo -c"; }
 mv -f "$SUDOERS_FILE.new" "$SUDOERS_FILE"
-visudo -c -q -f "$SUDOERS_MAIN" || { rm -f "$SUDOERS_FILE"; die "visudo -c failed on the full config: removed $SUDOERS_FILE"; }
+[ "$SKIP_FULL" = 1 ] || visudo -c -q -f "$SUDOERS_MAIN" || { rm -f "$SUDOERS_FILE"; die "visudo -c failed on the full config: removed $SUDOERS_FILE"; }
 
 echo "OK. From now on (no password): sudo $ENTRY deploy <X.Y.Z> | rollback   (user: $USER_NAME)"
 echo "Stage bundles in $LIBEXEC/staging as eve-<X.Y.Z>.tar + eve-<X.Y.Z>.tar.sig (made by sign-deploy-bundle.sh on the signing machine)."
