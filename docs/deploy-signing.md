@@ -193,12 +193,20 @@ key that exists for this one purpose.
 - **What the script requires before it pushes** (it refuses, exit 1, and pushes nothing, unless all hold):
   1. the target SHA equals the tip of `main` on the remote (`git ls-remote`, read again right before the push; the default target is that tip);
   2. the version is strictly greater than the highest existing `vX.Y.Z` tag on the remote;
-  3. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`.
+  3. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`, and that run belongs to a workflow run of **`.github/workflows/ci.yml`** of this repository on exactly that
+     commit (the script reads `GET /repos/.../actions/runs/<id>` of each candidate; a same-named job of another workflow file, repository or commit is ignored, so it can neither pass nor mask the real check).
   Nothing else is queried from GitHub: no pull request, review, comment or account is read.
+- **Malformed tags: the script refuses.** The version order is only defined for strict `vX.Y.Z` (no leading zeros). If the remote has **any** other tag matching `v*` (for example `v5.0.0-rc1`, `v9`, `v05.0.0`), the script refuses to tag at all
+  and names the tag, instead of ignoring it: an ignored `v99.0.0-rc1` would hide how high the line really is, and refusing is the fail-safe choice. The `release-tags` ruleset blocks creating, updating and deleting `v*` tags for everybody but its bypass actors,
+  so such a tag can only come from a bypass actor (the deploy key); recovery is a reviewed decision (use the "version too high" recovery below or have an admin remove the stray tag through the ruleset), not something the script works around.
+  Peeled `^{}` lines of annotated tags are expected and fine.
+- **Run it from a clean clone of `main`, with git 2.32 or newer.** The script refuses unless `main` is the checked-out branch and no tracked file is modified (the script itself included), unless `git --version` is 2.32 or newer
+  (older git ignores `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM`, which the config neutralisation relies on), and unless `git ls-remote --get-url git@github.com:gun025bba/eve-serving.git` prints exactly that URL (no active URL rewriting).
+  Untracked files are not checked (they cannot change what is tagged: the tag is made from the remote's SHA). A fresh `git clone` of the repository is the intended place; do not run an edited copy.
 - **Constants, not environment.** The repository (`gun025bba/eve-serving`) and the remote (`git@github.com:gun025bba/eve-serving.git`) are constants in one marked block at the top of `release-tag.sh`; no environment variable
   changes them (`EVE_REPO`, `EVE_RELEASE_TAG_REMOTE` do not exist). The only variable is `EVE_RELEASE_TAG_KEY` (path of the key).
 - **How the script reaches GitHub.** `git` talks to the remote only through `ssh -F /dev/null -i <key> -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<repo>/deploy/nopasswd/github_known_hosts
-  -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none`: no ssh config, no agent, no prompts, and **only GitHub's published host keys** (`deploy/nopasswd/github_known_hosts`, copied from
+  -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none -o UpdateHostKeys=no`: no ssh config, no agent, no prompts, no host key updates written by the server, and **only GitHub's published host keys** (`deploy/nopasswd/github_known_hosts`, copied from
   [GitHub's SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints) and `https://api.github.com/meta`; a rotation is a reviewed change to that file).
   Nothing has to be added to `~/.ssh/known_hosts`. Git's global and system config are switched off (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, git 2.32 or newer) so no `url.*.insteadOf` can redirect the push, and the script refuses a clone whose
   own config sets `url.*.insteadOf` or `pushInsteadOf`. If `ssh` is missing (`openssh-client`), the script stops with a message before touching anything.
@@ -211,7 +219,7 @@ key that exists for this one purpose.
   - *A squash merge needs nothing extra.* The tag is made on the merged commit (the new tip of `main`); no review names it, because none is required.
   - *The CI workflow path is pinned.* The signing identity the Mac trusts is the workflow path of `release.yml` and `deploy-sign.yml@main` on a `refs/tags/vX.Y.Z` ref; a change of those paths (rename, move, a fork or a different
     workflow) changes the identity and the Mac then refuses the artifact until the pin is updated by a reviewed change. The checks the script looks at are the ones named `test` and `deploy-nopasswd-macos` from GitHub Actions only.
-- **Use** (on the Mac, inside a clean clone, with `gh` logged in read-only and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
+- **Use** (on the Mac, inside a clean clone of `main`, with `gh` logged in read-only and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
   `bash deploy/nopasswd/release-tag.sh --dry-run 5.1.0` checks everything and pushes nothing; without `--dry-run` it creates the annotated tag and pushes it.
 - **Tests**: `deploy/nopasswd/test/release-tag-test.sh` (run by `test/run.sh`, hence by both CI jobs) uses fakes for `gh`, `git` and `ssh` and a local bare repository; it needs no network and no key, and never creates a real tag.
 

@@ -9,8 +9,12 @@
 # merge and a tag is the branch protection of main (PR + required checks) and the three gates below. The tag is pushed only when ALL of this holds, otherwise the script refuses
 # (exit 1) and pushes nothing:
 #   1. the target SHA equals the tip of main on the remote (read with `git ls-remote`, and read again just before the push);
-#   2. the required checks `test` and `deploy-nopasswd-macos` finished with conclusion success for that SHA (latest run of each name, created by GitHub Actions);
-#   3. the version is strictly greater than the highest existing vX.Y.Z tag on the remote.
+#   2. the required checks `test` and `deploy-nopasswd-macos` finished with conclusion success for that SHA: the newest run of each name that was created by GitHub Actions AND belongs to
+#      a workflow run of .github/workflows/ci.yml of this repository on exactly that commit (a same-named job of another workflow is ignored);
+#   3. the version is strictly greater than the highest existing vX.Y.Z tag on the remote, and the remote has no other tag matching v* that is not strictly vX.Y.Z (refused: the order of
+#      such a tag cannot be trusted).
+# It also refuses unless it runs from a clean clone of main (main checked out, no modified tracked files), with git 2.32 or newer, and `git ls-remote --get-url` of the remote
+# is exactly the constant below (no URL rewriting).
 #
 # What it touches: the remote is reached ONLY through GIT_SSH_COMMAND (deploy key, no ssh config, GitHub's published host keys from deploy/nopasswd/github_known_hosts with
 # StrictHostKeyChecking=yes, no agent, no prompts) and git's global/system config is switched off (no url.*.insteadOf rewriting); the only ref it ever pushes is
@@ -55,11 +59,21 @@ KNOWN_HOSTS=$(cd "$(dirname "$0")" && pwd)/github_known_hosts
 
 for c in git gh jq; do command -v "$c" >/dev/null 2>&1 || die "'$c' is required but not installed"; done
 git rev-parse --git-dir >/dev/null 2>&1 || die "run this inside a clone of the repository"
+# git 2.32 or newer: older versions ignore GIT_CONFIG_GLOBAL/GIT_CONFIG_NOSYSTEM, so the config neutralisation below would not hold
+GITV=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*$/\1 \2/p' | head -n1)
+[ -n "$GITV" ] || die "cannot determine the git version"
+read -r GITMAJ GITMIN <<<"$GITV"
+{ [ "$GITMAJ" -gt 2 ] || { [ "$GITMAJ" -eq 2 ] && [ "$GITMIN" -ge 32 ]; }; } || die "git $GITMAJ.$GITMIN is too old (2.32 or newer is required: older git ignores GIT_CONFIG_GLOBAL and GIT_CONFIG_NOSYSTEM)"
 export GIT_TERMINAL_PROMPT=0
 # no global/system git config: no url.*.insteadOf / pushInsteadOf rewriting of the remote, no helper, no hooks path (git 2.32 and newer honour these two variables)
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_SSH GIT_PROXY_COMMAND
 if git config --get-regexp '^url\..*\.(insteadof|pushinsteadof)$' >/dev/null 2>&1; then die "this clone's own git config rewrites URLs (url.*.insteadOf); use a clean clone"; fi
+# what git would really contact for the remote (after any rewriting) must be exactly the constant
+[ "$(git ls-remote --get-url "$REMOTE" 2>/dev/null)" = "$REMOTE" ] || die "git would not contact exactly $REMOTE (a URL rewrite is active); use a clean clone"
+# a clean clone on main: no modified tracked file (this script included) and the branch checked out is main
+[ "$(git symbolic-ref -q --short HEAD 2>/dev/null || true)" = main ] || die "run this from a clone with the main branch checked out"
+[ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || die "the working tree has uncommitted changes to tracked files; use a clean clone of main"
 
 command -v ssh >/dev/null 2>&1 || die "'ssh' is not installed (install openssh-client); the tag is pushed over ssh with the deploy key"
 modeof() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
@@ -72,7 +86,7 @@ case "$(modeof "$KEY")" in 600|400) ;; *) die "the deploy key must have mode 060
 [ "$(ownerof "$KEYDIR")" = "$(id -u)" ] || die "the directory of the deploy key is not owned by the current user"
 case "$(modeof "$KEYDIR")" in 700|500) ;; *) die "the directory of the deploy key must have mode 0700 (no access for group or others)" ;; esac
 [ -f "$KNOWN_HOSTS" ] && [ ! -L "$KNOWN_HOSTS" ] || die "deploy/nopasswd/github_known_hosts is missing (GitHub's published ssh host keys)"
-export GIT_SSH_COMMAND="ssh -F /dev/null -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none"
+export GIT_SSH_COMMAND="ssh -F /dev/null -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$KNOWN_HOSTS -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none -o UpdateHostKeys=no"
 
 remote_main_tip() {
   local out line
@@ -95,7 +109,7 @@ highest_tag() {
       x=$((10#${BASH_REMATCH[1]})) y=$((10#${BASH_REMATCH[2]})) z=$((10#${BASH_REMATCH[3]}))
       if [ "$x" -gt "$hx" ] || { [ "$x" -eq "$hx" ] && { [ "$y" -gt "$hy" ] || { [ "$y" -eq "$hy" ] && [ "$z" -gt "$hz" ]; }; }; }; then hx=$x hy=$y hz=$z; fi
     else
-      note "ignoring a tag that is not vX.Y.Z: ${ref#refs/tags/}"
+      die "the remote has a tag that is not strictly vX.Y.Z (${ref#refs/tags/}); refusing because the version order cannot be trusted (see docs/deploy-signing.md)"
     fi
   done <<<"$out"
   first=$hx
@@ -126,14 +140,23 @@ note "target $SHA is the tip of main"
 # ---- 2. version (cheap, before the API calls) --------------------------------------------------------------------------------------------------------
 check_version
 
-# ---- 3. required checks passed for this commit (every request is a plain GET) -----------------------------------------------------------------------
+# ---- 3. required checks passed for this commit, from the pinned workflow file (every request is a plain GET) -----------------------------------------------------------------------
 ghget() { gh api --paginate "$1"; }
 RUNS=$(ghget "repos/$REPO/commits/$SHA/check-runs?per_page=100" | jq -c '.check_runs[]') || die "cannot read the check runs of $SHA"
+CI_PATH=".github/workflows/ci.yml"   # the workflow file the two required checks must come from
 for want in test deploy-nopasswd-macos; do
-  # newest run of that name from GitHub Actions (a re-run supersedes the earlier one); it must be completed with success
-  got=$(printf '%s\n' "$RUNS" | jq -rs --arg n "$want" \
-        '[.[] | select(.name == $n and (.app.slug // "") == "github-actions")] | sort_by(.id) | last | if . == null then "missing" else "\(.status)/\(.conclusion // "none")" end')
-  [ "$got" = "completed/success" ] || die "required check '$want' is $got for $SHA (needs completed/success)"
+  # candidates: runs of that name from the GitHub Actions app, newest first, each as "<check id> <workflow run id> <status>/<conclusion>"
+  cands=$(printf '%s\n' "$RUNS" | jq -rs --arg n "$want" '[.[] | select(.name == $n and (.app.slug // "") == "github-actions")] | sort_by(.id) | reverse | .[] |
+          "\(.id) \((.details_url // "") | capture("/actions/runs/(?<r>[0-9]+)/") | .r // "0") \(.status)/\(.conclusion // "none")"') || die "cannot read the check runs of $SHA"
+  got=missing
+  while read -r cid rid st; do
+    [ -n "$cid" ] || continue
+    [[ "$rid" =~ ^[1-9][0-9]*$ ]] || continue
+    # only a run of the pinned workflow file, of this repository, on exactly this commit is a candidate; a same-named job of any other workflow is ignored
+    wf=$(gh api "repos/$REPO/actions/runs/$rid" | jq -r --arg p "$CI_PATH" --arg s "$SHA" --arg r "$REPO" 'if .path == $p and .head_sha == $s and (.repository.full_name // "") == $r then "ok" else "other" end') || die "cannot read workflow run $rid of check '$want'"
+    if [ "$wf" = ok ]; then got=$st; break; fi   # the newest valid run decides (a re-run supersedes the earlier one)
+  done <<<"$cands"
+  [ "$got" = "completed/success" ] || die "required check '$want' is $got for $SHA from $CI_PATH (needs completed/success)"
 done
 note "checks test and deploy-nopasswd-macos passed for the commit"
 
