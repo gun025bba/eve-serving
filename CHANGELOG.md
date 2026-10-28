@@ -15,6 +15,41 @@
   after they ended (job every 6 h; hash and status stay). (I-2)
 - Docs: `GW_PIM_WRITES_ENABLED` and the four other keys, defaults and the external-sync warning for writes.
 
+## 5.0.2 (unreleased)
+
+### Fixed
+- **Approving a memory add card on Postgres returned 422 `payload_mismatch`.** JSONB stores object keys in its own
+  order, so the hash computed over the producer's key order never matched the stored payload. `payload_hash` is now
+  over the canonical (sorted-key) JSON, used at create and verify. Approve also accepts the pre-5.0.2 hash; a pending
+  card whose key order JSONB had already changed cannot verify and expires within 24h (propose again). New Postgres
+  test `TestPostgresActions_PayloadHashSurvivesJSONB` (required by CI).
+
+### Added
+- **Eve self-description in chat requests of interactive sessions.** The gateway puts a short Korean block at the start of the system
+  prompt (before client system text; the memory block stays last): the build version, this user's memory state
+  (on, off, on but the first-use intro not seen yet, or unavailable) with how to view, add, edit, delete and export
+  memories (`설정 > 메모리`, `/v1/memory`) and how proposal cards work, and the list of tools that are enabled
+  (web search with its state for this request, `memory_propose`). It is generated from runtime state
+  (`internal/selfdesc`, `internal/handlers/selfdesc.go`), so a feature that is off is not mentioned and a new tool
+  appears when its entry is added to the list. Per request, not stored in threads. Budget: under 200 tokens.
+  Only requests with the `interactive` scope get it (browser/app sessions); API-key requests are unchanged.
+- `memory_propose` is now offered whenever memory is active, also when web search is off for the request (and when
+  `GW_WEB_ENABLED=false`). In that case it is the only tool; a web tool call is refused (`tool_unavailable`) and never
+  executed. Taint checks are unchanged and now look at the raw request history.
+- With web off and `stream: true` the memory loop streams: text reaches the client as it is generated and the gateway
+  only buffers once the model starts a tool call (native or textual), so a memory-active request is not held back by tool handling. Measured first token with memory on is about 1.15s versus 0.18s with memory off (a flat difference, not a regression of the streaming path).
+
+### Security
+- Without a server-side thread (no `thread_id`), `memory_propose` is not offered when the request carries earlier
+  assistant turns (they could hold web content the gateway cannot check). Documented in `docs/architecture/memory.md`.
+- The same rule applies to `thread_id: "new"`: the thread is created by that request, so assistant turns in its body are
+  client-supplied and do not count as trusted.
+- A negative `index` in a streamed tool-call delta is ignored instead of panicking (500).
+
+### Changed
+- Requests of a user with active memory take the tool path even with web off (streamed, see above; non-streaming
+  clients get the answer after the tool round, as with web search on).
+
 ## 5.0.0 (unreleased)
 
 > **Breaking (MAJOR): personalized memory is on by default.** Stacked on 4.0.0. Contract: #54 (memory.md §14,

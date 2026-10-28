@@ -111,10 +111,14 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools
 		}
 	}
 	c := s.Cfg.Web
+	wt := s.Web
+	if wt == nil {
+		wt = &WebTools{} // web disabled: memory-only tool path, no web call is ever executed
+	}
 	return tools.NewSession(tools.Deps{
-		Search: s.Web.Search, Fetch: s.Web.Fetch, Rate: s.Web.Rate,
+		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
 		Limits:   tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
-		Domains:  s.Web.Domains,
+		Domains:  wt.Domains,
 		Disabled: func() bool { return s.WebAuditBlocked || s.AuditBreaker.Open() },
 		OnStart:  func(tc tools.Call) { s.auditCall(r, pr, tc, audit.EvCallStarted) },
 		OnCall: func(tc tools.Call) {
@@ -316,21 +320,37 @@ func clipRunes(s string, n int) string {
 	return string(r)
 }
 
-// webChat serves a chat request with web tools (mode auto or force).
-func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string]any, mode tools.Mode, pr *chatPersist) {
+// webChat serves a chat request on the tool path. In mode auto or force the
+// web tools are offered; in mode off it runs only when memory_propose is
+// offered (memOffer: memory active and the history checkable), and then it is
+// the only tool (web calls are refused). With web off and a streaming client
+// every round is streamed: text reaches the client as it is generated and the
+// loop only buffers once the model starts a tool call.
+func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string]any, mode tools.Mode, pr *chatPersist, memOffer bool) {
 	t0 := time.Now()
 	ctx := r.Context()
 	stream, _ := body["stream"].(bool)
 	msgs, _ := body["messages"].([]any)
-	clean, ok := tools.SanitizeHistory(msgs)
-	if !ok {
-		s.fail(w, r, apierr.BadRequest("System messages must not contain web tool content"))
-		return
+	webTools := mode != tools.ModeOff
+	clean := msgs
+	if webTools {
+		var ok bool
+		clean, ok = tools.SanitizeHistory(msgs)
+		if !ok {
+			s.fail(w, r, apierr.BadRequest("System messages must not contain web tool content"))
+			return
+		}
 	}
 	sess := s.newSession(r, clean, pr)
 	lim := sess.Limits()
+	if !webTools && lim.MaxRounds > 3 {
+		lim.MaxRounds = 3 // memory_propose only: propose, answer
+	}
 	// Trusted, fixed system text goes first; web content never enters a system message.
-	conv := append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
+	conv := append([]any{}, clean...)
+	if webTools {
+		conv = append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
+	}
 	out := &sseOut{w: w, on: stream, created: time.Now().Unix()}
 	if pr != nil {
 		pr.setHeaders(w.Header())
@@ -351,11 +371,16 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(res)
 	}
 	var memTaint []string
-	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
-	pimTools := append(s.pimToolsFor(r.Context(), user(r)), s.pimWriteToolsFor(r.Context(), user(r))...)
+	memUser := memOffer // memory active (enabled + intro seen) and history checkable (fail-closed)
+	// Calendar/reminder tools are offered only where they were before the memory-only tool path
+	// (web auto/force); a web-off request that takes this path for memory_propose gets no pim tools.
+	var pimTools []string
+	if webTools {
+		pimTools = append(s.pimToolsFor(r.Context(), user(r)), s.pimWriteToolsFor(r.Context(), user(r))...)
+	}
 	var pimCalls []string // pim results are untrusted: they taint memory proposals
 	if memUser {
-		_, memTaint = s.historyTainted(r, clean, pr)
+		_, memTaint = s.historyTainted(r, msgs, pr) // raw request history: client tool messages taint too
 	}
 	rounds := 0
 	var final upMsg
@@ -363,6 +388,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	var pt, ct *int64
 	var ferr error
 	finalStreamed := false
+	preamble := "" // text already streamed to the client in rounds that went on to call a tool
 
 	base := func() map[string]any {
 		b := map[string]any{}
@@ -424,9 +450,18 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			rounds++
 			b := base()
 			b["messages"] = conv
-			b["tools"] = withPimTools(s.withMemoryTool(tools.ToolDefs(), memUser), pimTools)
+			var defs []any
+			if webTools {
+				defs = tools.ToolDefs()
+			}
+			b["tools"] = withPimTools(s.withMemoryTool(defs, memUser), pimTools)
 			b["tool_choice"] = "auto"
-			lastResp, _, ferr = s.upstreamJSON(ctx, b)
+			fwd := ""
+			if stream && !webTools {
+				lastResp, fwd, ferr = s.streamRound(ctx, b, out, lim.MaxCalls)
+			} else {
+				lastResp, _, ferr = s.upstreamJSON(ctx, b)
+			}
 			if ferr != nil {
 				break
 			}
@@ -463,8 +498,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			if len(calls) == 0 {
 				final, done = m, true
+				finalStreamed = fwd != ""
 				break
 			}
+			preamble += fwd
 			var tcs []any
 			for _, c := range calls {
 				tcs = append(tcs, map[string]any{"id": c.id, "type": "function", "function": map[string]any{"name": c.name, "arguments": c.args}})
@@ -489,7 +526,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				if c.name == memory.ToolName && s.memoryOn() && !memUser {
 					// user memory off: tool is hidden, but a call that arrives
 					// anyway gets a kill_switch tool error; nothing is saved.
-					res := toolResult(map[string]any{"status": "denied", "error_code": "kill_switch"})
+					code := "kill_switch"
+					if s.memoryActive(r) {
+						code = "tainted" // memory is on but proposals are not offered for this request's history
+					}
+					res := toolResult(map[string]any{"status": "denied", "error_code": code})
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue
 				}
@@ -506,6 +547,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue
 				}
+				if !webTools {
+					// web tools were not offered on this request: refuse, never execute.
+					res := toolResult(map[string]any{"status": "denied", "error_code": "tool_unavailable"})
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
 				emitCall(rc)
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
@@ -517,7 +564,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 		if !done && ferr == nil {
 			// Round cap: final answer without tools.
-			conv = append(conv, map[string]any{"role": "system", "content": tools.FinalNotice})
+			notice := tools.FinalNotice
+			if !webTools {
+				notice = "The tool budget for this answer is used up. Answer now."
+			}
+			conv = append(conv, map[string]any{"role": "system", "content": notice})
 			b := base()
 			b["messages"] = conv
 			if stream {
@@ -543,10 +594,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			reason = "client_disconnected"
 		}
 	}
-	cites := cited(final.Content)
+	saved := preamble + final.Content
+	cites := cited(saved)
 	srcs := sourcesView(sess.Sources, nil)
 	if pr != nil {
-		pr.finish(r, final.Content, final.Reasoning, "", pt, ct, status, reason)
+		pr.finish(r, saved, final.Reasoning, "", pt, ct, status, reason)
 		s.saveWebRun(r, pr, sess, cites)
 	}
 	rec := record{stream: stream, status: 200, t0: t0, pt: pt, ct: ct}
@@ -563,7 +615,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			lastResp = map[string]any{"object": "chat.completion"}
 		}
 		lastResp["choices"] = []any{map[string]any{"index": 0, "finish_reason": "stop",
-			"message": map[string]any{"role": "assistant", "content": final.Content, "reasoning": nilIfEmpty(final.Reasoning), "sources": srcs}}}
+			"message": map[string]any{"role": "assistant", "content": final.Content, "reasoning": nilIfEmpty(final.Reasoning)}}}
+		if webTools {
+			lastResp["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)["sources"] = srcs
+		}
 		if pr != nil {
 			for k, x := range pr.ids() {
 				lastResp[k] = x
@@ -585,7 +640,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(map[string]any{"id": "web-" + rid(r), "object": "chat.completion.chunk", "model": body["model"],
 			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "content": final.Content}, "finish_reason": "stop"}}})
 	}
-	out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
+	if webTools {
+		out.event(map[string]any{"object": "chat.completion.sources", "sources": srcs, "cited": cites})
+	}
 	if pr != nil {
 		v := pr.ids()
 		v["object"], v["status"] = "chat.completion.persisted", pr.apiStatus(status)
@@ -723,4 +780,210 @@ func (s *Server) RunWebRetention(ctx context.Context, interval time.Duration) {
 			run()
 		}
 	}
+}
+
+const textToolOpen = "<tool_call>"
+
+// partialMarker reports whether the end of s is a proper prefix of
+// "<tool_call>", i.e. the next chunk may complete a textual tool call.
+func partialMarker(s string) bool {
+	for n := len(textToolOpen) - 1; n > 0; n-- {
+		if len(s) >= n && strings.HasSuffix(s, textToolOpen[:n]) {
+			return true
+		}
+	}
+	return false
+}
+
+type heldLine struct {
+	b    []byte
+	text string // content text carried by the line ("" for non-content lines)
+}
+
+// streamRound is one upstream round of the web-off memory loop. The upstream
+// call is streamed and the client sees text as it arrives (first token latency
+// is the model's, not the whole generation's). The round only stops
+// forwarding when the model starts a tool call: native tool_calls deltas are
+// buffered, and so is content from the first "<tool_call>" of a textual call
+// (plus, until it is decided, a tail that could still become that marker). A
+// textual call that does not parse is released as ordinary text. The result has
+// the shape of a non-streamed chat completion so the caller's tool loop is the
+// same for both. fwd is the content text that was already sent to the client.
+// An upstream that answers with a plain JSON body instead of SSE is accepted
+// (nothing is forwarded; the caller emits the answer in one piece).
+func (s *Server) streamRound(ctx context.Context, body map[string]any, out *sseOut, maxCalls int) (map[string]any, string, error) {
+	body["stream"] = true
+	body["stream_options"] = map[string]any{"include_usage": true}
+	payload, _ := json.Marshal(body)
+	_, rel, err := s.acquire(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rel()
+	resp, err := s.Up.Do(ctx, "POST", "/v1/chat/completions", payload, 0)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return nil, "", upstreamStatusErr(resp.StatusCode, string(b))
+	}
+	br := bufio.NewReaderSize(resp.Body, 64<<10)
+	for {
+		c, err := br.Peek(1)
+		if err != nil {
+			break
+		}
+		if c[0] == ' ' || c[0] == '\n' || c[0] == '\r' || c[0] == '\t' {
+			br.Discard(1)
+			continue
+		}
+		if c[0] == '{' { // not SSE: a complete JSON completion
+			data, err := io.ReadAll(io.LimitReader(br, 8<<20))
+			if err != nil {
+				return nil, "", apierr.New(502, "upstream_error", "Upstream read failed", "server_error")
+			}
+			var v map[string]any
+			if json.Unmarshal(data, &v) != nil {
+				return nil, "", apierr.New(502, "upstream_error", "Upstream returned non-JSON", "server_error")
+			}
+			return v, "", nil
+		}
+		break
+	}
+
+	var content, reasoning, fwd strings.Builder
+	type nativeCall struct{ id, name, args string }
+	var native []*nativeCall
+	var held []heldLine
+	var usageV any
+	nativeMode, textMode := false, false
+	flush := func() {
+		for _, h := range held {
+			out.raw(h.b)
+			fwd.WriteString(h.text)
+		}
+		held = nil
+	}
+
+	sc := bufio.NewScanner(br)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		l := bytes.TrimSpace(sc.Bytes())
+		if len(l) == 0 {
+			continue
+		}
+		if bytes.Equal(l, []byte("data: [DONE]")) {
+			break
+		}
+		line := append(append([]byte{}, l...), '\n', '\n')
+		var j struct {
+			Usage   any `json:"usage"`
+			Choices []struct {
+				Delta struct {
+					Content          any    `json:"content"`
+					Reasoning        string `json:"reasoning"`
+					ReasoningContent string `json:"reasoning_content"`
+					ToolCalls        []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments any    `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if !bytes.HasPrefix(l, []byte("data:")) || json.Unmarshal(bytes.TrimSpace(l[5:]), &j) != nil {
+			if !nativeMode && !textMode && len(held) == 0 {
+				out.raw(line) // comments / unknown lines pass through untouched
+			}
+			continue
+		}
+		if j.Usage != nil {
+			usageV = j.Usage
+		}
+		text, hasTool := "", false
+		for _, c := range j.Choices {
+			if t, ok := c.Delta.Content.(string); ok {
+				text += t
+			}
+			reasoning.WriteString(c.Delta.Reasoning)
+			reasoning.WriteString(c.Delta.ReasoningContent)
+			for _, tc := range c.Delta.ToolCalls {
+				hasTool = true
+				if tc.Index < 0 {
+					continue // malformed delta; never index with it
+				}
+				for len(native) <= tc.Index && tc.Index < 16 {
+					native = append(native, &nativeCall{})
+				}
+				if tc.Index >= len(native) {
+					continue
+				}
+				n := native[tc.Index]
+				if tc.ID != "" {
+					n.id = tc.ID
+				}
+				n.name += tc.Function.Name
+				switch a := tc.Function.Arguments.(type) {
+				case string:
+					n.args += a
+				case nil:
+				default:
+					bb, _ := json.Marshal(a)
+					n.args += string(bb)
+				}
+			}
+		}
+		content.WriteString(text)
+		switch {
+		case hasTool:
+			if !nativeMode && !textMode {
+				flush() // text held back as a possible marker was plain text after all
+			}
+			nativeMode = true
+		case nativeMode:
+			// everything after a native tool call starts is buffered: dropped
+		default:
+			held = append(held, heldLine{b: line, text: text})
+			if !textMode && strings.Contains(content.String(), textToolOpen) {
+				textMode = true
+			}
+			if !textMode && !partialMarker(content.String()) {
+				flush()
+			}
+		}
+	}
+	serr := sc.Err()
+
+	msg := map[string]any{"role": "assistant", "content": content.String()}
+	if reasoning.Len() > 0 {
+		msg["reasoning"] = reasoning.String()
+	}
+	if nativeMode {
+		var tcs []any
+		for _, n := range native {
+			if n.name == "" {
+				continue
+			}
+			tcs = append(tcs, map[string]any{"id": n.id, "type": "function", "function": map[string]any{"name": n.name, "arguments": n.args}})
+		}
+		msg["tool_calls"] = tcs
+	}
+	if !nativeMode {
+		// Decide what is left: a textual call that parses is handled by the
+		// caller (the held text is dropped); anything else is released.
+		calls, _, _ := tools.ParseTextToolCalls(content.String(), maxCalls)
+		if !(textMode && len(calls) > 0) {
+			flush()
+		}
+	}
+	res := map[string]any{"choices": []any{map[string]any{"message": msg}}}
+	if usageV != nil {
+		res["usage"] = usageV
+	}
+	return res, fwd.String(), serr
 }
