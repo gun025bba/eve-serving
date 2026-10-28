@@ -141,6 +141,12 @@ jobs:
           done
           h=$(sha256sum "eve-$KIND-$VER.tar" | cut -d' ' -f1)
           [ "$(grep -c -x -- "sha256.bundle=$h" "$M")" = 1 ] || { echo "manifest does not match the tar"; exit 1; }
+      - name: Re-check that the tagged commit is still the tip of main, right before signing
+        run: |
+          set -euo pipefail
+          TIP=$(git ls-remote --exit-code "https://github.com/$REPO" refs/heads/main | cut -f1)
+          [[ "$TIP" =~ ^[0-9a-f]{40}$ ]] || { echo "could not read the tip of main"; exit 1; }
+          [ "$TIP" = "$SHA" ] || { echo "tag commit $SHA is not the tip of main ($TIP): main moved since the build, refusing to sign"; exit 1; }
       - name: Install cosign (pinned by sha256)
         run: |
           set -euo pipefail

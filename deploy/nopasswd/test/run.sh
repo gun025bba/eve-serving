@@ -649,6 +649,9 @@ if job_block sign "$WF" | grep -E 'contents: write|actions/checkout|actions/setu
 if job_block publish "$WF" | grep -E 'id-token|actions/checkout|\.eve-tools|go build|make-release' | grep -v '^[[:space:]]*#' | grep -q .; then bad "the publish job must not hold id-token or run repository code"; else ok; fi
 code "$WF" | grep -A1 '^permissions:' | grep -q '^  contents: read$' && ok || bad "workflow-level permissions must be contents: read"
 job_block sign "$WF" | grep -q 'EVENT" = push' && job_block sign "$WF" | grep -q 'refs/tags/v' && ok || bad "the sign job must re-check the push event and the tag ref"
+job_block sign "$WF" | grep -q 'git ls-remote --exit-code "https://github.com/\$REPO" refs/heads/main' && job_block sign "$WF" | grep -q 'is not the tip of main' && ok || bad "the sign job must re-check the tip of main with git ls-remote right before signing"
+job_block sign "$WF" | awk '/git ls-remote/&&!a{a=NR} /sign-blob/&&!b{b=NR} END{exit !(a&&b&&a<b)}' && ok || bad "git ls-remote must come before cosign sign-blob"
+awk 'BEGIN{c=0} /^\* @gun025bba[[:space:]]*$/{c++} END{exit !(c==1)}' "$REPO_ROOT/.github/CODEOWNERS" && ok || bad "CODEOWNERS must be exactly one '* @gun025bba' rule"
 job_block sign "$WF" | grep -q 'environment: deploy' && ok || bad "the sign job runs in the deploy environment"
 # the guard itself (the checks are not optional and have no fixture / release-branch mode)
 for needle in 'EVENT" = push' 'refs/tags/v' 'merge-base --is-ancestor' 'SHA" = "$TIP"' 'refs/remotes/origin/main'; do grep -qF -- "$needle" "$GUARD" && ok || bad "release-guard.sh lacks: $needle"; done
