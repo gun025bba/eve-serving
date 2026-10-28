@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +117,155 @@ func TestPimConfig(t *testing.T) {
 	c, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}))
 	if err != nil || c.Pim.OwnerUserID != 7 {
 		t.Fatal(err, c.Pim)
+	}
+}
+
+func TestMemoryEnabledOffWins(t *testing.T) {
+	cases := []struct {
+		name, yaml, env string
+		want            bool
+		src             string
+	}{
+		{"env true + config false", "memory:\n  enabled: false\n", "true", false, "config"},
+		{"env false + config true", "memory:\n  enabled: true\n", "false", false, "env"},
+		{"both unset", "max_conc: 1\n", "", true, "default"},
+		{"env unset + config true", "memory:\n  enabled: true\n", "", true, "config"},
+		{"env true + config unset", "max_conc: 1\n", "true", true, "env"},
+		{"both false", "memory:\n  enabled: false\n", "false", false, "env"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "config.yaml")
+			os.WriteFile(p, []byte(tc.yaml), 0o644)
+			env := map[string]string{"GW_MEMORY_ENABLED": tc.env}
+			c, err := Load(p, func(k string) string { return env[k] })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Memory.Enabled != tc.want || c.Memory.EnabledSource != tc.src {
+				t.Fatalf("got %v/%s want %v/%s", c.Memory.Enabled, c.Memory.EnabledSource, tc.want, tc.src)
+			}
+		})
+	}
+}
+
+func TestMemoryResolvedLogLine(t *testing.T) {
+	var buf bytes.Buffer
+	l := slog.New(slog.NewTextHandler(&buf, nil))
+	c := Default()
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(nil, boolp(false))
+	msg, args := MemoryResolvedLog(c)
+	l.Info(msg, args...)
+	out := buf.String()
+	if strings.Count(out, "\n") != 1 || !strings.Contains(out, `msg="memory config resolved" memory_enabled=false memory_enabled_source=env`) {
+		t.Fatalf("log line: %q", out)
+	}
+}
+
+func boolp(b bool) *bool { return &b }
+
+func writeCfg(t *testing.T, body string) string {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func noEnv(string) (string, bool) { return "", false }
+
+func TestStrictYAML(t *testing.T) {
+	cases := map[string]string{
+		"parse failure":  "memory: [unclosed\n",
+		"typo key":       "memory:\n  enable: false\n",
+		"top-level typo": "memroy:\n  enabled: false\n",
+		"null enabled":   "memory:\n  enabled: null\n",
+		"empty enabled":  "memory:\n  enabled:\n",
+		"tilde enabled":  "memory:\n  enabled: ~\n",
+		"on":             "memory:\n  enabled: on\n",
+		"yes":            "memory:\n  enabled: yes\n",
+		"Yes":            "memory:\n  enabled: Yes\n",
+		"off":            "memory:\n  enabled: off\n",
+		"TRUE":           "memory:\n  enabled: TRUE\n",
+		"False":          "memory:\n  enabled: False\n",
+		"one":            "memory:\n  enabled: 1\n",
+		"double quoted":  "memory:\n  enabled: \"false\"\n",
+		"single quoted":  "memory:\n  enabled: 'true'\n",
+		"str tag":        "memory:\n  enabled: !!str true\n",
+		"str tag false":  "memory:\n  enabled: !!str false\n",
+		"bool tag yes":   "memory:\n  enabled: !!bool yes\n",
+		"bool tag TRUE":  "memory:\n  enabled: !!bool TRUE\n",
+		"list":           "memory:\n  enabled: [false]\n",
+		"flow map list":  "memory: {enabled: [false]}\n",
+	}
+	for name, body := range cases {
+		if _, err := LoadEnv(writeCfg(t, body), noEnv); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+	c, err := LoadEnv(writeCfg(t, ""), noEnv)
+	if err != nil || !c.Memory.Enabled || c.Memory.EnabledSource != "default" {
+		t.Fatalf("empty file: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: !!bool false\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("!!bool false: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "memory: {enabled: false}\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("flow style false: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "web:\n  enabled: false\nmemory:\n  enabled: true\n"), noEnv)
+	if err != nil || !c.Memory.Enabled {
+		t.Fatalf("web.enabled must not affect memory: %v %+v", err, c.Memory)
+	}
+	c, err = LoadEnv(writeCfg(t, "memory:\n  enabled: false\n"), noEnv)
+	if err != nil || c.Memory.Enabled {
+		t.Fatalf("explicit false: %v %+v", err, c.Memory)
+	}
+}
+
+func TestRepoConfigYAMLStrict(t *testing.T) {
+	if _, err := LoadEnv(filepath.Join("..", "..", "config.yaml"), noEnv); err != nil {
+		t.Fatalf("repo config.yaml must load with KnownFields: %v", err)
+	}
+}
+
+func TestMemoryEnvEmptyOrInvalid(t *testing.T) {
+	for _, v := range []string{"", "  ", "yes-please", "on", "yes", "1", "0", "TRUE", "False", "t"} {
+		env := func(k string) (string, bool) {
+			if k == "GW_MEMORY_ENABLED" {
+				return v, true
+			}
+			return "", false
+		}
+		if _, err := LoadEnv("", env); err == nil {
+			t.Errorf("GW_MEMORY_ENABLED=%q: want startup error", v)
+		}
+	}
+	env := func(k string) (string, bool) {
+		if k == "GW_MEMORY_ENABLED" {
+			return " false ", true
+		}
+		return "", false
+	}
+	if c, err := LoadEnv("", env); err != nil || c.Memory.Enabled || c.Memory.EnabledSource != "env" {
+		t.Fatalf("trimmed false: %v %+v", err, c.Memory)
+	}
+}
+
+func TestMemoryResolvedLogNoSecrets(t *testing.T) {
+	c := Default()
+	c.Database.URL = "postgres://u:hunter2pw@db/x"
+	c.Memory.AuditKeyFile = "/tmp/audit.key"
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(boolp(true), nil)
+	var buf bytes.Buffer
+	msg, args := MemoryResolvedLog(c)
+	slog.New(slog.NewTextHandler(&buf, nil)).Info(msg, args...)
+	out := buf.String()
+	for _, bad := range []string{"SECRETKEY", "hunter2pw", "postgres://", "audit.key", "key=", "password", "token"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("log line leaks %q: %s", bad, out)
+		}
 	}
 }

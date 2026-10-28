@@ -44,8 +44,22 @@ func (s *Server) withHost(next http.Handler) http.Handler {
 	})
 }
 
-// sessionOnly: browser-session routes allow only a paired session identity
-// (Provider == session); API key and any other provider get 403.
+// interactiveOnly: routes for a person at a paired client require the
+// interactive scope (principal scope, not provider). API-key callers lack it
+// and get the same 403 scope_denied body as before.
+func interactiveOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !hasScope(r, auth.ScopeInteractive) {
+			writeJSON(w, 403, apierr.Body("scope_denied", apierr.ScopeDenied().Message, "permission_error", rid(r)))
+			return
+		}
+		h(w, r)
+	}
+}
+
+// sessionOnly: the single provider-based exception (PM-approved): DELETE
+// /v1/session ends the caller's own browser session, which only a session
+// identity has. API key and any other provider get 403.
 func sessionOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if id, ok := auth.FromContext(r.Context()); !ok || id.Provider != auth.ProviderSession {

@@ -85,10 +85,10 @@ func (e *env) lastUpstream() map[string]any {
 	return (*e.seen)[len(*e.seen)-1]
 }
 
-// SemVer condition 3: with memory.enabled=false (the default) nothing changes.
+// Rollback path: with memory.enabled=false nothing changes (5.0.0 default is true).
 func TestMemoryDisabled_NoRoutesNoPromptChange(t *testing.T) {
-	if config.Default().Memory.Enabled {
-		t.Fatal("memory.enabled must default to false")
+	if !config.Default().Memory.Enabled {
+		t.Fatal("memory.enabled must default to true (5.0.0)")
 	}
 	e, fs := newMemEnv(t, false, nil)
 	memory.Add(fs, uidOf(t, e, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
@@ -424,12 +424,16 @@ func TestMemoryAPI_SensitiveRejectedWithReasonCode(t *testing.T) {
 	}
 }
 
-// enableUserMemory sets users.settings memory.enabled=true (default is off).
+// enableUserMemory sets memory.enabled=true and ui.memory_intro_seen=true
+// (5.0.0: injection and proposals are held until the intro is seen).
 func enableUserMemory(t *testing.T, st0 store.Store, logins ...string) {
 	t.Helper()
 	st := st0.(store.UserSettingsStore)
 	for _, l := range logins {
 		if _, err := st.MergeUserSettings(context.Background(), l, "memory", []byte(`{"enabled":true}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.MergeUserSettings(context.Background(), l, "ui", []byte(`{"memory_intro_seen":true}`)); err != nil {
 			t.Fatal(err)
 		}
 	}

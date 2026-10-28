@@ -170,19 +170,28 @@ func (m *Manager) Pair(ctx context.Context, code string) (token string, s Sessio
 	}
 	m.inflight++
 	m.mu.Unlock()
+	// The slot is returned exactly once on every path, including a panic in
+	// the store (security #65 Info): resolved is set by release/fail.
+	resolved := false
+	defer func() {
+		if !resolved {
+			m.release(false)
+		}
+	}()
 	n, ok := NormalizeCode(code)
 	var uid int64
 	if ok {
 		uid, ok, err = m.Store.TakePairCode(ctx, m.hash("code", n), now)
 		if err != nil {
-			m.release(false)
 			return "", Session{}, err
 		}
 	}
 	if !ok {
+		resolved = true
 		m.fail(ctx, now)
 		return "", Session{}, ErrPairFailed
 	}
+	resolved = true
 	m.release(true)
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

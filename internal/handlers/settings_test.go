@@ -18,7 +18,7 @@ import (
 func TestSettings_ServerOff(t *testing.T) {
 	e, _ := newMemEnv(t, false, &failLedger{})
 	r, b := e.call(t, "alice@example", "GET", "/v1/settings", "")
-	if r.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"system":{"memory_available":false}}` || r.Header.Get("Cache-Control") != "no-store" {
+	if r.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"system":{"memory_available":false},"ui":{"memory_intro_seen":true}}` || r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatal(r.StatusCode, string(b))
 	}
 	if r, _ := e.call(t, "alice@example", "PATCH", "/v1/settings", `{"memory":{"enabled":true}}`); r.StatusCode != 400 {
@@ -27,18 +27,18 @@ func TestSettings_ServerOff(t *testing.T) {
 }
 
 func TestSettings_DefaultOffAndToggleGatesInjection(t *testing.T) {
-	// a user with no settings row key reads as off
+	// 5.0.0: a user with no settings key reads as on (opt-out)
 	if st := memstore.New(); true {
 		srv := &Server{Store: st}
 		u, err := srv.loadUserSettings(httptestReq("alice@example"))
-		if err != nil || u.Memory.Enabled {
-			t.Fatal("missing key must read as off", err)
+		if err != nil || !u.memoryEnabled() || u.UI.MemoryIntroSeen {
+			t.Fatal("missing key must read as memory on, intro unseen", err)
 		}
 	}
 	e, fs := newMemEnv(t, true, &failLedger{})
 	memory.Add(fs, uidOf(t, e, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
 	r, b := e.call(t, "alice@example", "PATCH", "/v1/settings", `{"memory":{"enabled":false}}`)
-	if r.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"memory":{"enabled":false},"system":{"memory_available":true}}` {
+	if r.StatusCode != 200 || strings.TrimSpace(string(b)) != `{"memory":{"enabled":false},"system":{"memory_available":true},"ui":{"memory_intro_seen":true}}` {
 		t.Fatal(r.StatusCode, string(b))
 	}
 	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`)
