@@ -154,7 +154,7 @@ func approveBody(tok, ph string) string {
 	return `{"confirm_token":"` + tok + `","payload_hash":"` + ph + `"}`
 }
 
-const addArgs = `{"title":"우유 사기","due":"2026-10-29T09:00:00+09:00","list":"장보기"}`
+const addArgs = `{"title":"우유 사기","due":"2037-03-14T09:00:00+09:00","list":"장보기"}`
 
 func TestPimWrite_OffByDefault(t *testing.T) {
 	e, fw := pimWriteEnv(t, false, [2]string{pim.ToolAddReminder, addArgs})
@@ -208,7 +208,7 @@ func TestPimWrite_ProposeThenApproveExecutesOnce(t *testing.T) {
 	// the card shows the exact values that will be written
 	var v map[string]any
 	json.Unmarshal(card.PayloadView, &v)
-	if v["title"] != "우유 사기" || v["due"] != "2026-10-29T09:00:00+09:00" || v["list"] != "장보기" || v["verb"] != "add" {
+	if v["title"] != "우유 사기" || v["due"] != "2037-03-14T09:00:00+09:00" || v["list"] != "장보기" || v["verb"] != "add" {
 		t.Fatal(string(card.PayloadView))
 	}
 	if ev := confirmEvent(t, sse); ev == nil || ev["tool"] != pim.ToolAddReminder {
@@ -232,7 +232,7 @@ func TestPimWrite_ProposeThenApproveExecutesOnce(t *testing.T) {
 	if r.StatusCode != 200 || !strings.Contains(string(b), `"executed"`) || r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatal(r.StatusCode, string(b))
 	}
-	if len(fw.added) != 1 || fw.added[0].Title != "우유 사기" || fw.added[0].Due != "2026-10-29T09:00:00+09:00" || fw.added[0].List != "장보기" {
+	if len(fw.added) != 1 || fw.added[0].Title != "우유 사기" || fw.added[0].Due != "2037-03-14T09:00:00+09:00" || fw.added[0].List != "장보기" {
 		t.Fatal(fw.added)
 	}
 	if strings.Contains(string(b), "우유") {
@@ -246,7 +246,7 @@ func TestPimWrite_ProposeThenApproveExecutesOnce(t *testing.T) {
 		t.Fatal("double write")
 	}
 	// logs: method, count, error code only
-	for _, leak := range []string{"우유", "장보기", "2026-10-29"} {
+	for _, leak := range []string{"우유", "장보기", "2037-03-14"} {
 		if strings.Contains(logs.String(), leak) {
 			t.Fatalf("log leaks content %q: %s", leak, logs.String())
 		}

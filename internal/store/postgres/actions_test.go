@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -477,5 +478,58 @@ func TestPostgresActions_ScrubActionContent(t *testing.T) {
 	}
 	if n, err := s.ScrubActionContent(ctx, tools, now.Add(-24*time.Hour)); err != nil || n != 0 {
 		t.Fatalf("second run: %d %v", n, err)
+	}
+}
+
+// JSONB does not keep key order ({"text","kind"} is stored and returned as
+// {"kind","text"}). The payload hash must therefore be over a canonical form:
+// the hash computed at create time still verifies against the payload read
+// back from the database (this was a 422 payload_mismatch on memory approve).
+func TestPostgresActions_PayloadHashSurvivesJSONB(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const u = "alice@example"
+	const payload = `{"op":"add","items":[{"text":"고양이를 키운다","kind":"fact"}],"z":{"b":1,"a":[2,{"y":1,"x":2}]}}`
+	p := newProposal(t, s, u, payload)
+	if p.PayloadHash != store.PayloadHash(json.RawMessage(payload)) {
+		t.Fatal("create-time hash is not the canonical hash")
+	}
+	acts, err := s.ListPendingActions(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got *store.Action
+	for i := range acts {
+		if acts[i].ID == p.ID {
+			got = &acts[i]
+		}
+	}
+	if got == nil {
+		t.Fatal("proposal not listed")
+	}
+	// sanity: the database really changed the byte order, so the old hash
+	// over the producer's bytes would not verify any more
+	if store.LegacyPayloadHash(got.Payload) == store.LegacyPayloadHash(json.RawMessage(payload)) {
+		t.Fatal("expected JSONB to reorder keys; the test no longer proves anything")
+	}
+	if got.PayloadHash != p.PayloadHash || store.PayloadHash(got.Payload) != got.PayloadHash || !store.PayloadHashMatches(got.Payload, got.PayloadHash) {
+		t.Fatalf("hash does not survive the JSONB round trip: stored %s, recomputed %s", got.PayloadHash, store.PayloadHash(got.Payload))
+	}
+	// reissue/revise recompute the hash too, still canonical
+	_, tok, err := s.ReissueAction(ctx, u, p.ID, time.Now().UTC())
+	if err != nil || tok == "" {
+		t.Fatal(err)
+	}
+	// a pending row hashed the old way over an order that still matches the
+	// stored order keeps verifying
+	legacy := store.LegacyPayloadHash(got.Payload)
+	if _, err := s.pool.Exec(ctx, `UPDATE pending_actions SET payload_hash=$1 WHERE id=$2`, legacy, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !store.PayloadHashMatches(got.Payload, legacy) {
+		t.Fatal("legacy hash over the stored order must still verify")
+	}
+	if store.PayloadHashMatches(got.Payload, "sha256:"+strings.Repeat("0", 64)) {
+		t.Fatal("wrong hash verified")
 	}
 }
