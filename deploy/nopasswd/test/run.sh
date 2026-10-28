@@ -743,5 +743,10 @@ rt_out=$(bash "$HERE/release-tag-test.sh" 2>&1); rt_rc=$?
 printf '%s\n' "$rt_out" | tail -n 5
 eq "release-tag tests" "$rt_rc" 0
 
+# ---------------- mac-oneshot.sh (offline: fake gh/curl/sudo/ssh/ssh-keygen) ----------------
+mo_out=$(bash "$HERE/mac-oneshot-test.sh" 2>&1); mo_rc=$?
+printf '%s\n' "$mo_out" | tail -n 5
+eq "mac-oneshot tests" "$mo_rc" 0
+
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]

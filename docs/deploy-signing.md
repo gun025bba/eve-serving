@@ -158,6 +158,12 @@ The agent that prepares releases must use a separate GitHub account or App, **no
 5. **Actions**: "Require actions to be pinned to a full-length commit SHA" on (Settings, Actions, General; every workflow in this repository is already pinned, `test/run.sh` checks it).
    Workflow permissions default: read-only. "Allow GitHub Actions to create and approve pull requests": off.
 6. **`eve-web`**: the same rulesets, environment, immutable releases and SHA pinning. Its release workflow only calls the reusable workflow above (`eve-web-release.yml.example`).
+   `deploy/nopasswd/mac-oneshot.sh` applies it (run once by the owner on the Mac, idempotent, `--dry-run` available, verify table at the end): `release-tags` on `refs/tags/v*` (create/update/delete/non-fast-forward blocked) with
+   bypass = the repository admin role **and** the `DeployKey` actor; `main-protect` with linear history and the strict required check `test`; environment `deploy` (tags `v*` only, admins cannot bypass);
+   immutable releases; SHA pinning; read-only default token permission; fork PR approval for all external contributors; and the write deploy key `eve-web-release-tagger` (`~/.eve-web-release-tagger/id_ed25519`).
+   Differences from this repository, on purpose: `eve-web` has the admin role as a second bypass actor on `release-tags`, and no `pull_request` rule on its main (not requested). **A `DeployKey` bypass is not tied to one key:
+   it covers every write deploy key of the repository**, so the script's verify step fails if any other write key exists. Until that repository is hardened and the owner has checked the summary, the installed entrypoint
+   refuses `kind=web` altogether (`WEB_ENABLED=no` in `eve-deploy`; turning it on = a reviewed change of that constant, a new pin and a new one-time install).
 7. **Accounts**: the owner's account has two-factor authentication with a passkey or hardware key; the agent account (or App) has write access only, no admin, no ruleset bypass, no ability
    to edit environments, and cannot approve its own pull requests.
 
