@@ -181,7 +181,7 @@ reset_fixtures; run FAKE_TAGS="a\trefs/tags/v5.9.0\nb\trefs/tags/v5.9.0^{}\n" --
 reset_fixtures; run FAKE_TAGS="" -- 0.0.1; eq "no tag yet: the first version is accepted" "$RC" 0; collect
 reset_fixtures; run FAKE_TAGS="a\trefs/tags/v5.0.0\nb\trefs/tags/v99.0.0-rc1\nc\trefs/tags/v9\n" -- 5.0.1; eq "malformed v* tags are ignored" "$RC" 0; collect
 reset_fixtures; refuses "tag listing fails" FAKE_LSTAGS_RC=128 -- 5.0.1; collect
-for v in 05.0.0 5.0 5.0.0.1 5.0.0-rc1 "5.0.0 " 1000000000.0.0 x.y.z "" '5.0.0;id' -1.0.0; do reset_fixtures; refuses "invalid version [$v]" -- "$v"; collect; done
+for v in 05.0.0 5.0 5.0.0.x 5.0.0-rc1 "5.0.0 " 1000000000.0.0 x.y.z "" '5.0.0;id' -1.0.0; do reset_fixtures; refuses "invalid version [$v]" -- "$v"; collect; done
 reset_fixtures; refuses "unknown option --force" -- --force 5.1.0; collect
 reset_fixtures; refuses "unknown option --tags" -- --tags 5.1.0; collect
 reset_fixtures; refuses "three arguments" -- 5.1.0 "$SHA" extra; collect
