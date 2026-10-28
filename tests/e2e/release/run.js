@@ -5,7 +5,7 @@ const lib = require('./lib');
 
 const CASES = [
   require('./cases/c1_pairing'), require('./cases/c2_memory_isolation'), require('./cases/c3_root_redirect'),
-  require('./cases/c4_source_chips'), require('./cases/c5_rollback'), require('./cases/c6_calendar_off'), require('./cases/c7_ui_regressions'),
+  require('./cases/c4_source_chips'), require('./cases/c5_rollback'), require('./cases/c6_calendar'), require('./cases/c7_ui_regressions'),
 ];
 
 function parseArgs(a) {

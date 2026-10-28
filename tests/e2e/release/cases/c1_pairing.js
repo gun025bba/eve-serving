@@ -37,7 +37,7 @@ module.exports = {
     // ----- post -----
     const base = phase === 'all' ? L.stateRead('pairing-pre.json') : pre;
     if (!base) c.warn('no pre snapshot found (.release-state/pairing-pre.json): comparing nothing, only post checks', 'run --phase pre before the deploy');
-    if (ver.ok) c.pass('post: running version read from authenticated /whoami == X-Eve-Version', ver.version); else c.fail('post: running version readable', ver.why);
+    if (ver.ok && ver.weak) c.warn('post: running version from the on-disk binary (no prod key for /whoami)', `${ver.version}; ${ver.via}`); else if (ver.ok) c.pass('post: running version read from authenticated /whoami == X-Eve-Version', ver.version); else c.fail('post: running version readable', ver.why);
     if (process.env.EVE_EXPECT_GW_VERSION) c.check(`post: running version == ${process.env.EVE_EXPECT_GW_VERSION}`, ver.version === process.env.EVE_EXPECT_GW_VERSION, ver.version);
     const un = await req('GET', '/whoami');
     c.check('unauthenticated /whoami is 401 (auth boundary intact)', un.status === 401, un.status);
@@ -76,7 +76,7 @@ module.exports = {
         try {
           const s = await openPage({ engine: 'webkit', cookie: st.cookie, base: ui.base });
           try {
-            const state = await s.page.evaluate(() => ({ pair: !!document.querySelector('#pairForm') && !document.querySelector('#pairForm').closest('[hidden]') && !document.querySelector('#pairForm').hidden, list: !!document.querySelector('#listView') && document.querySelector('#listView').offsetParent !== null }));
+            const state = await s.page.evaluate(() => ({ pair: (() => { const a = document.querySelector('#authNotice'), f = document.querySelector('#pairForm'); return !!a && !a.hidden && !!f && !f.hidden && f.offsetParent !== null; })(), list: !!document.querySelector('#listView') && document.querySelector('#listView').offsetParent !== null }));
             c.check('UI with the pre-deploy session cookie opens the conversation list, pairing form hidden', !state.pair && state.list, JSON.stringify(state));
           } finally { await s.close(); }
         } catch (e) { c.fail('UI open with session cookie', String(e.message).split('\n')[0]); }

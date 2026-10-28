@@ -26,7 +26,7 @@ module.exports = {
     if (!p) { c.skip('rollback chain', `QA launchd plist ${L.QA_PLIST} not readable`); return; }
     const target = p.args[0], label = L.QA_LABEL;
     c.check('QA launchd target binary lives under the repo bin/ (never /opt/eve-gw)', path.resolve(target).startsWith(path.join(L.REPO, 'bin') + path.sep), target);
-    c.check(`QA instance port ${L.PORT} is a QA port (8002/8003)`, [8002, 8003].includes(L.PORT) && String(p.env.GW_PORT || '').endsWith(String(L.PORT)), `plist GW_PORT=${p.env.GW_PORT}`);
+    c.check(`QA instance port ${L.PORT} is a QA port (8002/8003)`, [8002, 8003].includes(Number(L.PORT)) && String(p.env.GW_PORT || '').endsWith(String(L.PORT)), `plist GW_PORT=${p.env.GW_PORT}`);
     const uid = process.getuid();
     const loaded = sh(`launchctl print gui/${uid}/${label} >/dev/null 2>&1; echo $?`).stdout.trim() === '0';
     c.check(`launchd label ${label} is loaded in gui/${uid}`, loaded);

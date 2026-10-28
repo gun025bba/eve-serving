@@ -39,12 +39,10 @@ function mockBackend(page, { threads = [], messages = {} } = {}) {
     return json(route, { error_code: 'not_found' }, 404);
   });
 }
-// Real backend as a paired QA user: add the cookie + CSRF headers ourselves.
-function withSession(page, cookie) {
-  return page.route(u => { const p = new URL(u).pathname; return p === '/whoami' || p.startsWith('/v1/'); }, route => {
-    const h = { ...route.request().headers(), cookie: `eve_session=${cookie}` };
-    route.continue({ headers: h });
-  });
+// Real backend as a paired QA user: put the session cookie in the browser's own jar (a route handler cannot override the Cookie header: /whoami stays 401).
+// httpOnly + secure like the real cookie; both WebKit and Chromium accept a Secure cookie for a plain-http loopback URL when it is added this way.
+async function withSession(ctx, cookie, base) {
+  await ctx.addCookies([{ name: 'eve_session', value: cookie, url: base.replace(/\/$/, '') + '/', httpOnly: true, secure: true, sameSite: 'Lax' }]);
 }
 // iOS standalone emulation: JS side only (matchMedia + navigator.standalone). CSS @media (display-mode) and the notch safe-area
 // cannot be emulated by Playwright WebKit -> those stay real-device items.
@@ -61,7 +59,7 @@ async function openPage({ engine = 'webkit', scheme = 'dark', standalone = true,
   if (standalone) await ctx.addInitScript(STANDALONE);
   const page = await ctx.newPage(); const errs = [];
   page.on('pageerror', e => errs.push(String(e)));
-  if (cookie) await withSession(page, cookie); else await mockBackend(page, mock || {});
+  if (cookie) await withSession(ctx, cookie, base); else await mockBackend(page, mock || {});
   await page.goto(base + url, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__app, null, { timeout: 15000 });
   await page.waitForTimeout(800);

@@ -91,6 +91,7 @@ function cliSupportsPair() {         // builds before the final 4.0.0 have no `p
   try { return cp.spawnSync('bash', ['-c', `strings -a "${GW_CLI}" | grep -c "one-time pairing code"`], { encoding: 'utf8' }).stdout.trim() !== '0'; } catch { return false; }
 }
 function cli(args, o = {}) {
+  if (RO()) throw new Error('prod-ro: the admin CLI is never run against prod');
   if (!cliSupportsPair()) throw new Error(`${GW_CLI} has no pair/sessions subcommands (build predates 4.0.0 final)`);         // host-side admin CLI against the QA instance DB
   const p = qaPlist(); if (!p) throw new Error(`cannot read QA plist ${QA_PLIST}`);
   const env = { ...process.env }; for (const [k, v] of Object.entries(p.env)) if (k.startsWith('GW_')) env[k] = String(v);
@@ -101,7 +102,7 @@ function sessionsList() {            // [{id,user,created,lastSeen,state}]
   const cmd = process.env.EVE_SESSIONS_CMD;     // prod/operator hook: any command that prints `gateway sessions list`
   let out;
   if (cmd) { const r = cp.spawnSync('bash', ['-c', cmd], { encoding: 'utf8', timeout: 40000 }); if (r.status !== 0) throw new Error('EVE_SESSIONS_CMD failed'); out = r.stdout; }
-  else { const r = cli(['sessions', 'list']); if (r.code !== 0) throw new Error('sessions list: ' + r.err.slice(0, 160)); out = r.out; }
+  else { if (RO()) throw new Error('prod-ro: set EVE_SESSIONS_CMD (the QA CLI must never be pointed at prod)'); const r = cli(['sessions', 'list']); if (r.code !== 0) throw new Error('sessions list: ' + r.err.slice(0, 160)); out = r.out; }
   return out.split('\n').slice(1).filter(Boolean).map(l => { const f = l.trim().split(/\s+/); return { id: f[0], user: f[1], created: f[2], lastSeen: f[3], state: f[4] }; });
 }
 function pgEnv() {
@@ -112,6 +113,7 @@ function pgEnv() {
 function gooseVersion() {            // read-only; null when not readable
   const cmd = process.env.EVE_GOOSE_CMD;        // prod/operator hook printing the integer
   if (cmd) { const r = cp.spawnSync('bash', ['-c', cmd], { encoding: 'utf8' }); const n = parseInt(r.stdout, 10); return Number.isFinite(n) ? n : null; }
+  if (RO()) return null;                        // never read the QA DB while checking prod
   const env = pgEnv(); if (!env) return null;
   const r = cp.spawnSync('psql', ['-X', '-Atc', 'select coalesce(max(version_id),0) from goose_db_version where is_applied'], { env, encoding: 'utf8', timeout: 15000 });
   const n = parseInt(r.stdout, 10); return r.status === 0 && Number.isFinite(n) ? n : null;
@@ -120,9 +122,22 @@ function gooseVersion() {            // read-only; null when not readable
 // ---------- running version: authenticated /whoami + X-Eve-Version (since 4.0.0 /health has no version) ----------
 async function runningVersion() {
   const r = await req('GET', '/whoami', { key: true });
+  if (r.status === 401 && RO() && !apiKey()) return binaryVersion();   // no read-only prod key supplied: fall back to the on-disk binary
   if (r.status !== 200) return { ok: false, why: `whoami ${r.status}` };
   const hv = r.headers['x-eve-version'], bv = r.json && r.json.version;
   return { ok: !!bv && hv === bv, version: bv, header: hv, why: bv === hv ? '' : `body ${bv} != header ${hv}` };
+}
+
+// prod-ro without a key: version of the binary the service runs (path from `launchctl print`, or EVE_GW_BINARY) + whether the process started after it was written.
+// Weaker than /whoami (reports "ok: true, weak: true"): proves what is on disk and that a process started from it, not what the process answers.
+function binaryVersion() {
+  const sh = c => cp.spawnSync('bash', ['-c', c], { encoding: 'utf8', timeout: 20000 }).stdout.trim();
+  const bin = process.env.EVE_GW_BINARY || sh("launchctl print system/com.llmserving.gateway 2>/dev/null | awk '/program =/{print $3; exit}'") || '/opt/eve-gw/bin/gateway';
+  const m = /\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?\+[0-9a-f]{7,})\b/.exec(sh(`strings -a "${bin}" | grep -E '^[0-9]+\\.[0-9]+\\.[0-9]+.*\\+[0-9a-f]{7}$' | head -3`));
+  if (!m) return { ok: false, why: `whoami 401 and no version string in ${bin}` };
+  const pid = sh(`pgrep -f "${bin}" | head -1`), started = pid ? sh(`ps -o lstart= -p ${pid}`) : '', mt = sh(`stat -f '%Sm' "${bin}"`);
+  const fresh = pid && Date.parse(started) >= Date.parse(mt) - 60000;
+  return { ok: !!fresh, weak: true, version: m[1], header: '', why: fresh ? '' : `process started ${started} before binary mtime ${mt}`, via: `${bin} (binary mtime ${mt}, process started ${started})` };
 }
 
 // ---------- paired QA browser session ----------
