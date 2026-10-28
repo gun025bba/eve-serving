@@ -94,9 +94,11 @@ func (s *Server) previewBriefing(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	res := briefing.Preview(ctx, s.briefingDeps(r.WithContext(ctx), u), u.Briefing)
 	s.Log.Info("briefing_preview", "request_id", rid(r), "status", res.Status, "sections", res.Sections, "fixed", res.Fixed, "fallback", res.Fallback)
-	if res.Status != briefing.StatusOK {
+	if res.Doc == nil { // skipped_* or error: no briefing was made
 		writeNoStore(w, 502, map[string]any{"status": res.Status, "sections": res.Sections})
 		return
 	}
-	writeNoStore(w, 200, map[string]any{"status": res.Status, "text": res.Text, "sections": res.Sections})
+	// ok | partial | unavailable: the text plus the structured briefing a saved
+	// message would carry (§11.3). Not stored; the owner's own data only.
+	writeNoStore(w, 200, map[string]any{"status": res.Status, "text": res.Text, "sections": res.Sections, "briefing": res.Doc})
 }

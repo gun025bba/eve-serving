@@ -21,15 +21,20 @@ import (
 	"time"
 
 	"github.com/gun025bba/eve-serving/internal/pim"
+	"github.com/gun025bba/eve-serving/internal/store"
 )
 
 // TemplateID is scheduled_jobs.template_id for this job.
 const TemplateID = "morning_briefing"
 
 // Statuses written to scheduled_jobs.last_status (free text column; no
-// CHECK constraint, so no migration is needed).
+// CHECK constraint, so no migration is needed). A run that creates a message
+// records the message's briefing.status (ok | partial | unavailable);
+// skipped_* and error exist only here, no message is created for them (§11.3).
 const (
-	StatusOK           = "ok"
+	StatusOK           = store.BriefingOK
+	StatusPartial      = store.BriefingPartial
+	StatusUnavailable  = store.BriefingUnavailable
 	StatusSkippedOff   = "skipped_off"
 	StatusSkippedEmpty = "skipped_empty"
 	StatusError        = "error"
@@ -118,8 +123,9 @@ type Deps struct {
 	Memory func(ctx context.Context) string
 	// Generate calls the model with messages and no tools.
 	Generate func(ctx context.Context, messages []map[string]any) (string, error)
-	// Save stores the briefing in-app (proactive message). nil = preview.
-	Save func(ctx context.Context, text string) error
+	// Save stores the briefing in-app (proactive message: text is the
+	// content, doc the structured briefing for messages.metadata). nil = preview.
+	Save func(ctx context.Context, text string, doc store.Briefing) error
 	Now  func() time.Time
 }
 
@@ -140,6 +146,9 @@ type Result struct {
 	Fixed    bool   `json:"fixed,omitempty"`
 	Fallback bool   `json:"fallback,omitempty"`
 	Text     string `json:"-"` // the briefing; never logged
+	// Doc is the structured briefing of the message (§11.3); nil when no
+	// message is made (skipped_*, error). Holds content: never logged.
+	Doc *store.Briefing `json:"-"`
 }
 
 type collected struct {
@@ -193,6 +202,7 @@ func collect(ctx context.Context, d Deps, loc *time.Location) collected {
 const (
 	TextNothingToday = "오늘 일정과 리마인더가 없어요."
 	TextPimOff       = "일정 연동이 꺼져 있어요."
+	TextUnavailable  = "일정과 리마인더를 확인하지 못했어요."
 )
 
 // NoThink is appended to the user message: Qwen3 would otherwise open a
@@ -237,6 +247,8 @@ type item struct {
 	Title string `json:"title"`
 	at    time.Time
 	rank  int
+	ev    *pim.Event    // source of the stored briefing item (not sent to the model)
+	rem   *pim.Reminder // idem
 }
 
 type prepared struct {
@@ -263,7 +275,8 @@ func prepEvents(ev *pim.Events, loc *time.Location, now time.Time) prepared {
 	p.Truncated = ev.Truncated
 	y, m, d := now.In(loc).Date()
 	for _, e := range ev.Events {
-		it := item{Title: e.Title}
+		e := e
+		it := item{Title: e.Title, ev: &e}
 		switch t, ok := parseT(e.Start, loc); {
 		case e.AllDay:
 			it.Time, it.rank = "종일", 0
@@ -301,7 +314,8 @@ func prepReminders(rs *pim.Reminders, loc *time.Location, now time.Time) prepare
 	n := now.In(loc)
 	today := time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc)
 	for _, r := range rs.Reminders {
-		it := item{Title: r.Title, rank: 3, Time: "시간 없음"}
+		r := r
+		it := item{Title: r.Title, rank: 3, Time: "시간 없음", rem: &r}
 		if r.Due != nil {
 			if t, ok := parseT(*r.Due, loc); ok {
 				it.at = t
@@ -470,12 +484,16 @@ func build(ctx context.Context, d Deps, s Settings, save bool) Result {
 	}
 	now := d.Now()
 	var text string
+	source := "model"
 	switch {
 	case !c.pimOn:
 		// nothing but the date would reach the model: it would invent a day
-		text, res.Fixed = TextPimOff, true
+		text, res.Fixed, source = TextPimOff, true, "fixed"
+	case c.evCode != "" && c.remCode != "":
+		// both sections failed: a fixed phrase, no model call (§11.3 unavailable)
+		text, res.Fixed, source = TextUnavailable, true, "fixed"
 	case c.empty():
-		text, res.Fixed = TextNothingToday, true
+		text, res.Fixed, source = TextNothingToday, true, "fixed"
 	default:
 		if d.Generate == nil {
 			res.Status = StatusError
@@ -492,20 +510,92 @@ func build(ctx context.Context, d Deps, s Settings, save bool) Result {
 			return res
 		}
 		if !complete(text, c, loc, now) {
-			text, res.Fallback = render(c, loc, now), true
+			text, res.Fallback, source = render(c, loc, now), true, "template"
 		}
-		return finish(ctx, d, res, text, save)
+		return finish(ctx, d, res, text, save, doc(c, s, loc, now, source))
 	}
-	return finish(ctx, d, res, text, save)
+	return finish(ctx, d, res, text, save, doc(c, s, loc, now, source))
 }
 
-func finish(ctx context.Context, d Deps, res Result, text string, save bool) Result {
+func finish(ctx context.Context, d Deps, res Result, text string, save bool, bd store.Briefing) Result {
 	if save {
-		if err := d.Save(ctx, text); err != nil {
+		if err := d.Save(ctx, text, bd); err != nil {
 			res.Status = StatusError
 			return res
 		}
 	}
-	res.Status, res.Text = StatusOK, text
+	// last_status of a run that makes a message equals the message's briefing.status
+	res.Status, res.Text, res.Doc = bd.Status, text, &bd
 	return res
+}
+
+// secStatus is ok or error (+ code) per data section.
+func secStatus(code string) string {
+	if code != "" {
+		return "error"
+	}
+	return "ok"
+}
+
+// doc builds the structured briefing (§11.3). Status: all sections ok -> ok;
+// at least one ok and one error -> partial; all error, or pim off (no
+// sections) -> unavailable. Items are the first MaxBriefingItems of the sorted
+// list, in the briefing zone's +09:00 form, without ids; truncated is true
+// when fewer items are shown than were collected (or the read itself was cut).
+func doc(c collected, s Settings, loc *time.Location, now time.Time, source string) store.Briefing {
+	tz := s.TZ
+	if tz == "" {
+		tz = "Asia/Seoul"
+	}
+	bd := store.Briefing{Schema: store.BriefingSchema, Date: now.In(loc).Format("2006-01-02"), TZ: tz,
+		GeneratedAt: now.In(pim.KST).Format(time.RFC3339), TextSource: source, Sections: []store.BriefingSection{}}
+	if !c.pimOn {
+		bd.Status = store.BriefingUnavailable
+		return bd
+	}
+	ev := store.BriefingSection{Kind: "events", Status: secStatus(c.evCode), ErrorCode: c.evCode, Items: []any{}}
+	if c.evCode == "" {
+		p := prepEvents(c.events, loc, now)
+		ev.Count = p.Count
+		for _, it := range p.Items {
+			if len(ev.Items) == store.MaxBriefingItems || it.ev == nil {
+				break
+			}
+			st, ok1 := pim.ToKST(it.ev.Start)
+			en, ok2 := pim.ToKST(it.ev.End)
+			if !ok1 || !ok2 {
+				continue
+			}
+			ev.Items = append(ev.Items, store.BriefingEvent{Title: it.Title, Start: st, End: en, AllDay: it.ev.AllDay, Calendar: it.ev.Calendar})
+		}
+		ev.Truncated = len(ev.Items) < ev.Count || p.Truncated
+	}
+	rm := store.BriefingSection{Kind: "reminders", Status: secStatus(c.remCode), ErrorCode: c.remCode, Items: []any{}}
+	if c.remCode == "" {
+		p := prepReminders(c.reminders, loc, now)
+		rm.Count = p.Count
+		for _, it := range p.Items {
+			if len(rm.Items) == store.MaxBriefingItems || it.rem == nil {
+				break
+			}
+			var due *string
+			if it.rem.Due != nil {
+				if d, ok := pim.ToKST(*it.rem.Due); ok {
+					due = &d
+				}
+			}
+			rm.Items = append(rm.Items, store.BriefingReminder{Title: it.Title, Due: due, List: it.rem.List, Overdue: it.rank == 1})
+		}
+		rm.Truncated = len(rm.Items) < rm.Count || p.Truncated
+	}
+	bd.Sections = []store.BriefingSection{ev, rm}
+	switch {
+	case ev.Status == "ok" && rm.Status == "ok":
+		bd.Status = store.BriefingOK
+	case ev.Status == "error" && rm.Status == "error":
+		bd.Status = store.BriefingUnavailable
+	default:
+		bd.Status = store.BriefingPartial
+	}
+	return bd
 }
