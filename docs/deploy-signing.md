@@ -148,8 +148,9 @@ The agent that prepares releases must use a separate GitHub account or App, **no
 }
 ```
 
-   With no bypass actor nobody can push a `v*` tag, so a release tag is created through the GitHub UI or API by a user with the ruleset bypass.
-   **Open point before install** (security's condition): make the designated human (the owner, for example via the repository `admin` role) the one bypass actor of **this** ruleset, and nobody else.
+   With no bypass actor nobody can push a `v*` tag. Release tags are pushed by `deploy/nopasswd/release-tag.sh` with the **release-tag deploy key** (next section), which is the
+   **only** bypass actor of **this** ruleset (actor type "Deploy key"; no person, no bot account, no app, no repository role). The deploy key is in no other ruleset's bypass list, in particular not in `main-protect`.
+   **Open point before install** (security's condition): register the key and add it as that one bypass actor; then verify that creating a `v*` tag as the agent account is refused.
    A tag that already exists cannot be moved or deleted. Verify that creating a tag as the agent account is refused: the exact bypass semantics differ between repository roles.
 3. **Environment `deploy`** (Settings, Environments): *Deployment branches and tags*: "Selected branches and tags" with a **tag** rule `v*` and nothing else. Required reviewers are optional
    (add one if every release should wait for approval). No secrets in the environment.
@@ -170,6 +171,57 @@ gh api repos/gun025bba/eve-serving/environments/deploy/deployment-branch-policie
 gh api repos/gun025bba/eve-serving/immutable-releases                                              # enabled: true (if the endpoint is not available yet, check the UI)
 gh api repos/gun025bba/eve-serving/actions/permissions --jq '.sha_pinning_required'                # true
 ```
+
+## The release-tag deploy key
+
+Tags are what the signing workflow reacts to, so who can create one decides what can be signed. The tag is created by `deploy/nopasswd/release-tag.sh`, run by the owner on the Mac, with a
+key that exists for this one purpose.
+
+- **Location and permissions.** On the Mac, `$HOME/.eve-release-tagger/id_ed25519` (override with `EVE_RELEASE_TAG_KEY`), directory mode `0700`, file mode `0600` (`0400` also works), owned by the user who runs the script.
+  The script refuses a missing key, a symlink, another owner, or any mode that gives group or others access. The private key is never in the repository, in CI, in an Actions secret, in the bots' environment, or on the box
+  that prepares releases (any copy there was deleted); only the public half (`id_ed25519.pub`) is ever shown or registered. The script never reads, copies, prints or commits the key: it only passes its path to `ssh -i`.
+- **Registered as** a repository **deploy key** of `gun025bba/eve-serving` with write access (Settings, Deploy keys), titled `release-tagger`, and nowhere else (not an account SSH key).
+- **Bypass.** The deploy key is in the `release-tags` ruleset's bypass list **only** (checklist item 2). It is not a bypass actor of `main-protect`, so it cannot push to `main`; the script itself pushes exactly one ref,
+  `refs/tags/vX.Y.Z` (no branch, no force, no `--tags`/`--all`/`--delete`; `release-tag-test.sh` fails if that changes).
+- **Revocation: delete the deploy key.** If the key may have leaked (a copy of the file, a backup, a compromised Mac account), delete it in Settings, Deploy keys (or
+  `gh api -X DELETE repos/gun025bba/eve-serving/keys/<id>`, the id comes from `gh api repos/gun025bba/eve-serving/keys`). With the key deleted GitHub accepts nothing signed by it, and with it
+  disappears the only bypass of `release-tags`, so nobody can create a `v*` tag until a new key is registered. Then remove the file on the Mac, and review what the key could have done meanwhile:
+  `gh api repos/gun025bba/eve-serving/git/matching-refs/tags/v` (tags that you did not cut), the releases page, and the Rekor entries for the repository. A tag of an installed version cannot be re-used (the Mac only accepts higher versions)
+  and tags cannot be moved or deleted. To continue: `ssh-keygen -t ed25519 -f ~/.eve-release-tagger/id_ed25519` on the Mac (no passphrase is required by the script, a passphrase needs `ssh-agent` and is not supported by it), register the new public key, and put it in the bypass list again.
+- **No human review before tagging (태그 전 사람 리뷰 없음).** The script does not look for any reviewer, review or approval, and a person does not have to approve a tag. What stands between a change and a tag is the branch protection of `main`
+  (a pull request and the required checks, see the ruleset above) and the gates below; an approval step per release was rejected because the owner accepted unattended releases.
+- **What the script requires before it pushes** (it refuses, exit 1, and pushes nothing, unless all hold):
+  1. the target SHA equals the tip of `main` on the remote (`git ls-remote`, read again right before the push; the default target is that tip);
+  2. the version is strictly greater than the highest existing `vX.Y.Z` tag on the remote;
+  3. the checks `test` and `deploy-nopasswd-macos` have a newest run from GitHub Actions for that SHA with conclusion `success`, and that run belongs to a workflow run of **`.github/workflows/ci.yml`** of this repository on exactly that
+     commit (the script reads `GET /repos/.../actions/runs/<id>` of each candidate; a same-named job of another workflow file, repository or commit is ignored, so it can neither pass nor mask the real check).
+  Nothing else is queried from GitHub: no pull request, review, comment or account is read.
+- **Malformed tags: the script refuses.** The version order is only defined for strict `vX.Y.Z` (no leading zeros). If the remote has **any** other tag matching `v*` (for example `v5.0.0-rc1`, `v9`, `v05.0.0`), the script refuses to tag at all
+  and names the tag, instead of ignoring it: an ignored `v99.0.0-rc1` would hide how high the line really is, and refusing is the fail-safe choice. The `release-tags` ruleset blocks creating, updating and deleting `v*` tags for everybody but its bypass actors,
+  so such a tag can only come from a bypass actor (the deploy key); recovery is a reviewed decision (use the "version too high" recovery below or have an admin remove the stray tag through the ruleset), not something the script works around.
+  Peeled `^{}` lines of annotated tags are expected and fine.
+- **Run it from a clean clone of `main`, with git 2.32 or newer.** The script refuses unless `main` is the checked-out branch and no tracked file is modified (the script itself included), unless `git --version` is 2.32 or newer
+  (older git ignores `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_NOSYSTEM`, which the config neutralisation relies on), and unless `git ls-remote --get-url git@github.com:gun025bba/eve-serving.git` prints exactly that URL (no active URL rewriting).
+  Untracked files are not checked (they cannot change what is tagged: the tag is made from the remote's SHA). A fresh `git clone` of the repository is the intended place; do not run an edited copy.
+- **Constants, not environment.** The repository (`gun025bba/eve-serving`) and the remote (`git@github.com:gun025bba/eve-serving.git`) are constants in one marked block at the top of `release-tag.sh`; no environment variable
+  changes them (`EVE_REPO`, `EVE_RELEASE_TAG_REMOTE` do not exist). The only variable is `EVE_RELEASE_TAG_KEY` (path of the key).
+- **How the script reaches GitHub.** `git` talks to the remote only through `ssh -F /dev/null -i <key> -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=<repo>/deploy/nopasswd/github_known_hosts
+  -o GlobalKnownHostsFile=/dev/null -o BatchMode=yes -o IdentityAgent=none -o UpdateHostKeys=no`: no ssh config, no agent, no prompts, no host key updates written by the server, and **only GitHub's published host keys** (`deploy/nopasswd/github_known_hosts`, copied from
+  [GitHub's SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints) and `https://api.github.com/meta`; a rotation is a reviewed change to that file).
+  Nothing has to be added to `~/.ssh/known_hosts`. Git's global and system config are switched off (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, git 2.32 or newer) so no `url.*.insteadOf` can redirect the push, and the script refuses a clone whose
+  own config sets `url.*.insteadOf` or `pushInsteadOf`. If `ssh` is missing (`openssh-client`), the script stops with a message before touching anything.
+- **Limits that remain (documented Lows).**
+  - *The gate lives only in the script on the Mac.* GitHub does not enforce it: whoever holds the deploy key can push a `v*` tag by hand (ssh with the key, no script). Protection is the key's location and permissions
+    (the Mac only, never in CI or on the bots' box), the revocation above, and the Mac's own checks (pinned signing identity, strictly increasing version, branch `main`, `built_at` window).
+  - *The `gh` token on the Mac must be read-only.* The script only does `GET` requests and never passes the key to `gh`, but a token with write scope would let the same user do more than the script allows; use a read-only login
+    (for example a fine-grained token with read access to contents, pull requests and checks, or `gh auth login` without extra scopes) and never the release bot's token.
+  - *The key's directory is checked too.* The script refuses a directory that is a symlink, not owned by you, or has any group/other access (only mode `0700`, or `0500`, passes), because whoever can write there could swap the key file after the check.
+  - *A squash merge needs nothing extra.* The tag is made on the merged commit (the new tip of `main`); no review names it, because none is required.
+  - *The CI workflow path is pinned.* The signing identity the Mac trusts is the workflow path of `release.yml` and `deploy-sign.yml@main` on a `refs/tags/vX.Y.Z` ref; a change of those paths (rename, move, a fork or a different
+    workflow) changes the identity and the Mac then refuses the artifact until the pin is updated by a reviewed change. The checks the script looks at are the ones named `test` and `deploy-nopasswd-macos` from GitHub Actions only.
+- **Use** (on the Mac, inside a clean clone of `main`, with `gh` logged in read-only and `jq` installed; macOS 15 and newer ship `jq`, otherwise `brew install jq`; start it with `bash`):
+  `bash deploy/nopasswd/release-tag.sh --dry-run 5.1.0` checks everything and pushes nothing; without `--dry-run` it creates the annotated tag and pushes it.
+- **Tests**: `deploy/nopasswd/test/release-tag-test.sh` (run by `test/run.sh`, hence by both CI jobs) uses fakes for `gh`, `git` and `ssh` and a local bare repository; it needs no network and no key, and never creates a real tag.
 
 ## If a version that is too high was recorded
 
