@@ -21,14 +21,14 @@ OLD=2222222222222222222222222222222222222222
 KEY=$T/keys/id_ed25519
 SECRET=FAKE-PRIVATE-KEY-MARKER-0f9a
 mkdir -p "$T/keys" "$T/bin" "$T/fix"; chmod 700 "$T/keys"
-# The script has its repository, remote and reviewer as constants (no environment override), so the tests run patched COPIES of it: the copy differs from the
-# original only in the REVIEWER block (and, for the real-git block, the REMOTE line). The unpatched script is tested as it ships (fails closed) below.
+# The script has its repository and remote as constants (no environment override), so the tests run patched COPIES of it: the copy is identical
+# to the original (only the REMOTE line differs, in the real-git block).
 KH=$D/github_known_hosts
-mkcopy() { # mkcopy dir login id [remote-line]
+mkcopy() { # mkcopy dir [remote]: a copy of the script (with the remote replaced when given) next to a copy of the known_hosts file
   mkdir -p "$1"; cp "$KH" "$1/github_known_hosts"
-  sed -e "s/^REVIEWER_LOGIN=.*/REVIEWER_LOGIN=\"$2\"/" -e "s/^REVIEWER_ID=.*/REVIEWER_ID=\"$3\"/" ${4:+-e "s|^REMOTE=.*|REMOTE=\"$4\"|"} "$REALSCRIPT" >"$1/release-tag.sh"
+  if [ -n "${2:-}" ]; then sed -e "s|^REMOTE=.*|REMOTE=\"$2\"|" "$REALSCRIPT" >"$1/release-tag.sh"; else cp "$REALSCRIPT" "$1/release-tag.sh"; fi
 }
-mkcopy "$T/rt" sec-bot 900
+mkcopy "$T/rt"
 SCRIPT=$T/rt/release-tag.sh
 printf '%s\n' "$SECRET" >"$KEY"; chmod 600 "$KEY"
 
@@ -87,16 +87,7 @@ put() { printf '%s\n' "$2" >"$T/fix/$(fx "$1")"; }
 R=repos/gun025bba/eve-serving
 reset_fixtures() {
   rm -f "$T/fix"/* "$T/log" "$T/log.n" "$T/log.fetched"
-  put "$R/commits/$SHA/pulls" '[{"number":7}]'
-  put "user" '{"login":"mac-user","id":300}'
-  put "$R/commits/$SHA" '{"author":{"login":"coder","id":100},"committer":{"login":"web-flow","id":200}}'
-  put "$R/pulls/7" '{"number":7,"user":{"login":"coder","id":100}}'
-  put "$R/pulls/7/commits" '[{"author":{"login":"coder","id":100},"committer":{"login":"coder","id":100}},{"author":null,"committer":{"login":"web-flow","id":200}}]'
-  put "$R/pulls/7/reviews" "[$(rv 1 sec-bot 900 COMMENTED "looks good\nSECURITY-APPROVED: $SHA")]"
   put "$R/commits/$SHA/check-runs?per_page=100" "$(checks '{"id":10,"name":"test","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}' '{"id":11,"name":"deploy-nopasswd-macos","status":"completed","conclusion":"success","app":{"slug":"github-actions"}}')"
-}
-rv() { # rv id login userid state body [submitted_at]: one review object (body: \n escapes allowed)
-  printf '{"id":%s,"user":{"login":"%s","id":%s},"state":"%s","submitted_at":"%s","body":"%s"}' "$1" "$2" "$3" "$4" "${6:-2026-10-29T01:00:00Z}" "$5"
 }
 checks() { local a; a=$(printf '%s,' "$@"); printf '{"total_count":%s,"check_runs":[%s]}' "$#" "${a%,}"; }
 run() { # run [VAR=val ...] -- args ; sets RC, OUT (stdout+stderr)
@@ -144,65 +135,14 @@ reset_fixtures; refuses "main moved after the checks (race, second ls-remote)" F
 reset_fixtures; refuses "ls-remote fails" FAKE_LSMAIN_RC=128 -- 5.1.0; collect
 reset_fixtures; refuses "ls-remote answers nothing" FAKE_MAIN_1="" -- 5.1.0 "$SHA"; collect
 
-# ---------------- security review ----------------
-APP="SECURITY-APPROVED: $SHA"; BLK="SECURITY-BLOCKED: $SHA"
-rvs() { put "$R/pulls/7/reviews" "[$(IFS=,; echo "$*")]"; }
-reset_fixtures; put "$R/commits/$SHA/pulls" '[]'; refuses "no pull request for the commit" -- 5.1.0; collect
-# the shipped script: the reviewer identity is a placeholder, so it fails closed whatever the environment says
-reset_fixtures; USE_SCRIPT=$REALSCRIPT; refuses "shipped script: reviewer placeholder fails closed" -- 5.1.0
-case "$OUT" in *"TODO reviewer decision"*) ok;; *) bad "placeholder: message names the TODO ($OUT)";; esac
-refuses "shipped script: env EVE_SECURITY_REVIEWER does not set the reviewer" EVE_SECURITY_REVIEWER=sec-bot -- 5.1.0; unset USE_SCRIPT; collect
-grep -q '^REVIEWER_LOGIN="__TODO_REVIEWER_DECISION__"$' "$REALSCRIPT" && grep -q '^REVIEWER_ID="0"$' "$REALSCRIPT" && ok || bad "shipped script keeps the reviewer placeholder"
-mkcopy "$T/rt_bad1" "bad login" 900; mkcopy "$T/rt_bad2" sec-bot abc; mkcopy "$T/rt_bad3" sec-bot 0; mkcopy "$T/rt_bot" Gallix-Grok 900; mkcopy "$T/rt_me" mac-user 301; mkcopy "$T/rt_meid" other-login 300
-for c in rt_bad1 rt_bad2 rt_bad3 rt_bot rt_me rt_meid; do reset_fixtures; USE_SCRIPT=$T/$c/release-tag.sh; refuses "reviewer identity [$c] refused" -- 5.1.0; unset USE_SCRIPT; collect; done
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "approved at 1111111")"; refuses "review names only a short sha" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "SECURITY-APPROVED: $OLD")"; refuses "review approves another sha" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "approved at $SHA")"; refuses "sha mentioned without the exact approval line" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "xSECURITY-APPROVED: $SHA")"; refuses "approval line with a prefix" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "SECURITY-APPROVED: $SHA x")"; refuses "approval line with a suffix" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "security-approved: $SHA")"; refuses "approval keyword in lower case" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "SECURITY-APPROVED: $(printf '%s' "$SHA" | tr 1 A)")"; refuses "approval with an upper-case sha" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 COMMENTED "SECURITY-APPROVED:  $SHA")"; refuses "approval line with two spaces" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 DISMISSED "$APP")"; refuses "dismissed review" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 PENDING "$APP")"; refuses "pending review" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 CHANGES_REQUESTED "$APP")"; refuses "changes requested" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 someone 901 APPROVED "$APP")"; refuses "right line, wrong author" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 901 APPROVED "$APP")"; refuses "right login but another numeric id" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 other-login 900 APPROVED "$APP")"; refuses "right id but another login" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 1 SEC-Bot 900 APPROVED "$APP")"; run -- 5.1.0; eq "login compares case-insensitively (id must match too)" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "note\\r\\n$APP\\r\\nthanks")"; run -- 5.1.0; eq "approval line among other lines, CRLF accepted" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP")"; run -- 5.1.0; eq "an APPROVED review with the line passes" "$RC" 0; collect
-# comments are not approvals any more
-reset_fixtures; rvs; put "$R/pulls/7/comments" "[{\"id\":2,\"user\":{\"login\":\"sec-bot\",\"id\":900},\"body\":\"$APP\"}]"; put "$R/issues/7/comments" "[{\"id\":3,\"user\":{\"login\":\"sec-bot\",\"id\":900},\"body\":\"$APP\"}]"
-refuses "a review line comment or a PR comment with the approval line does not count" -- 5.1.0
-eq "the script does not even read issue comments or line comments" "$(grep -c -e '/comments' "$T/log")" 0; collect
-# a later block of the same sha
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T01:00:00Z)" "$(rv 2 sec-bot 900 CHANGES_REQUESTED "$BLK" 2026-10-29T02:00:00Z)"; refuses "a newer review blocks the same sha" -- 5.1.0
-case "$OUT" in *SECURITY-BLOCKED*) ok;; *) bad "block message ($OUT)";; esac; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T01:00:00Z)" "$(rv 2 sec-bot 900 COMMENTED "$BLK" 2026-10-29T02:00:00Z)"; refuses "a newer COMMENTED block blocks too" -- 5.1.0; collect
-reset_fixtures; rvs "$(rv 2 sec-bot 900 CHANGES_REQUESTED "$BLK" 2026-10-29T01:00:00Z)" "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T02:00:00Z)"; run -- 5.1.0; eq "an approval newer than the block passes (ordered by submitted_at, not id)" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T01:00:00Z)" "$(rv 2 sec-bot 900 COMMENTED "SECURITY-BLOCKED: $OLD" 2026-10-29T02:00:00Z)"; run -- 5.1.0; eq "a block of another sha does not block this one" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T01:00:00Z)" "$(rv 2 someone 901 CHANGES_REQUESTED "$BLK" 2026-10-29T02:00:00Z)"; run -- 5.1.0; eq "a block by somebody else is not the reviewer's block" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP" 2026-10-29T01:00:00Z)" "$(rv 2 sec-bot 900 PENDING "$BLK" 2026-10-29T02:00:00Z)"; run -- 5.1.0; eq "a pending (unsubmitted) block is ignored" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP\\nsee $BLK" 2026-10-29T01:00:00Z)"; run -- 5.1.0; eq "a block line that is not on its own line does not match" "$RC" 0; collect
-reset_fixtures; rvs "$(rv 1 sec-bot 900 APPROVED "$APP\\n$BLK" 2026-10-29T01:00:00Z)"; refuses "approval and block in the same review: not newer, but still not approved cleanly" -- 5.1.0; collect
-# who wrote the change can never be the reviewer
-reset_fixtures; put "$R/pulls/7" '{"number":7,"user":{"login":"sec-bot","id":900}}'; refuses "reviewer is the PR author (login and id)" -- 5.1.0; collect
-reset_fixtures; put "$R/pulls/7" '{"number":7,"user":{"login":"other","id":900}}'; refuses "reviewer id equals the PR author id" -- 5.1.0; collect
-reset_fixtures; put "$R/pulls/7" '{"number":7,"user":{"login":"SEC-bot","id":1}}'; refuses "reviewer login equals the PR author login" -- 5.1.0; collect
-reset_fixtures; put "$R/pulls/7/commits" '[{"author":{"login":"coder","id":100},"committer":{"login":"sec-bot","id":900}}]'; refuses "reviewer is a commit committer" -- 5.1.0; collect
-reset_fixtures; put "$R/pulls/7/commits" '[{"author":{"login":"sec-bot","id":900},"committer":{"login":"coder","id":100}}]'; refuses "reviewer is a commit author" -- 5.1.0; collect
-reset_fixtures; put "$R/commits/$SHA" '{"author":{"login":"sec-bot","id":900},"committer":{"login":"web-flow","id":200}}'; refuses "reviewer authored the target commit" -- 5.1.0; collect
-reset_fixtures; put "$R/pulls/7" '{"number":7,"user":null}'; refuses "PR without an author in the answer" -- 5.1.0; collect
-reset_fixtures; rm -f "$T/fix/user"; refuses "gh account unknown: refuses" -- 5.1.0; collect
-reset_fixtures; rm -f "$T/fix/$(fx "$R/pulls/7")"; refuses "an API error reading the PR refuses" -- 5.1.0; collect
-reset_fixtures; rm -f "$T/fix/$(fx "$R/pulls/7/commits")"; refuses "an API error reading the PR commits refuses" -- 5.1.0; collect
-reset_fixtures; rm -f "$T/fix/$(fx "$R/commits/$SHA")"; refuses "an API error reading the target commit refuses" -- 5.1.0; collect
-reset_fixtures; put "$R/commits/$SHA/pulls" '[{"number":6},{"number":7}]'; put "$R/pulls/6" '{"number":6,"user":{"login":"coder","id":100}}'; put "$R/pulls/6/commits" '[]'; put "$R/pulls/6/reviews" '[]'
-run -- 5.1.0; eq "the review may be on any PR of the commit" "$RC" 0; collect
-reset_fixtures; rm -f "$T/fix/$(fx "$R/pulls/7/reviews")"; refuses "an API error reading reviews refuses (fail closed)" -- 5.1.0; collect
+# ---------------- no reviewer gate: nothing about reviews, PRs or accounts is read or required ----------------
+reset_fixtures; run -- 5.1.0; eq "no reviewer, no PR and no review fixtures: still passes" "$RC" 0
+eq "gh is asked for the check runs only" "$(grep -c '^gh ' "$T/log")" "$(grep -c '^gh api --paginate repos/gun025bba/eve-serving/commits/[0-9a-f]*/check-runs?per_page=100$' "$T/log")"
+grep -qE 'pulls|reviews|/comments|^gh api (--paginate )?user$' "$T/log" && bad "the script queried reviews/PRs/accounts" || ok; collect
+for w in SECURITY-APPROVED SECURITY-BLOCKED REVIEWER reviewer; do grep -v '^ *#' "$REALSCRIPT" | grep -q "$w" && bad "script still mentions $w outside comments" || ok; done
+grep -q '태그 전 사람 리뷰 없음' "$REALSCRIPT" && ok || bad "script header states that there is no human review before tagging"
 # environment cannot move the constants
-reset_fixtures; run EVE_REPO=evil/repo EVE_SECURITY_REVIEWER=someone EVE_RELEASE_TAG_REMOTE=/tmp/evil.git EVE_TAGGER_NAME=x -- 5.1.0; eq "env EVE_REPO/EVE_SECURITY_REVIEWER/EVE_RELEASE_TAG_REMOTE are ignored" "$RC" 0
+reset_fixtures; run EVE_REPO=evil/repo EVE_SECURITY_REVIEWER=someone EVE_RELEASE_TAG_REMOTE=/tmp/evil.git EVE_TAGGER_NAME=x -- 5.1.0; eq "env EVE_REPO/EVE_RELEASE_TAG_REMOTE/... are ignored" "$RC" 0
 grep -q "^git push --no-verify git@github.com:gun025bba/eve-serving.git refs/tags/v5.1.0:refs/tags/v5.1.0 | " "$T/log" && ok || bad "env cannot change the remote"
 grep -q 'evil' "$T/log" && bad "env value reached git/gh" || ok; collect
 for v in EVE_REPO EVE_SECURITY_REVIEWER EVE_RELEASE_TAG_REMOTE EVE_TAGGER_NAME EVE_TAGGER_EMAIL; do grep -v '^ *#' "$REALSCRIPT" | grep -q "$v" && bad "script reads $v" || ok; done
@@ -246,7 +186,7 @@ chmod 755 "$T/keys"; reset_fixtures; refuses "key directory readable by others (
 chmod 750 "$T/keys"; reset_fixtures; refuses "key directory readable by group (0750)" -- 5.1.0; chmod 701 "$T/keys"; reset_fixtures; refuses "key directory searchable by others (0701)" -- 5.1.0
 chmod 500 "$T/keys"; reset_fixtures; run -- 5.1.0; eq "key directory 0500 is accepted" "$RC" 0; chmod 700 "$T/keys"; collect
 mkdir -p "$T/keys2"; chmod 700 "$T/keys2"; ln -sfn "$T/keys2" "$T/keysln"; cp "$KEY" "$T/keys2/k"; chmod 600 "$T/keys2/k"; reset_fixtures; refuses "key directory is a symlink" EVE_RELEASE_TAG_KEY="$T/keysln/k" -- 5.1.0; collect
-reset_fixtures; mkcopy "$T/rt_nokh" sec-bot 900; rm -f "$T/rt_nokh/github_known_hosts"; USE_SCRIPT=$T/rt_nokh/release-tag.sh; refuses "known_hosts file missing" -- 5.1.0; unset USE_SCRIPT; collect
+reset_fixtures; mkcopy "$T/rt_nokh"; rm -f "$T/rt_nokh/github_known_hosts"; USE_SCRIPT=$T/rt_nokh/release-tag.sh; refuses "known_hosts file missing" -- 5.1.0; unset USE_SCRIPT; collect
 reset_fixtures; refuses "a clone whose own config rewrites URLs (url.*.insteadOf)" FAKE_URLREWRITE=0 -- 5.1.0; collect
 reset_fixtures; refuses "key missing" EVE_RELEASE_TAG_KEY="$T/keys/nope" -- 5.1.0; collect
 ln -sf "$KEY" "$T/keys/link"; reset_fixtures; refuses "key is a symlink" EVE_RELEASE_TAG_KEY="$T/keys/link" -- 5.1.0; collect
@@ -291,11 +231,8 @@ G="$T/real"; mkdir -p "$G"; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.
 "$REALGIT" clone -q "$G/origin.git" "$G/clone" >/dev/null 2>&1
 RTIP=$("$REALGIT" -C "$G/origin.git" rev-parse refs/heads/main); BEFORE=$("$REALGIT" -C "$G/origin.git" for-each-ref refs/heads)
 reset_fixtures
-put "$R/commits/$RTIP/pulls" '[{"number":7}]'
-put "$R/commits/$RTIP" '{"author":{"login":"coder","id":100},"committer":{"login":"web-flow","id":200}}'
-put "$R/pulls/7/reviews" "[$(rv 1 sec-bot 900 COMMENTED "SECURITY-APPROVED: $RTIP")]"
 put "$R/commits/$RTIP/check-runs?per_page=100" "$(checks "$okc" "$okm")"
-mkcopy "$T/rt_real" sec-bot 900 "$G/origin.git"
+mkcopy "$T/rt_real" "$G/origin.git"
 rrun() { ( cd "$G/clone" && env -i HOME="$T/home" PATH="$T/rbin:/usr/bin:/bin" FAKE_LOG="$T/rlog" FAKE_FIX="$T/fix" EVE_RELEASE_TAG_KEY="$KEY" \
    GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid "$REALBASH" "$T/rt_real/release-tag.sh" "$@" ) >"$T/rout" 2>&1; }
 mkdir -p "$T/rbin"; cp "$T/bin/gh" "$T/rbin/gh"; cp "$T/bin/ssh" "$T/rbin/ssh"; ln -sf "$REALGIT" "$T/rbin/git"; for t in jq; do ln -sf "$(command -v $t)" "$T/rbin/$t"; done

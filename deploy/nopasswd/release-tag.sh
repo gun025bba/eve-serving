@@ -5,14 +5,12 @@
 #   bash deploy/nopasswd/release-tag.sh X.Y.Z [FULL_SHA]        (run inside a clone of the repository)
 #   ... --dry-run                                                (all checks, no tag, no push)
 #
-# FULL_SHA defaults to the tip of origin/main. The tag is pushed only when ALL of this holds, otherwise the script refuses (exit 1) and pushes nothing:
+# FULL_SHA defaults to the tip of origin/main. NO HUMAN REVIEW BEFORE TAGGING (태그 전 사람 리뷰 없음): the script does not look for any reviewer or approval; what stands between a
+# merge and a tag is the branch protection of main (PR + required checks) and the three gates below. The tag is pushed only when ALL of this holds, otherwise the script refuses
+# (exit 1) and pushes nothing:
 #   1. the target SHA equals the tip of main on the remote (read with `git ls-remote`, and read again just before the push);
-#   2. a SUBMITTED review (state APPROVED or COMMENTED; never an issue/PR comment, a review line comment, a PENDING or DISMISSED review) of a PR of that commit, written by the
-#      security reviewer (login AND numeric id, see the REVIEWER block below), has a line exactly `SECURITY-APPROVED: <the 40-hex target SHA>`, and no later submitted review
-#      of the same reviewer has a line exactly `SECURITY-BLOCKED: <same SHA>`; the reviewer must not be the PR author, an author or committer of any commit of the PR or of the
-#      target commit, the account `gh` is logged in as, or gallix-grok (the release bot);
-#   3. the required checks `test` and `deploy-nopasswd-macos` finished with conclusion success for that SHA (latest run of each name, created by GitHub Actions);
-#   4. the version is strictly greater than the highest existing vX.Y.Z tag on the remote.
+#   2. the required checks `test` and `deploy-nopasswd-macos` finished with conclusion success for that SHA (latest run of each name, created by GitHub Actions);
+#   3. the version is strictly greater than the highest existing vX.Y.Z tag on the remote.
 #
 # What it touches: the remote is reached ONLY through GIT_SSH_COMMAND (deploy key, no ssh config, GitHub's published host keys from deploy/nopasswd/github_known_hosts with
 # StrictHostKeyChecking=yes, no agent, no prompts) and git's global/system config is switched off (no url.*.insteadOf rewriting); the only ref it ever pushes is
@@ -21,7 +19,7 @@
 # Portable: bash 3.2 and BSD tools (macOS); start it with `bash deploy/nopasswd/release-tag.sh ...` (not zsh). Needs jq (macOS 15 and newer ship it; otherwise `brew install jq`).
 #
 # Environment (the ONLY ones): EVE_RELEASE_TAG_KEY = path of the private key (default: $HOME/.eve-release-tagger/id_ed25519); it must be a regular file, mode 0600 or stricter,
-# owned by you, in a directory owned by you without group/other access. The repository, the remote and the reviewer are constants below and cannot be set from the environment.
+# owned by you, in a directory owned by you without group/other access. The repository and the remote are constants below and cannot be set from the environment.
 # Needs: bash, git, gh (authenticated for reads), jq, and ssh (openssh-client).
 set -Eeuo pipefail
 export LC_ALL=C
@@ -30,16 +28,9 @@ die() { echo "release-tag: refused: $*" >&2; exit 1; }
 note() { echo "release-tag: $*" >&2; }
 
 # ================================================================================================================================================================
-# CONSTANTS (not overridable from the environment). Changing any of them is a security-relevant change and needs a security review.
+# CONSTANTS (not overridable from the environment). Changing any of them is a security-relevant change.
 REPO="gun025bba/eve-serving"
 REMOTE="git@github.com:${REPO}.git"
-RELEASE_BOT_LOGIN="gallix-grok"     # the account that prepares releases; it can never be the approving reviewer
-# ---- REVIEWER IDENTITY -------------------------------------------------------------------------------------------------------------------------------------------
-# TODO(reviewer decision): the owner decides which GitHub account posts the security approval, and that account must be a different one from every account that writes
-# code or runs releases. Replace BOTH values (login and numeric user id, `gh api users/<login> --jq .id`) in one reviewed change. Until then the script fails closed.
-REVIEWER_LOGIN="__TODO_REVIEWER_DECISION__"
-REVIEWER_ID="0"
-# ---- END REVIEWER IDENTITY ---------------------------------------------------------------------------------------------------------------------------------------
 # ================================================================================================================================================================
 
 DRY=0 VERSION="" SHA=""
@@ -56,10 +47,6 @@ NUM='(0|[1-9][0-9]{0,8})'
 [[ "$VERSION" =~ ^$NUM\.$NUM\.$NUM$ ]] || die "version must be X.Y.Z without leading zeros: $VERSION"
 TAG=v$VERSION
 
-[[ "$REVIEWER_LOGIN" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$ ]] || die "the reviewer identity is not set in this script yet (REVIEWER_LOGIN is a placeholder: TODO reviewer decision)"
-[[ "$REVIEWER_ID" =~ ^[1-9][0-9]{0,15}$ ]] || die "the reviewer identity is not set in this script yet (REVIEWER_ID is a placeholder: TODO reviewer decision)"
-LC_REVIEWER=$(printf '%s' "$REVIEWER_LOGIN" | tr 'A-Z' 'a-z')
-[ "$LC_REVIEWER" != "$(printf '%s' "$RELEASE_BOT_LOGIN" | tr 'A-Z' 'a-z')" ] || die "the reviewer must not be the release bot account"
 KEY=${EVE_RELEASE_TAG_KEY:-$HOME/.eve-release-tagger/id_ed25519}
 KNOWN_HOSTS=$(cd "$(dirname "$0")" && pwd)/github_known_hosts
 # GIT_SSH_COMMAND is parsed by a shell: keep the paths to plain characters
@@ -136,50 +123,11 @@ TIP=$(remote_main_tip)
 [ "$SHA" = "$TIP" ] || die "$SHA is not the tip of main ($TIP)"
 note "target $SHA is the tip of main"
 
-# ---- 4. version (cheap, before the API calls) --------------------------------------------------------------------------------------------------------
+# ---- 2. version (cheap, before the API calls) --------------------------------------------------------------------------------------------------------
 check_version
 
-# ---- 2. the security reviewer approved this exact commit ----------------------------------------------------------------------------------------------
-# Every request below is a plain GET. Only SUBMITTED PR reviews count (never issue comments, PR comments or review line comments).
+# ---- 3. required checks passed for this commit (every request is a plain GET) -----------------------------------------------------------------------
 ghget() { gh api --paginate "$1"; }
-# who `gh` is logged in as on this machine
-ME=$(ghget "user" | jq -r '"\(.login // "")|\(.id // 0)"') || die "cannot read the account gh is logged in as"
-[[ "$ME" =~ ^[A-Za-z0-9-]+\|[1-9][0-9]*$ ]] || die "cannot determine the account gh is logged in as"
-ME_LOGIN=${ME%%|*} ME_ID=${ME##*|}
-# the reviewer is never the gh account of this machine (the release bot itself is rejected above, from the constants)
-[ "$(printf '%s' "$ME_LOGIN" | tr 'A-Z' 'a-z')" != "$LC_REVIEWER" ] && [ "$ME_ID" != "$REVIEWER_ID" ] || die "the reviewer is the account gh is logged in as on this machine"
-SHA_PEOPLE=$(ghget "repos/$REPO/commits/$SHA" | jq -r '[.author, .committer] | .[] | select(. != null) | "\((.login // "") | ascii_downcase)|\(.id // 0)"') || die "cannot read the target commit"
-PRS=$(ghget "repos/$REPO/commits/$SHA/pulls" | jq -r '.[].number') || die "cannot list the pull requests of $SHA"
-[ -n "$PRS" ] || die "no pull request is associated with $SHA, so there is no review to find"
-APPROVE="SECURITY-APPROVED: $SHA"
-BLOCK="SECURITY-BLOCKED: $SHA"
-FOUND=""
-for n in $PRS; do
-  [[ "$n" =~ ^[0-9]+$ ]] || die "unexpected pull request number"
-  # the reviewer is not a person who wrote this change: PR author, every commit author and committer (login or id), and the target commit
-  PRAUTHOR=$(ghget "repos/$REPO/pulls/$n" | jq -r '.user | select(. != null and (.login // "") != "") | "\(.login | ascii_downcase)|\(.id // 0)"') || die "cannot read #$n"
-  [ -n "$PRAUTHOR" ] || die "#$n has no author in the API answer"
-  PRCOMMITS=$(ghget "repos/$REPO/pulls/$n/commits" | jq -r '.[] | (.author, .committer) | select(. != null) | "\((.login // "") | ascii_downcase)|\(.id // 0)"') || die "cannot read the commits of #$n"
-  PEOPLE=$(printf '%s\n%s\n%s\n' "$PRAUTHOR" "$PRCOMMITS" "$SHA_PEOPLE")
-  while IFS='|' read -r pl pid; do
-    [ -n "$pl$pid" ] || continue
-    [ "$pl" != "$LC_REVIEWER" ] && [ "$pid" != "$REVIEWER_ID" ] || die "the reviewer $REVIEWER_LOGIN wrote part of #$n (author, commit author or committer): its own review proves nothing"
-  done <<<"$PEOPLE"
-  # submitted reviews of the reviewer (login and id both match; PENDING never counts): the newest approval and the newest block of exactly this sha
-  VERDICT=$(ghget "repos/$REPO/pulls/$n/reviews" | jq -rs --arg l "$LC_REVIEWER" --argjson i "$REVIEWER_ID" --arg a "$APPROVE" --arg b "$BLOCK" '
-      def key: ((.submitted_at // "") + "|" + ("00000000000000000000" + (.id | tostring))[-20:]);
-      def lines: (.body // "") | split("\n") | map(rtrimstr("\r"));
-      [ .[][] | select((.user.login // "" | ascii_downcase) == $l and (.user.id // 0) == $i) | select(.state != "PENDING" and (.submitted_at // "") != "") ] as $mine
-      | ([ $mine[] | select(.state == "APPROVED" or .state == "COMMENTED") | select(lines | any(. == $a)) | key ] | max) as $ok
-      | ([ $mine[] | select(lines | any(. == $b)) | key ] | max) as $no
-      | if $ok == null then "none" elif ($no != null and $no >= $ok) then "blocked" else "approved" end') || die "cannot read the reviews of #$n"
-  [ "$VERDICT" = blocked ] && die "a later review by $REVIEWER_LOGIN on #$n blocks $SHA (SECURITY-BLOCKED)"
-  if [ "$VERDICT" = approved ]; then FOUND=$n; break; fi
-done
-[ -n "$FOUND" ] || die "no submitted review by $REVIEWER_LOGIN has the line '$APPROVE' on the pull request(s) of that commit"
-note "security review by $REVIEWER_LOGIN approves the commit (PR #$FOUND)"
-
-# ---- 3. required checks passed for this commit -------------------------------------------------------------------------------------------------------
 RUNS=$(ghget "repos/$REPO/commits/$SHA/check-runs?per_page=100" | jq -c '.check_runs[]') || die "cannot read the check runs of $SHA"
 for want in test deploy-nopasswd-macos; do
   # newest run of that name from GitHub Actions (a re-run supersedes the earlier one); it must be completed with success
