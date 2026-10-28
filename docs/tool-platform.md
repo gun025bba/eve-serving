@@ -419,6 +419,7 @@ SSE(기존 이벤트 유지 + 추가):
   - fetch: `status:"blocked"`, `block_reason:"domain_denied"`(`webfetch` 상수 `ReasonDomainDenied` 추가). 현재 일부 경로에서 `block_reason`이 비어 기록되는 버그도 이 작업에서 모든 blocked 경로가 상수 reason을 갖도록 정리(빈 값이면 테스트 실패).
   - SSE `tool_result`에 `blocked_count` 추가 → UI는 '차단된 출처 n개' 칩 표시(도메인 목록은 UI에도 기본 비표시, 설정 화면에서만).
 - **egress 단일 계층**: 모든 외부 egress(web_search/web_fetch, 매니페스트 egress, MCP, 선톡 Web Push 발송 포함)는 게이트웨이의 **단일 적용 계층** `internal/policy/domains` + 그 아래 SSRF Dialer로만 나감. 툴·어댑터·SearXNG·스케줄러가 각자 정책을 갖지 않으며, 어댑터는 게이트웨이가 주입한 HTTP 클라이언트만 사용(직접 `net.Dial`/기본 클라이언트 금지, 린트로 검사). push 호스트 allowlist(PR #4 §2.2.1)도 이 계층의 규칙으로 표현.
+- **egress 단일 계층의 예외(1건)**: Apple Music `catalog_check`(PR #81)는 전용 고정 클라이언트로 이 계층 밖에서 나간다. 린트는 해당 패키지 경로 하나만 허용하고 요청 직전에 활성화 여부를 확인한다. 사양·원본: `docs/architecture/apple-music-playlist.md` §2.2.
 - **통합**: 매니페스트 `egress`와 같은 정규화·매처를 쓰는 `internal/policy/domains` 하나로 통일. `web.read` 스코프의 egress = (검색 엔진 엔드포인트 고정) + (web-domains 정책을 통과한 공개 호스트), SSRF 가드는 그 아래 층에서 그대로.
 - **감사**: 모든 차단은 `tool_audit` 이벤트 `domain_blocked`(호스트 해시, 규칙 ID, hop 번호) + `eve_tool_denied_total{tool,reason="domain_denied"}`.
 - **테스트**: 정규화 표(대문자, 한글 IDN, 끝 점, IDN 변환 실패 거부, 레이블 경계 `evil-x` vs `*.x`), IP 표기 변형 표(위 전 형식 × 루프백/사설/링크로컬/매핑), 카테고리별 대표 호스트, `*.x` 경계, deny 우선, 리다이렉트로 차단 도메인 진입, 로드 실패 fail-closed, 모델 입력에 도메인 목록 부재.
