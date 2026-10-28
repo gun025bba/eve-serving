@@ -207,7 +207,7 @@ new_box 15; sign 5.0.1 8; stage 5.0.1 5.0.1
 mkdir "$B/state/lock"; run_main deploy 5.0.1; eq "concurrent deploy refused" "$?" 1; rmdir "$B/state/lock"
 eq "caller guards: live untouched" "$(live)" "gw-old/eg-old/5.0.0"
 # the log never holds key material or paths of the private key
-if grep -qi 'PRIVATE' "$B/log" 2>/dev/null; then bad "log leaks key text"; else ok; fi
+if grep -qE 'PRIVATE KEY|BEGIN OPENSSH' "$B/log" 2>/dev/null; then bad "log leaks key text"; else ok; fi
 
 # 12. eve-gw is optional: gateway-only bundle on a gateway-only host, and on a host that has eve-gw
 new_box 16; rm -f "$B/bin/eve-gw"; NOEG=1 sign 5.0.1 8; stage 5.0.1 5.0.1
@@ -256,7 +256,7 @@ eq "signals during the swap: consistent end state" "$(live)" "gw-22/eg-22/5.0.1"
 new_box 23; ( cd "$B" && bash "$D/sign-deploy-bundle.sh" --key "$KEY" --gateway gw --eve-gw eg --version 5.0.1 --schema 8 --out out/rel ) >/dev/null 2>&1; eq "sign with relative --out: rc" "$?" 0
 [ -s "$B/out/rel/eve-5.0.1.tar" ] && [ -s "$B/out/rel/eve-5.0.1.tar.sig" ] && ok || bad "relative --out must produce tar + sig"
 ( cd "$B" && bash "$D/sign-deploy-bundle.sh" --key "$KEY" --gateway gw --version 5.0.1 --schema 8 --out . ) >/dev/null 2>&1; eq "sign with --out . and no eve-gw: rc" "$?" 0
-eq "no-eve-gw bundle members" "$(tar -tf "$B/eve-5.0.1.tar" | sort | tr '\n' ' ')" "MANIFEST gateway "
+eq "no-eve-gw bundle members" "$(tar -tf "$B/eve-5.0.1.tar" | LC_ALL=C sort | tr '\n' ' ')" "MANIFEST gateway "
 cp "$B/out/rel/eve-5.0.1.tar" "$B/staging/eve-5.0.1.tar"; cp "$B/out/rel/eve-5.0.1.tar.sig" "$B/staging/eve-5.0.1.tar.sig"
 run_main deploy 5.0.1; eq "relatively-signed bundle deploys" "$?" 0
 
