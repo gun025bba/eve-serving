@@ -891,6 +891,9 @@ func (s *Server) streamRound(ctx context.Context, body map[string]any, out *sseO
 			reasoning.WriteString(c.Delta.ReasoningContent)
 			for _, tc := range c.Delta.ToolCalls {
 				hasTool = true
+				if tc.Index < 0 {
+					continue // malformed delta; never index with it
+				}
 				for len(native) <= tc.Index && tc.Index < 16 {
 					native = append(native, &nativeCall{})
 				}
