@@ -472,7 +472,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
 				if pim.IsTool(c.name) {
-					res := s.runPimTool(r, pimTools, c.name, c.args)
+					res, po := s.runPimTool(r, pimTools, c.name, c.args)
+					pc, pr2 := pimToolEvents(c.id, c.name, c.args, rounds, po)
+					out.event(pc)
+					out.event(pr2)
 					pimCalls = append(pimCalls, "request:call:"+c.name)
 					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 					continue

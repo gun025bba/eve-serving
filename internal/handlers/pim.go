@@ -60,18 +60,32 @@ func withPimTools(defs []any, names []string) []any {
 // runPimTool executes one pim tool call. A call for a tool that is not
 // exposed to this principal is denied without touching the helper. Logs
 // carry tool, status, error code and count only.
-func (s *Server) runPimTool(r *http.Request, exposed []string, name, args string) string {
+func (s *Server) runPimTool(r *http.Request, exposed []string, name, args string) (string, pim.Outcome) {
 	ok := false
 	for _, n := range exposed {
 		ok = ok || n == name
 	}
 	if !ok {
 		s.Log.Info("pim_tool", "request_id", rid(r), "tool", name, "status", "denied", "error_code", pim.CodeKillSwitch)
-		return pim.Denied()
+		return pim.Denied(), pim.DeniedOutcome(name)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	out, o := pim.Exec(ctx, s.Pim, name, args, time.Local)
 	s.Log.Info("pim_tool", "request_id", rid(r), "tool", name, "status", o.Status, "error_code", o.ErrorCode, "count", o.Count, "truncated", o.Truncated)
-	return out
+	return out, o
+}
+
+// pimToolEvents builds the two SSE events of a pim tool call (design §11.1),
+// the existing chat.completion.tool_call / tool_result shapes: the model's
+// arguments as-is for reads ({} for writes), then status, count/truncated and
+// the card on success or error_code and an error card on failure. No sources,
+// and the card is never stored.
+func pimToolEvents(id, name, rawArgs string, round int, o pim.Outcome) (call, result map[string]any) {
+	call = map[string]any{"object": "chat.completion.tool_call", "id": id, "tool": name, "args": pim.PublicArgs(name, rawArgs), "round": round}
+	result = map[string]any{"object": "chat.completion.tool_result", "id": id, "tool": name}
+	for k, v := range o.ResultFields() {
+		result[k] = v
+	}
+	return call, result
 }
