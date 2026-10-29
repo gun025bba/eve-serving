@@ -300,6 +300,12 @@ func (e *Echo) rejectToken(qtoks []string) bool {
 		case matchWhole:
 			continue
 		case matchTail:
+			if e.spansUserEnd(t, w) {
+				return true // a word of P reaches past the end of the user's word (M-i c)
+			}
+			if IsFunctionTail(w) {
+				continue // a function word attached to a user word is not new text
+			}
 			if sub, _ := e.tailVsP(w); sub {
 				return true // the tail is text the user did not write (H-2 b)
 			}
@@ -315,6 +321,46 @@ func (e *Echo) rejectToken(qtoks []string) bool {
 	}
 	return false
 }
+
+// spansUserEnd is rule (c) of the tail check (M-i): t is a user word u plus a
+// tail w; a word m of P that occurs in t and starts inside u but ends after it
+// (so it uses characters the user did not write) rejects the query, even when
+// w is a function word. Example: the user wrote "나", the query has "나비" (not
+// even a prefix exemption: one rune); or the user wrote "고양", the query "고양이"
+// and P has "양이".
+func (e *Echo) spansUserEnd(t, w string) bool {
+	tr := []rune(t)
+	b := len(tr) - utf8.RuneCountInString(w) // length of the user word
+	for _, p := range e.prot {
+		for m := range p.cont {
+			mr := []rune(m)
+			if len(mr) > len(tr) {
+				continue
+			}
+			for i := 0; i+len(mr) <= len(tr); i++ {
+				if i < b && i+len(mr) > b && string(tr[i:i+len(mr)]) == m {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// functionTails is the closed list of Korean function-word suffixes (case
+// markers, particles, copula forms) that may follow a user word without making
+// the tail "new text" for the tail overlap checks. It is data like the
+// stopword file: a change needs a security review, and the list must not grow
+// toward content words (TestEcho_FunctionTailList). Rule (c) still applies.
+var functionTails = map[string]bool{
+	"은": true, "는": true, "이": true, "가": true, "을": true, "를": true, "의": true, "에": true, "도": true, "로": true,
+	"와": true, "과": true, "만": true, "랑": true, "나": true, "께": true,
+	"에서": true, "에게": true, "으로": true, "부터": true, "까지": true, "처럼": true, "보다": true, "이랑": true, "하고": true,
+	"이나": true, "이라": true, "라고": true, "이다": true, "에는": true, "에도": true, "에서는": true, "으로는": true, "만의": true,
+}
+
+// IsFunctionTail reports whether w is on the closed list of function-word suffixes.
+func IsFunctionTail(w string) bool { return functionTails[w] }
 
 // rejectConcat is the concatenation match (rev 7, H-2 a). All tokens of the
 // query (one-rune tokens and stopwords included, in order) are joined; a
@@ -371,7 +417,7 @@ func (e *Echo) newTokens(q string) string {
 			if userWord(t, e.userCont) {
 				reuse = true
 			}
-			if k == matchTail && e.Active() {
+			if k == matchTail && e.Active() && !IsFunctionTail(w) {
 				_, l := e.tailVsP(w) // characters shared with P count as new
 				sum += l
 			}

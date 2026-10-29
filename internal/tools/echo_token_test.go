@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"fmt"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -148,12 +150,18 @@ func TestEcho_NormalQueryCorpus(t *testing.T) {
 			big = append(big, r+" 이름은 "+n)
 		}
 	}
+	var res strings.Builder
+	fmt.Fprintf(&res, "# Result of TestEcho_NormalQueryCorpus (design 6.1, 8.3 gate). Generated: ECHO_CORPUS_UPDATE=1 go test ./internal/tools -run TestEcho_NormalQueryCorpus\n")
+	fmt.Fprintf(&res, "# The corpus (echo_normal_queries.txt) is synthetic: no production query or memory text. Gate: upper bound of the\n")
+	fmt.Fprintf(&res, "# per-request rejection rate must stay at or below 10%%; a request holds at most 2 searches (max_per_turn), so\n")
+	fmt.Fprintf(&res, "# per-request upper = 1-(1-per-query upper)^2.\n\n")
 	for _, cfg := range []struct {
 		name  string
 		facts []string
 	}{{"average", facts}, {"cap-sized", big}} {
 		rej, total := 0, 0
 		byRule := map[string]int{}
+		var rejected []string
 		for _, c := range queries {
 			total++
 			got := NewEcho(cfg.facts, []string{c.user}).Check(c.q)
@@ -163,6 +171,7 @@ func TestEcho_NormalQueryCorpus(t *testing.T) {
 			case c.known:
 				rej++
 				byRule[got]++
+				rejected = append(rejected, fmt.Sprintf("  %s\tuser=%q\tquery=%q", got, c.user, c.q))
 			case got != "":
 				rej++
 				byRule[got]++
@@ -170,13 +179,30 @@ func TestEcho_NormalQueryCorpus(t *testing.T) {
 			}
 		}
 		lo, hi := wilson(rej, total)
-		t.Logf("%s: normal-query rejection %d/%d (%.1f%%), Wilson 95%% [%.1f%%, %.1f%%], by rule %v; gate: > 10%% means do not enable", cfg.name, rej, total, 100*float64(rej)/float64(total), 100*lo, 100*hi, byRule)
-		if total < 40 {
-			t.Fatalf("corpus too small: %d", total)
+		reqHi := 1 - (1-hi)*(1-hi)
+		rules := make([]string, 0, len(byRule))
+		for r, n := range byRule {
+			rules = append(rules, fmt.Sprintf("%s=%d", r, n))
 		}
-		if float64(rej)/float64(total) > 0.10 {
-			t.Errorf("%s: rejection rate above the 10%% gate", cfg.name)
+		sort.Strings(rules)
+		fmt.Fprintf(&res, "memory %s (%d facts)\n  queries: %d\n  rejected: %d\n  per-query rate: %.2f%%\n  Wilson 95%% interval: [%.2f%%, %.2f%%]\n  per-request upper bound (2 searches): %.2f%%\n  by rule: %s\n  rejected items:\n%s\n\n",
+			cfg.name, len(cfg.facts), total, rej, 100*float64(rej)/float64(total), 100*lo, 100*hi, 100*reqHi, strings.Join(rules, " "), strings.Join(rejected, "\n"))
+		t.Logf("%s: normal-query rejection %d/%d (%.1f%%), Wilson 95%% [%.1f%%, %.1f%%], per-request upper %.1f%%", cfg.name, rej, total, 100*float64(rej)/float64(total), 100*lo, 100*hi, 100*reqHi)
+		if total < 300 {
+			t.Fatalf("corpus too small for the gate: %d (a corpus of 100 only bounds the rate at about 17%%)", total)
 		}
+		if reqHi > 0.10 {
+			t.Errorf("%s: per-request upper bound %.1f%% is above the 10%% gate", cfg.name, 100*reqHi)
+		}
+	}
+	const resPath = "testdata/echo_normal_queries_results.txt"
+	if os.Getenv("ECHO_CORPUS_UPDATE") == "1" {
+		if err := os.WriteFile(resPath, []byte(res.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want, err := os.ReadFile(resPath); err != nil || string(want) != res.String() {
+		t.Errorf("%s is missing or stale: regenerate with ECHO_CORPUS_UPDATE=1 and commit it", resPath)
 	}
 }
 
@@ -391,6 +417,76 @@ func TestEcho_PersonalizationCases(t *testing.T) {
 	} {
 		if got := echoFor(c.mem, c.user).Check(c.q); got == "" {
 			t.Errorf("mem %q q %q passed", c.mem, c.q)
+		}
+	}
+}
+
+// M-i rule (c): inside an exempt token (user word + tail) a word of P that
+// starts in the user's word and ends after it is rejected, whatever the tail.
+func TestEcho_PrefixTail_BoundaryCrossing(t *testing.T) {
+	cat := "고양이 이름은 나비"
+	cases := []struct {
+		name, mem, user, q, want string
+	}{
+		{"user wrote one rune, query has the name", cat, "나 사료 추천해줘", "나비 사료", RuleEchoToken},
+		{"user wrote the stem, query completes the memory word", cat, "고양 사료 추천해줘", "고양이 사료", RuleEchoToken},
+		{"place completed by one rune", "역삼동 거주", "역삼 맛집 추천해줘", "역삼동 맛집", RuleEchoToken},
+		{"memory word made of the last rune of the user word and the tail", "집이 멀다", "맛집 추천해줘", "맛집이", RuleEchoToken},
+		{"user wrote the whole word: nothing crosses", cat, "고양이 사료 추천해줘", "고양이가 사료", ""},
+		{"memory word inside the user word only", cat, "고양이 사료 추천해줘", "고양이는 사료", ""},
+		{"tail equal to a function word and no memory word crosses", "역삼동 거주", "맛집 추천해줘", "맛집은 추천", ""},
+		{"tail is a function word but a memory word crosses", "집은 넓다", "맛집 추천해줘", "맛집은 추천", RuleEchoToken},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := echoForAll([]string{c.mem}, c.user).Check(c.q); got != c.want {
+				t.Fatalf("Check(%q) = %q, want %q", c.q, got, c.want)
+			}
+		})
+	}
+}
+
+// A function word attached to a user word is not new text for the rule 3 sum
+// (it used to count as one rune when it overlapped P); a content tail still is.
+func TestEcho_FunctionTail_NotNewText(t *testing.T) {
+	e := echoForAll([]string{"가방 정리"}, "사료 추천해줘")
+	tok12 := strings.Repeat("강", 12)
+	if got := e.Check("사료가 " + tok12); got != "" {
+		t.Errorf("function word counted as new text: %q", got)
+	}
+	if got := e.Check("사료방 " + tok12); got != RuleEchoNewToken {
+		t.Errorf("content tail overlapping P not counted: %q", got)
+	}
+}
+
+// The list is closed: a change has to touch this test, i.e. be reviewed.
+func TestEcho_FunctionTailList(t *testing.T) {
+	want := "가 과 까지 나 는 도 라고 랑 로 를 만 만의 보다 부터 를 에 에게 에는 에도 에서 에서는 와 은 을 의 이 이나 이다 이라 이랑 으로 으로는 처럼 하고 께"
+	got := make([]string, 0, len(functionTails))
+	for w := range functionTails {
+		got = append(got, w)
+		if n := len([]rune(w)); n < 1 || n > 3 {
+			t.Errorf("%q: a function tail has 1-3 runes", w)
+		}
+		if IsStopword(w) {
+			t.Errorf("%q is also a stopword", w)
+		}
+	}
+	wantSet := map[string]bool{}
+	for _, w := range strings.Fields(want) {
+		wantSet[w] = true
+	}
+	if len(got) != len(wantSet) {
+		t.Errorf("list size %d, pinned %d", len(got), len(wantSet))
+	}
+	for _, w := range got {
+		if !wantSet[w] {
+			t.Errorf("%q is not on the pinned list", w)
+		}
+	}
+	for _, w := range []string{"사료", "나비", "동", "비", "비야", "집"} {
+		if IsFunctionTail(w) {
+			t.Errorf("%q is a content word, not a function tail", w)
 		}
 	}
 }
