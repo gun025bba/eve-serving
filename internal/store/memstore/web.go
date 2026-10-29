@@ -51,6 +51,21 @@ func (s *Store) Sources(_ context.Context, user string, ids []string) (map[strin
 	return out, nil
 }
 
+func (s *Store) ClearExpiredArgs(_ context.Context, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, cs := range s.calls {
+		for i := range cs {
+			if cs[i].ArgsExpiresAt != nil && cs[i].ArgsExpiresAt.Before(now) && string(cs[i].Args) != "{}" {
+				cs[i].Args = json.RawMessage(`{}`)
+				n++
+			}
+		}
+	}
+	return n, nil
+}
+
 // ToolCalls is a test helper.
 func (s *Store) ToolCalls(id string) []store.ToolCall {
 	s.mu.Lock()
