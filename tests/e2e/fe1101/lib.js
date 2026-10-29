@@ -7,7 +7,7 @@ const { webkit, chromium, devices } = require('@playwright/test');
 const L = require('../release/lib');
 if (String(L.PORT) !== '8002') throw new Error('QA 8002 only');
 const UI_DIR = process.env.EVE_UI_DIR || path.join(L.HOME, 'eve-qa/fe/eve-web');
-const EXPECT_V = process.env.EVE_EXPECT_UI_VERSION || '1.10.2';
+const EXPECT_V = process.env.EVE_EXPECT_UI_VERSION || '2.0.0';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 let pass = 0, fail = 0, skip = 0; const fails = [];

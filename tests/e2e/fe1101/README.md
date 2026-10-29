@@ -29,3 +29,12 @@ and it never shows the answer (WebKit and Chromium emulation, 4/4 runs on both b
 - `s7_resume.js [--reps N]`: offline 5 s / 2 s and hidden→visible while a 300-line answer is generating, WebKit + Chromium iPhone emulation. Counted checks: server message `generating` at the moment the network returns, GET `.../stream` with `Last-Event-ID`, live bubble DOM node kept, one assistant bubble/message, numbers 1..300 exactly once in order, UI text == server text. Samples where the model itself stops early (UI == server, < 300 numbers) are discarded and rerun (up to 3).
 - `run.js` s2 adds non-JSON 200 (html/plain), empty 200 and 204 PATCH → not saved, plus a layout-shift check (rects of sheet/title/좋아요/설정에서 끄기/error line identical before vs after the error appears; measured after the slide-in has settled).
 - Run: `EVE_UI_DIR=<checkout of 40c69c1> EVE_EXPECT_UI_VERSION=1.10.2 node tests/e2e/fe1101/run.js` and `node tests/e2e/fe1101/s7_resume.js --reps 3`.
+
+## 2.0.0 (PR #37, head cc686c4) — automatic tool selection
+- `s8_autotools.js [--only A,B,C]`
+  - A: request bodies (new chat, 2nd message, regenerate, retry after 503, resume after offline, Today composer) contain only `model, messages, stream, stream_options, thread_id, replace_message_id`; no `web*` in any /v1 URL or body; legacy `llmchat.webSearch`/`llmchat.autoHintSeen`/extra keys in `llmchat.settings` are harmless (the two keys are removed).
+  - B: no `#plusBtn #plusMenu #webBtn #tPlus #tMenu #tWeb`, no web-toggle copy, composer has no empty gap.
+  - C: the QA gateway is 5.0.0 (no auto tools). The 6.0.0 contract (eve-serving PR #158) is injected by rewriting the REAL gateway SSE (tool_call/tool_result before the first token, `fresh`+`tools[]` on `chat.completion.persisted`) and the real GET messages (`metadata{fresh,tools}`, `sources`). Checks: status line gone after first token, source chips, `.tq` query line, failure notes by `fresh`/`tools[]`, same after reload and after leaving/reopening the thread, unknown tool ignored.
+  - Known failing check (UI bug, Low): `sources[].published` is dropped by `citeMap()`, so no date is shown.
+- A live 6.0.0 gateway could not be run on QA: migration 00009 needs the owner of `tool_calls` (the QA DB role is not), so the QA DB was left untouched. See the report.
+- Run: `EVE_EXPECT_UI_VERSION=2.0.0 EVE_UI_DIR=<checkout of cc686c4> node tests/e2e/fe1101/{run.js,s7_resume.js,s8_autotools.js}`.
