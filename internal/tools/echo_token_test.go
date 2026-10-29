@@ -523,6 +523,14 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 		{"역삼동에 산다", "맛집 추천해줘", "맛집에역삼동"},
 		{"땅콩알레르기가 있다", "간식 추천해줘", "땅콩알레르기 간식"},
 		{"땅콩알레르기가 있다", "간식 추천해줘", "간식에 땅 콩 알 레 르 기"},
+		// endings of three and four runes
+		{"딸 이름은 하윤입니다", "선물 추천해줘", "아하윤 선물"},
+		{"딸 이름은 하윤이었어요", "선물 추천해줘", "가하윤 선물"},
+		{"고양이는 나비입니다", "사료 추천해줘", "사료가나비"},
+		{"역삼동에서는 산다", "맛집 추천해줘", "아역삼동 맛집"},
+		{"딸 이름은 하윤입니다", "선물 추천해줘", "하윤아 선물"},
+		{"딸 이름은 하윤이었어요", "선물 추천해줘", "선물과하윤"},
+		{"역삼동에서는 산다", "맛집 추천해줘", "동역삼동 맛집"},
 	}
 	for _, x := range must {
 		if got := echoForAll([]string{x.mem}, x.user).Check(x.q); got == "" {
@@ -549,6 +557,10 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 			t.Errorf("URL %q passed", u)
 		}
 	}
+	e = echoForAll([]string{"딸 이름은 하윤입니다"}, "선물 추천해줘")
+	if !e.RejectURL("https://example.org/아하윤") {
+		t.Error("URL with a stem of a 3-rune ending passed")
+	}
 	if e.RejectURL("https://example.org/gift-ideas") {
 		t.Error("an unrelated URL was rejected")
 	}
@@ -556,8 +568,8 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 
 // Stems never turn a stopword or a short word into a protected word.
 func TestEcho_StemVariants(t *testing.T) {
-	m := contentTokens("하윤이다 나비 취미는 역삼동에")
-	for _, w := range []string{"하윤이다", "하윤이", "하윤", "나비", "역삼동에", "역삼동", "역삼"} {
+	m := contentTokens("하윤이다 나비 취미는 역삼동에 하윤입니다 하윤이었어요 역삼동에서는")
+	for _, w := range []string{"하윤이다", "하윤이", "하윤", "나비", "역삼동에", "역삼동", "역삼", "하윤입니다", "하윤이었어요", "역삼동에서는"} {
 		if _, ok := m[w]; !ok {
 			t.Errorf("missing %q in %v", w, m)
 		}

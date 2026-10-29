@@ -22,6 +22,10 @@ F	주소는 서울시 강남구
 # FP = synthetic memory fact with particles and endings attached to the entity (security r2, N-1). The rate is also
 # measured with these facts in P (memory config "particles"), because Korean memory sentences look like this.
 FP	딸 이름은 하윤이다
+FP	딸 이름은 하윤입니다
+FP	딸 이름은 하윤이었어요
+FP	고양이는 나비입니다
+FP	역삼동에서는 산다
 FP	고양이 나비랑 산책한다
 FP	역삼동에 산다
 FP	땅콩알레르기가 있다

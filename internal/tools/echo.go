@@ -557,20 +557,24 @@ func queryTokens(q string) []string {
 
 // contentTokens is the content token set M of a protected text: usable
 // tokens that are not stopwords, plus their stem variants (N-1): the token
-// with its last one or two runes cut, when the stem keeps two runes or more
+// with its last one to four runes cut (maxStemCut), when the stem keeps two runes or more
 // and is neither a stopword nor a number. Korean memory sentences carry
 // particles and endings ("하윤이다", "나비랑", "역삼동에"); without the stems a
 // query token that adds a letter in front or behind the bare entity ("아하윤",
 // "가나비", "동역삼동") is neither inside nor around the whole token. The
 // bidirectional match of rule ② then covers the stem as well. User words are
 // never stemmed (that would widen the exemption).
+// maxStemCut is the longest ending cut from a protected token: polite endings
+// such as "입니다" (3), "이었어요" (4) and "에서는" (3) follow the entity.
+const maxStemCut = 4
+
 func contentTokens(s string) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, t := range splitTokens(s) {
 		if usableToken(t) && !stopwords[t] {
 			out[t] = struct{}{}
 			r := []rune(t)
-			for cut := 1; cut <= 2; cut++ {
+			for cut := 1; cut <= maxStemCut; cut++ {
 				if len(r)-cut < 2 {
 					break
 				}

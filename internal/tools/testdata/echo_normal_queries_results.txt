@@ -19,7 +19,7 @@ memory average (15 facts)
   echo_token	user="수영 배우고 싶어"	query="수영 강습 초보"
   echo_token	user="내년 여행"	query="내년 여행 계획"
 
-memory particles (35 facts)
+memory particles (39 facts)
   queries: 420
   rejected: 9
   per-query rate: 2.14%
@@ -37,7 +37,7 @@ memory particles (35 facts)
   echo_token	user="수영 배우고 싶어"	query="수영 강습 초보"
   echo_token	user="내년 여행"	query="내년 여행 계획"
 
-memory cap-sized (235 facts)
+memory cap-sized (239 facts)
   queries: 420
   rejected: 9
   per-query rate: 2.14%
