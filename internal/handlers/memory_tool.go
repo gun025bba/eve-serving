@@ -239,7 +239,8 @@ func (s *Server) runMemoryPropose(r *http.Request, pr *chatPersist, args string,
 	var m map[string]any
 	json.Unmarshal(b, &m)
 	emit(m)
-	return toolResult(map[string]any{"status": "pending_confirmation", "action_id": saved.ID})
+	return toolResult(map[string]any{"status": "pending_confirmation", "action_id": saved.ID,
+		"note": "Nothing is saved yet. It is saved only after the user approves the card; do not say it was saved."})
 }
 
 // approveAction: POST /v1/actions/{id}/approve {confirm_token, payload_hash}.

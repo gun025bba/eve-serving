@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/gun025bba/eve-serving/internal/auth"
-	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/selfdesc"
 	"github.com/gun025bba/eve-serving/internal/tools"
 )
@@ -17,7 +16,7 @@ import (
 // at how the user signed in; the interactive scope (granted by the auth
 // layer) decides whether the text is injected at all (injectSelfDescription).
 func (s *Server) selfDescState(r *http.Request, mode tools.Mode, memOffer bool) selfdesc.State {
-	st := selfdesc.State{Version: s.version()}
+	var st selfdesc.State
 	webOn := mode == tools.ModeAuto || mode == tools.ModeForce
 	switch {
 	case !s.memoryOn() || !hasScope(r, auth.ScopeInteractive):
@@ -28,19 +27,22 @@ func (s *Server) selfDescState(r *http.Request, mode tools.Mode, memOffer bool) 
 		st.Memory = selfdesc.MemoryPending
 	default:
 		st.Memory = selfdesc.MemoryOn
-		// memory_propose is offered whenever memory is active, web on or off,
+		// the memory tool is offered whenever memory is active, web on or off,
 		// unless the request's history cannot be checked (memoryOffered).
 		st.Propose = memOffer
 	}
-	if s.webEnabled() {
-		d := "꺼짐, 입력창 웹 검색 버튼으로 켬"
-		if webOn {
-			d = "켜짐"
-		}
-		st.Tools = append(st.Tools, selfdesc.Tool{Name: "웹 검색", Detail: d})
-	}
-	if st.Propose {
-		st.Tools = append(st.Tools, selfdesc.Tool{Name: "기억 제안", Detail: memory.ToolName})
+	// Same predicates as the web path: webEnabled() is false and the session's
+	// Disabled() is true when WebAuditBlocked is set or AuditBreaker is open;
+	// then web search is reported as off whatever the request asked for.
+	switch {
+	case !s.Cfg.Web.Enabled || s.Web == nil:
+		st.Web = selfdesc.WebUnavailable
+	case s.WebAuditBlocked || s.AuditBreaker.Open():
+		st.Web = selfdesc.WebBlocked
+	case webOn:
+		st.Web = selfdesc.WebOn
+	default:
+		st.Web = selfdesc.WebOff
 	}
 	return st
 }
