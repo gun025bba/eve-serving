@@ -30,6 +30,14 @@ Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/e
 (same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys stay
 **refused** by the installed entrypoint (`WEB_ENABLED=no`) until a reviewed change turns them on.
 
+```bash
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/e3ab57677d3f3c5ca2f0445ca41e97fd2677472d/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 62bda12893cbdf4ba58f47e14118603388fb3f01cef565477989bb6a08be0246 ] && bash -c "$s" mac-oneshot
+```
+
+Run it in a terminal (bash or zsh; it needs the terminal for the browser login and the final `revoked` prompt, hence `bash -c "$s"` and not `| bash`). Add `--dry-run` after `mac-oneshot` to only print what it would do.
+Pins: commit `e3ab57677d3f3c5ca2f0445ca41e97fd2677472d`, sha256 `62bda12893cbdf4ba58f47e14118603388fb3f01cef565477989bb6a08be0246`. At the end it makes you revoke the GitHub CLI authorization at https://github.com/settings/applications and proves it is dead (`gh auth logout` alone does not revoke it).
+If the script is killed with SIGKILL, delete `$TMPDIR/eve-oneshot-gh.*` by hand and revoke the authorization at that link.
+
 ## Releasing (no one touches a key)
 
 1. Squash or rebase the PR into `main` (linear history is required; no merge commits). 2. Tag the **current tip of main** `vX.Y.Z` and push the tag with `bash deploy/nopasswd/release-tag.sh X.Y.Z` (no human review before tagging, 태그 전 사람 리뷰 없음: it checks only that the commit is the tip of main, that the required checks are green and that the version is higher; key and revocation: `docs/deploy-signing.md`, "The release-tag deploy key") (any other commit is refused: a `release/*` branch is never signed, and neither is an older `main` commit, whatever its tag number).
