@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/search"
@@ -850,6 +851,7 @@ func TestAPIKey_WebSearchFalseIgnored(t *testing.T) {
 func TestAPIKey_BudgetAndKillSwitchSame(t *testing.T) {
 	// budget
 	e, up := autoEnv(t, callStep{tool: "web_search", args: q("go 1.27 release")}, callStep{text: "ok"},
+		callStep{tool: "web_search", args: q("go 1.27 release")}, callStep{text: "ok"},
 		callStep{tool: "web_search", args: q("go 1.27 release")}, callStep{text: "ok"})
 	e.srv.Web.Budget = tools.NewBudget(tools.BudgetConfig{UserDailySearch: 1})
 	// the single "api-key" identity: every API key shares one budget
@@ -857,6 +859,20 @@ func TestAPIKey_BudgetAndKillSwitchSame(t *testing.T) {
 	apiPost(t, e, `{"stream":true,"messages":[{"role":"user","content":"go 1.27 release"}]}`).Body.Close()
 	if e.fs.n != 0 {
 		t.Fatalf("API-key search beyond the budget (searches=%d, requests=%d)", e.fs.n, len(up.requests()))
+	}
+	// the operator can see that the shared budget is spent: one audit row per day, kind and code
+	apiPost(t, e, `{"stream":true,"messages":[{"role":"user","content":"go 1.27 release"}]}`).Body.Close()
+	n := 0
+	for _, row := range e.audit.Rows() {
+		if row.Event.Event == audit.EvBudgetExhausted {
+			n++
+			if row.Event.Detail["identity"] != "api-key" || row.Event.Detail["kind"] != "search" || row.Event.Detail["code"] != "budget_exhausted" {
+				t.Errorf("audit detail %v", row.Event.Detail)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("budget_exhausted audit rows = %d, want 1", n)
 	}
 	// ... and it is not the budget of UI users
 	post(t, e, "go 1.27 release")

@@ -84,6 +84,11 @@ type Deps struct {
 	Protected []string
 	// Budget is the shared per-user/global budget (nil = unlimited).
 	Budget *Budget
+	// OnBudget is called when Budget refuses a call (identity, kind
+	// "search"|"fetch", code budget_exhausted|rate_limited). The caller audits
+	// it; for the shared "api-key" identity that is how the operator learns the
+	// common budget is spent.
+	OnBudget func(identity, kind, code string)
 	// StepBudget caps the summed tool latency of one request (Auto only).
 	StepBudget time.Duration
 	// Suspicious replaces the instruction-like text detector (nil: the
@@ -483,6 +488,9 @@ func (s *Session) pace(c *Call, kind string) bool {
 	}
 	if s.d.Auto {
 		if code := s.d.Budget.Take(s.user, kind); code != "" {
+			if s.d.OnBudget != nil {
+				s.d.OnBudget(s.user, kind, code)
+			}
 			s.deny(c, "blocked", code, map[string]string{ErrCodeBudget: ReasonLimit, ErrCodeRate: ReasonRate}[code])
 			return true
 		}

@@ -82,6 +82,9 @@ type Server struct {
 	// (personalReady): automatic selection on and a store that can join
 	// tool_calls to messages. Every call of such a tool sets private_read, and
 	// all string fields of its result enter the protected text.
+	// budgetSeen dedupes budget_exhausted audit rows (one per day, identity, kind, code)
+	budgetSeen sync.Map
+
 	Personal PersonalTools
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).

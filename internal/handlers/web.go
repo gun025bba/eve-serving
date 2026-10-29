@@ -128,6 +128,7 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protec
 		OnEcho: func(tc tools.Call, rule string) {
 			s.Log.Warn("web_echo_rejected", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rule", rule)
 		},
+		OnBudget: func(identity, kind, code string) { s.auditBudget(r, pr, identity, kind, code) },
 		OnSuspect: func(tc tools.Call, rules []string) {
 			s.Log.Warn("web_result_suspect", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rules", strings.Join(rules, ","))
 		},

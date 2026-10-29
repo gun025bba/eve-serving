@@ -28,13 +28,14 @@ const (
 
 // Events written by M2.
 const (
-	EvCallStarted    = "call_started"
-	EvCallDone       = "call_done"
-	EvDomainBlocked  = "domain_blocked"
-	EvRegistryLoaded = "registry_loaded"
-	EvKillswitch     = "killswitch"
-	EvApproveRefused = "approve_refused" // approval refused by the operator kill switch before the token was spent
-	EvPolicyLoaded   = "policy_loaded"
+	EvCallStarted     = "call_started"
+	EvCallDone        = "call_done"
+	EvDomainBlocked   = "domain_blocked"
+	EvRegistryLoaded  = "registry_loaded"
+	EvKillswitch      = "killswitch"
+	EvBudgetExhausted = "budget_exhausted" // the shared api-key budget (or a global one) refused a call; once per day, kind and code
+	EvApproveRefused  = "approve_refused"  // approval refused by the operator kill switch before the token was spent
+	EvPolicyLoaded    = "policy_loaded"
 )
 
 // Genesis is the prev_hash of the first row.
