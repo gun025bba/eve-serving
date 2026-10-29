@@ -262,3 +262,50 @@ func TestProviderScopes(t *testing.T) {
 		}
 	}
 }
+
+// #131: an empty allowlist must fail closed. A valid paired session is refused
+// (403-class ErrForbiddenIdentity, never a fall-through to the key) and nobody
+// can be paired.
+func TestEmptyAllowlistFailsClosed(t *testing.T) {
+	m, toks := pairedManager(t, "alice@github")
+	for _, users := range [][]string{nil, {}, {"", "  "}} {
+		c, err := Build([]string{ProviderSession, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: users, Sessions: m})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Authenticate(newReq("", "", toks["alice@github"])); !errors.Is(err, ErrForbiddenIdentity) {
+			t.Fatalf("allowed %q: session err %v want forbidden", users, err)
+		}
+		if _, err := c.Authenticate(newReq("", "k1", toks["alice@github"])); !errors.Is(err, ErrForbiddenIdentity) {
+			t.Fatalf("allowed %q: session + key err %v want forbidden (no fall-through)", users, err)
+		}
+		if AllowedLogin(users, "alice@github") {
+			t.Fatalf("allowed %q: AllowedLogin true", users)
+		}
+	}
+}
+
+// #131: a comma- or whitespace-joined list is never a login.
+func TestJoinedLoginsAreNeverLogins(t *testing.T) {
+	for _, l := range []string{"a@x, b@y", "a@x,b@y", "a@x b@y", "a@x\tb@y", ",", ""} {
+		if ValidLogin(l) {
+			t.Errorf("ValidLogin(%q) = true", l)
+		}
+		if AllowedLogin([]string{l, "a@x", "b@y"}, l) {
+			t.Errorf("AllowedLogin accepted joined login %q", l)
+		}
+	}
+	if !ValidLogin("alice@github") || !AllowedLogin([]string{" Alice@GitHub "}, "ALICE@github") {
+		t.Fatal("a plain login must still work")
+	}
+	// A malformed allowlist entry is ignored, not honoured: a session for the
+	// joined name is refused even though the entry "matches" it literally.
+	m, toks := pairedManager(t, "a@x,b@y")
+	c, err := Build([]string{ProviderSession, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: []string{"a@x,b@y"}, Sessions: m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Authenticate(newReq("", "", toks["a@x,b@y"])); !errors.Is(err, ErrForbiddenIdentity) {
+		t.Fatalf("joined login session: err %v want forbidden", err)
+	}
+}

@@ -56,6 +56,28 @@ func TestAllowedUsersEnv(t *testing.T) {
 	}
 }
 
+func TestAllowedUsersMalformedFailsClosed(t *testing.T) {
+	for _, v := range []string{"a@x b@y", "a@x\tb@y"} {
+		env := map[string]string{"GW_ALLOWED_USERS": v}
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+			t.Fatalf("GW_ALLOWED_USERS=%q: want error", v)
+		}
+	}
+	// commas separate entries; surrounding spaces and empty items are fine
+	env := map[string]string{"GW_ALLOWED_USERS": " a@x , ,b@y"}
+	if c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err != nil || len(c.AllowedUsers) != 2 {
+		t.Fatal(c.AllowedUsers, err)
+	}
+	// a comma inside one YAML item is a joined list, not a login
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("allowed_users: [\"a@x,b@y\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p, func(string) string { return "" }); err == nil {
+		t.Fatal("comma-joined yaml entry accepted")
+	}
+}
+
 func TestAuthProviders(t *testing.T) {
 	c, _ := Load("/nonexistent.yaml", func(string) string { return "" })
 	if len(c.Auth.Providers) != 2 || c.Auth.Providers[0] != "session" {

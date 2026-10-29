@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/gun025bba/eve-serving/internal/session"
 )
@@ -32,7 +33,7 @@ type Session struct {
 func NewSession(v SessionValidator, allowed []string) *Session {
 	s := &Session{v: v, allowed: map[string]struct{}{}}
 	for _, l := range allowed {
-		if l = strings.ToLower(strings.TrimSpace(l)); l != "" {
+		if l = strings.ToLower(strings.TrimSpace(l)); ValidLogin(l) {
 			s.allowed[l] = struct{}{}
 		}
 	}
@@ -51,17 +52,37 @@ func (s *Session) Authenticate(r *http.Request) (Identity, error) {
 		}
 		return Identity{}, err
 	}
-	if _, ok := s.allowed[strings.ToLower(sess.Login)]; !ok {
+	if _, ok := s.allowed[strings.ToLower(sess.Login)]; !ok || !ValidLogin(sess.Login) {
 		return Identity{}, ErrForbiddenIdentity
 	}
 	return Identity{User: sess.Login, Provider: ProviderSession, SessionID: sess.ID, Scopes: []string{ScopeInteractive, ScopeAdmin}}, nil
 }
 
+// ValidLogin reports whether login is one well-formed login: non-empty, with
+// no comma, whitespace or control characters. A joined list such as
+// "a@x, b@y" (a mistyped GW_ALLOWED_USERS or --user) is never a login, so it
+// can neither be allowlisted nor match an allowlist entry.
+func ValidLogin(login string) bool {
+	if login == "" || strings.Contains(login, ",") {
+		return false
+	}
+	for _, r := range login {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
 // AllowedLogin reports whether login is in the allowlist (case-insensitive).
+// An empty allowlist, or a malformed login, is always false (fail closed).
 func AllowedLogin(allowed []string, login string) bool {
 	login = strings.ToLower(strings.TrimSpace(login))
+	if !ValidLogin(login) {
+		return false
+	}
 	for _, a := range allowed {
-		if login != "" && strings.ToLower(strings.TrimSpace(a)) == login {
+		if strings.ToLower(strings.TrimSpace(a)) == login {
 			return true
 		}
 	}
