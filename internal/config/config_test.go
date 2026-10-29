@@ -355,3 +355,56 @@ func TestMemoryResolvedLogNoSecrets(t *testing.T) {
 		}
 	}
 }
+
+// Security Low (#146 review): entries must be ASCII logins (the same decision as auth.NormalizeLogin).
+func TestAllowedUsersNonASCIIFailsClosed(t *testing.T) {
+	for _, v := range []string{"\u212A@x", "\u0130@x", "a\u200Bb@x", "a@x;b@y", "a@x,\uFF41@y"} {
+		env := map[string]string{"GW_ALLOWED_USERS": v}
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+			t.Fatalf("GW_ALLOWED_USERS=%q: want error", v)
+		}
+	}
+}
+
+// GW_ALLOWED_USERS set but empty (or only separators) is treated as unset: the YAML list stays.
+func TestAllowedUsersEnvEmptyIsUnset(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("allowed_users: [alice@x]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"", "  ", ",", " , ,"} {
+		c, err := LoadEnv(p, func(k string) (string, bool) {
+			if k == "GW_ALLOWED_USERS" {
+				return v, true
+			}
+			return "", false
+		})
+		if err != nil || len(c.AllowedUsers) != 1 || c.AllowedUsers[0] != "alice@x" || !c.AllowedUsersEnvEmpty {
+			t.Fatalf("GW_ALLOWED_USERS=%q: %v env_empty=%v err=%v", v, c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+		}
+	}
+	// unset: no flag; non-empty: overrides the file
+	c, err := LoadEnv(p, func(string) (string, bool) { return "", false })
+	if err != nil || c.AllowedUsersEnvEmpty || len(c.AllowedUsers) != 1 {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+	}
+	c, err = LoadEnv(p, func(k string) (string, bool) {
+		if k == "GW_ALLOWED_USERS" {
+			return "bob@x", true
+		}
+		return "", false
+	})
+	if err != nil || c.AllowedUsersEnvEmpty || len(c.AllowedUsers) != 1 || c.AllowedUsers[0] != "bob@x" {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+	}
+	// with no YAML list either, the allowlist is empty (fail closed) and flagged
+	c, err = LoadEnv("/nonexistent.yaml", func(k string) (string, bool) {
+		if k == "GW_ALLOWED_USERS" {
+			return "", true
+		}
+		return "", false
+	})
+	if err != nil || len(c.AllowedUsers) != 0 || !c.AllowedUsersEnvEmpty {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+	}
+}

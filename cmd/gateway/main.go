@@ -334,6 +334,12 @@ func main() {
 		go runAuditVerify(ctx, pgStore, log, m, breaker, 24*time.Hour)
 	}
 	defer stop()
+	if cfg.AllowedUsersEnvEmpty {
+		log.Warn("allowed_users_env_empty_ignored", "detail", "GW_ALLOWED_USERS is set but empty and is treated as unset; allowed_users from the config file still applies")
+	}
+	if len(cfg.AllowedUsers) == 0 {
+		log.Warn("allowed_users_empty", "detail", "allowed_users is empty: every browser session is refused and no login can be paired; API keys still authenticate (they do not use the allowlist)")
+	}
 	go func() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 10*time.Second)

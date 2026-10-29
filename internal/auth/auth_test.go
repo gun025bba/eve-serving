@@ -309,3 +309,64 @@ func TestJoinedLoginsAreNeverLogins(t *testing.T) {
 		t.Fatalf("joined login session: err %v want forbidden", err)
 	}
 }
+
+// Security Low (#146 review): logins are ASCII-only, so Unicode case folding can
+// never map a look-alike onto an allowlisted login.
+func TestLoginASCIIAllowlist(t *testing.T) {
+	for _, l := range []string{
+		"\u212A@x",      // Kelvin sign folds to "k" under strings.ToLower
+		"\u0130@x",      // capital I with dot folds to "i"
+		"al\u200Bice@x", // zero-width space
+		"alice\uFEFF@x", // BOM
+		"\u202Ealice@x", // right-to-left override
+		"al\u00A0ice@x", // no-break space
+		"\uFF41lice@x",  // fullwidth a
+		"alice@x\xff",   // invalid UTF-8
+		"a;b@x", "a/b@x", "a:b@x", "a'b@x",
+		strings.Repeat("a", 255),
+	} {
+		if ValidLogin(l) {
+			t.Errorf("ValidLogin(%q) = true", l)
+		}
+		if _, ok := NormalizeLogin(l); ok {
+			t.Errorf("NormalizeLogin(%q) ok", l)
+		}
+	}
+	// The look-alike must not match the ASCII allowlist entry, in either direction.
+	if AllowedLogin([]string{"k@x", "i@x"}, "\u212A@x") || AllowedLogin([]string{"k@x", "i@x"}, "\u0130@x") {
+		t.Fatal("Kelvin sign / dotted I matched an ASCII allowlist entry")
+	}
+	if AllowedLogin([]string{"\u212A@x"}, "k@x") {
+		t.Fatal("a non-ASCII allowlist entry must be ignored")
+	}
+	for in, want := range map[string]string{
+		" Alice@GitHub ": "alice@github", "a.b_c+d-e@x.io": "a.b_c+d-e@x.io", "ABC": "abc", strings.Repeat("A", 254): strings.Repeat("a", 254),
+	} {
+		if got, ok := NormalizeLogin(in); !ok || got != want {
+			t.Errorf("NormalizeLogin(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+	// A session for the look-alike is refused even with an allowlisted twin.
+	m, toks := pairedManager(t, "\u212A@x")
+	c, err := Build([]string{ProviderSession}, Options{AllowedUsers: []string{"k@x"}, Sessions: m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Authenticate(newReq("", "", toks["\u212A@x"])); !errors.Is(err, ErrForbiddenIdentity) {
+		t.Fatalf("Kelvin-sign session err %v want forbidden", err)
+	}
+}
+
+// With an empty allowlist browser sessions are refused but an API key still
+// authenticates: the key does not use the allowlist (documented in docs/security.md).
+func TestEmptyAllowlistAPIKeyStillWorks(t *testing.T) {
+	m, _ := pairedManager(t)
+	c, err := Build([]string{ProviderSession, ProviderAPIKey}, Options{APIKey: "k1", AllowedUsers: nil, Sessions: m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := c.Authenticate(newReq("", "k1", ""))
+	if err != nil || id.Provider != ProviderAPIKey {
+		t.Fatalf("API key with empty allowlist: %+v, %v", id, err)
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"unicode"
 
 	"github.com/gun025bba/eve-serving/internal/session"
 )
@@ -33,7 +32,7 @@ type Session struct {
 func NewSession(v SessionValidator, allowed []string) *Session {
 	s := &Session{v: v, allowed: map[string]struct{}{}}
 	for _, l := range allowed {
-		if l = strings.ToLower(strings.TrimSpace(l)); ValidLogin(l) {
+		if l, ok := NormalizeLogin(l); ok {
 			s.allowed[l] = struct{}{}
 		}
 	}
@@ -52,37 +51,63 @@ func (s *Session) Authenticate(r *http.Request) (Identity, error) {
 		}
 		return Identity{}, err
 	}
-	if _, ok := s.allowed[strings.ToLower(sess.Login)]; !ok || !ValidLogin(sess.Login) {
+	login, ok := NormalizeLogin(sess.Login)
+	if !ok {
+		return Identity{}, ErrForbiddenIdentity
+	}
+	if _, ok := s.allowed[login]; !ok {
 		return Identity{}, ErrForbiddenIdentity
 	}
 	return Identity{User: sess.Login, Provider: ProviderSession, SessionID: sess.ID, Scopes: []string{ScopeInteractive, ScopeAdmin}}, nil
 }
 
-// ValidLogin reports whether login is one well-formed login: non-empty, with
-// no comma, whitespace or control characters. A joined list such as
-// "a@x, b@y" (a mistyped GW_ALLOWED_USERS or --user) is never a login, so it
-// can neither be allowlisted nor match an allowlist entry.
-func ValidLogin(login string) bool {
-	if login == "" || strings.Contains(login, ",") {
-		return false
+// maxLoginLen bounds a login (an email-style identifier fits well within it).
+const maxLoginLen = 254
+
+// NormalizeLogin is the single decision function for logins: allowlist
+// entries, paired users and session logins all go through it. It trims
+// surrounding space and lower-cases ASCII letters, and accepts only a
+// non-empty string of ASCII [A-Za-z0-9._@+-] (at most 254 bytes). Anything
+// else is refused, so a joined list ("a@x, b@y"), whitespace, control,
+// zero-width or bidi characters, and look-alikes that Unicode case folding
+// would map onto ASCII (Kelvin sign U+212A -> "k", U+0130 -> "i") are never a
+// login: they can neither be allowlisted nor match an allowlist entry.
+// Compare normalized values; the returned string is the canonical form.
+func NormalizeLogin(login string) (string, bool) {
+	login = strings.TrimSpace(login)
+	if login == "" || len(login) > maxLoginLen {
+		return "", false
 	}
-	for _, r := range login {
-		if unicode.IsSpace(r) || unicode.IsControl(r) {
-			return false
+	b := []byte(login)
+	for i, c := range b {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			b[i] = c + ('a' - 'A')
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '_', c == '@', c == '+', c == '-':
+		default:
+			return "", false
 		}
 	}
-	return true
+	return string(b), true
 }
 
-// AllowedLogin reports whether login is in the allowlist (case-insensitive).
-// An empty allowlist, or a malformed login, is always false (fail closed).
+// ValidLogin reports whether login is acceptable to NormalizeLogin.
+func ValidLogin(login string) bool {
+	_, ok := NormalizeLogin(login)
+	return ok
+}
+
+// AllowedLogin reports whether login is in the allowlist (case-insensitive,
+// ASCII only). An empty allowlist, or a malformed login or entry, never
+// matches (fail closed). It does not consult API keys: those authenticate
+// independently of the allowlist.
 func AllowedLogin(allowed []string, login string) bool {
-	login = strings.ToLower(strings.TrimSpace(login))
-	if !ValidLogin(login) {
+	want, ok := NormalizeLogin(login)
+	if !ok {
 		return false
 	}
 	for _, a := range allowed {
-		if strings.ToLower(strings.TrimSpace(a)) == login {
+		if got, ok := NormalizeLogin(a); ok && got == want {
 			return true
 		}
 	}

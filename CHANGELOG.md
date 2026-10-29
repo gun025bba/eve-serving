@@ -13,7 +13,15 @@
   instead of silently allowlisting nothing, and `ValidLogin` rejects it in `AllowedLogin` and the session check.
   `tailscale-identity` itself was removed in 4.0.0, so there is no header path left to harden.
 
-### Changed (security review follow-up, Low findings)
+### Changed (security review follow-up, Low findings #146 / #107)
+- **Logins are ASCII-only (#146).** One function, `auth.NormalizeLogin`, decides every login (allowlist entries, `eve-gw pair --user`,
+  session check): `[A-Za-z0-9._@+-]`, at most 254 bytes, lower-cased. Kelvin sign U+212A / U+0130 and other look-alikes no longer match;
+  a non-ASCII `allowed_users` entry now stops the gateway at startup. An empty allowlist logs `allowed_users_empty` at startup
+  (API keys are unaffected by the allowlist, now documented). `GW_ALLOWED_USERS` set but empty is treated as unset (YAML list kept)
+  and logs `allowed_users_env_empty_ignored`.
+- **`install-calendar-adapter.sh` (#107):** `PIM_SHA` must be 40 hex and equal HEAD exactly; `EXP_PIM_SHA256` is validated (and logs a WARN
+  while unpinned); build and logs use a private `mktemp -d` (0700) instead of fixed `/tmp` paths; the pinned commit is kept reachable by
+  the branch `keep/pim-adapter-6ce1993` and fetched by SHA if needed (no tags).
 - `calendar_add_event` now **requires `calendar_id`** (from `calendar_list_events`); the confirmation card always
   names the target calendar. There is no implicit default calendar. (L-1)
 - Text fields refuse U+2028/U+2029 in addition to control and format characters; the helper applies the same rule. (L-2)
