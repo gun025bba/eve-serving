@@ -52,8 +52,8 @@
   characters. **Every rejection returns the same model-facing message and `error_code: query_rejected`** (no rule id, word or count); rule ids stay in the audit
   event only. Rule (c) (M-i): inside an accepted user word plus tail, a protected word that starts in the user's word and ends after it is rejected
   (`나` + `나비`). A closed list of Korean function-word suffixes (`가`, `는`, `에서` ... in `functionTails`) attached to a user word is not new text
-  for the tail overlap checks. Stem variants (N-1): the content tokens of P also count with their last one to four runes cut (stem of two runes or
-  more, not a stopword), so `아하윤`, `가나비`, `선물과하윤`, `하 윤` are rejected when memory says `하윤이다` / `나비랑`; the cut reaches four runes so polite endings (`하윤입니다`, `하윤이었어요`, `역삼동에서는`) are covered too. Measured on the committed synthetic corpus: `echo_normal_queries_results.txt`. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
+  for the tail overlap checks. Stem variants (N-1): the content tokens of P also count with any ending cut (every prefix of a Hangul token with two runes or
+  more that is not a stopword; tokens without Hangul keep the one-to-four-rune cut), so `아하윤`, `가나비`, `선물과하윤`, `하 윤` are rejected when memory says `하윤이다` / `나비랑`; the ending length is not bounded, so polite endings (`하윤입니다`, `하윤이었습니다`, `역삼동에서는`) are covered too. Measured on the committed synthetic corpus: `echo_normal_queries_results.txt`. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
 - **Freshness:** a time-sensitive question where no tool was called now ends as `fresh: "unverified"` (also stored in `messages.metadata`).
 - **Kill switch file is required for automatic tools:** without `tools_killswitch_file`, or with no file at start-up, automatic selection stays off
   (fail closed). `web.default_mode: off` is read as `web.auto_select_off` (an old deployment that had the web tools off keeps them off; delete the key to

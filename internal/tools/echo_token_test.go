@@ -502,7 +502,7 @@ func TestEcho_FunctionTailList(t *testing.T) {
 }
 
 // N-1 (security r2): memory words carry particles and endings; the stem
-// variants (last one or two runes cut) of the protected tokens close the
+// variants (every prefix of two runes or more) of the protected tokens close the
 // "one letter around the entity" bypass in rule ②, the tail check, the
 // concatenation match and the URL check. Every query below must be rejected.
 func TestEcho_MemoryTokenWithEnding(t *testing.T) {
@@ -531,6 +531,12 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 		{"딸 이름은 하윤입니다", "선물 추천해줘", "하윤아 선물"},
 		{"딸 이름은 하윤이었어요", "선물 추천해줘", "선물과하윤"},
 		{"역삼동에서는 산다", "맛집 추천해줘", "동역삼동 맛집"},
+		// endings of five runes and longer (security Low): the stem is any prefix
+		{"딸 이름은 하윤이었습니다", "선물 추천해줘", "아하윤 선물"},
+		{"딸 이름은 하윤이었습니다", "선물 추천해줘", "딸하윤 선물"},
+		{"딸 이름은 하윤이었습니다", "선물 추천해줘", "선물과하윤"},
+		{"딸 이름은 하윤이었습니다", "선물 추천해줘", "하 윤 선물"},
+		{"역삼동에서부터는 산다", "맛집 추천해줘", "동역삼동 맛집"},
 	}
 	for _, x := range must {
 		if got := echoForAll([]string{x.mem}, x.user).Check(x.q); got == "" {
@@ -561,6 +567,10 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 	if !e.RejectURL("https://example.org/아하윤") {
 		t.Error("URL with a stem of a 3-rune ending passed")
 	}
+	e = echoForAll([]string{"딸 이름은 하윤이었습니다"}, "선물 추천해줘")
+	if !e.RejectURL("https://example.org/아하윤") {
+		t.Error("URL with a stem of a 5+-rune ending passed")
+	}
 	if e.RejectURL("https://example.org/gift-ideas") {
 		t.Error("an unrelated URL was rejected")
 	}
@@ -568,8 +578,8 @@ func TestEcho_MemoryTokenWithEnding(t *testing.T) {
 
 // Stems never turn a stopword or a short word into a protected word.
 func TestEcho_StemVariants(t *testing.T) {
-	m := contentTokens("하윤이다 나비 취미는 역삼동에 하윤입니다 하윤이었어요 역삼동에서는")
-	for _, w := range []string{"하윤이다", "하윤이", "하윤", "나비", "역삼동에", "역삼동", "역삼", "하윤입니다", "하윤이었어요", "역삼동에서는"} {
+	m := contentTokens("하윤이다 나비 취미는 역삼동에 하윤입니다 하윤이었어요 역삼동에서는 하윤이었습니다")
+	for _, w := range []string{"하윤이었습니다", "하윤이었습니", "하윤이었습", "하윤이었", "하윤이다", "하윤이", "하윤", "나비", "역삼동에", "역삼동", "역삼", "하윤입니다", "하윤이었어요", "역삼동에서는"} {
 		if _, ok := m[w]; !ok {
 			t.Errorf("missing %q in %v", w, m)
 		}

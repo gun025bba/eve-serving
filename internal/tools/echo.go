@@ -556,17 +556,24 @@ func queryTokens(q string) []string {
 }
 
 // contentTokens is the content token set M of a protected text: usable
-// tokens that are not stopwords, plus their stem variants (N-1): the token
-// with its last one to four runes cut (maxStemCut), when the stem keeps two runes or more
-// and is neither a stopword nor a number. Korean memory sentences carry
-// particles and endings ("하윤이다", "나비랑", "역삼동에"); without the stems a
-// query token that adds a letter in front or behind the bare entity ("아하윤",
-// "가나비", "동역삼동") is neither inside nor around the whole token. The
-// bidirectional match of rule ② then covers the stem as well. User words are
-// never stemmed (that would widen the exemption).
-// maxStemCut is the longest ending cut from a protected token: polite endings
-// such as "입니다" (3), "이었어요" (4) and "에서는" (3) follow the entity.
+// tokens that are not stopwords, plus their stem variants (N-1): every prefix
+// of a Hangul token of two runes or more (any ending length is cut), or, for
+// a token without Hangul, its last one to four runes cut (maxStemCut), that
+// is neither a stopword nor a number. Korean memory sentences carry particles
+// and endings ("하윤이다", "나비랑", "역삼동에", "하윤이었습니다"); without the stems
+// a query token that adds a letter in front or behind the bare entity
+// ("아하윤", "가나비", "동역삼동") is neither inside nor around the whole token.
+// The ending is not bounded: a bound would let a long ending ("이었습니다")
+// hide the entity. The bidirectional match of rule ② then covers the stem as
+// well. User words are never stemmed (that would widen the exemption).
+// Unbounded prefixes are only for Hangul: Korean attaches endings of any
+// length to the entity, while two-letter prefixes of alphabetic words ("pe" of
+// "peanuts") would sit inside ordinary words ("recipe").
 const maxStemCut = 4
+
+func hasHangul(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.Is(unicode.Hangul, r) }) >= 0
+}
 
 func contentTokens(s string) map[string]struct{} {
 	out := map[string]struct{}{}
@@ -574,11 +581,12 @@ func contentTokens(s string) map[string]struct{} {
 		if usableToken(t) && !stopwords[t] {
 			out[t] = struct{}{}
 			r := []rune(t)
-			for cut := 1; cut <= maxStemCut; cut++ {
-				if len(r)-cut < 2 {
-					break
-				}
-				if st := string(r[:len(r)-cut]); usableToken(st) && !stopwords[st] {
+			lowest := 2
+			if !hasHangul(t) {
+				lowest = max(2, len(r)-maxStemCut)
+			}
+			for n := len(r) - 1; n >= lowest; n-- {
+				if st := string(r[:n]); usableToken(st) && !stopwords[st] {
 					out[st] = struct{}{}
 				}
 			}
