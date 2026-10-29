@@ -26,7 +26,7 @@ No key is generated, copied or read. The installer refuses if a directory in the
 live version cannot be determined. Options (append after `-s --`): `--schema N`, `--current X.Y.Z`, `--current-web X.Y.Z`.
 Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/eve-deploy`, which ends the NOPASSWD rule at once).
 
-**One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh`. It runs the install line above
+**One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
 (same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys stay
 **refused** by the installed entrypoint (`WEB_ENABLED=no`) until a reviewed change turns them on.
 

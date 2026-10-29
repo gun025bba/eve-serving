@@ -53,6 +53,10 @@ if argv[:2] == ["auth", "login"]:
     log({"cmd": "login", "args": argv, "cfg": cfg, "GH_TOKEN": os.environ.get("GH_TOKEN"), "GITHUB_TOKEN": os.environ.get("GITHUB_TOKEN"), "gitcfg": os.environ.get("GIT_CONFIG_GLOBAL")})
     if os.environ.get("FAKE_LOGIN_FAIL"): sys.exit(1)
     open(cfg + "/hosts.yml", "w").write("github.com: fake-token-in-throwaway-dir\n"); sys.exit(0)
+if argv[:2] == ["auth", "token"]:
+    cfg = os.environ.get("GH_CONFIG_DIR", ""); log({"cmd": "token", "cfg": cfg})
+    if not os.path.exists(cfg + "/hosts.yml"): sys.exit(1)
+    print("gho_FAKETOKEN0123456789"); sys.exit(0)
 if argv[:2] == ["auth", "logout"]:
     cfg = os.environ.get("GH_CONFIG_DIR", ""); log({"cmd": "logout", "cfg": cfg, "had_login": os.path.exists(cfg + "/hosts.yml")})
     try: os.remove(cfg + "/hosts.yml")
@@ -63,6 +67,7 @@ method, ep, jq, inp, i, args = "GET", None, None, False, 1, argv
 while i < len(args):
     a = args[i]
     if a == "-H": i += 2; continue
+    if a == "-i": i += 1; continue
     if a == "-X": method = args[i + 1]; i += 2; continue
     if a == "--input": inp = True; i += 2; continue
     if a == "--jq": jq = args[i + 1]; i += 2; continue
@@ -70,6 +75,12 @@ while i < len(args):
 body = json.loads(sys.stdin.read()) if inp else None
 path = ep.split("?")[0]
 log({"cmd": "api", "method": method, "ep": path, "body": body, "GH_TOKEN": os.environ.get("GH_TOKEN"), "cfg": os.environ.get("GH_CONFIG_DIR")})
+if os.environ.get("GH_TOKEN") == "gho_FAKETOKEN0123456789":
+    # the revocation proof: the token of the (already logged out) login, used from a clean config dir
+    log({"cmd": "token-check", "ep": path, "cfg": os.environ.get("GH_CONFIG_DIR"), "alive": os.environ.get("FAKE_TOKEN_DEAD", "1") == "0"})
+    if os.environ.get("FAKE_TOKEN_DEAD", "1") != "0":
+        print("HTTP/2.0 401 Unauthorized\n\n{\"message\":\"Bad credentials\"}"); print("gh: Bad credentials (HTTP 401)", file=sys.stderr); sys.exit(1)
+    print("HTTP/2.0 200 OK\n\n{\"login\":\"gun025bba\"}"); sys.exit(0)
 if not os.path.exists(os.environ.get("GH_CONFIG_DIR", "/nonexistent") + "/hosts.yml"): print("gh: not logged in", file=sys.stderr); sys.exit(4)
 st = load()
 def out(obj):
@@ -96,7 +107,9 @@ if path == R + "/environments/deploy":
     if method == "GET":
         if not st["env"]: nf()
         out(st["env"])
-    if method == "PUT": st["env"] = body; done()
+    if method == "PUT":
+        if st.get("env_put_fail"): print("gh: Validation Failed (HTTP 422)", file=sys.stderr); sys.exit(1)
+        st["env"] = body; done()
 if path == R + "/environments/deploy/deployment-branch-policies":
     if not st["env"]: nf()
     if method == "GET": out({"total_count": len(st["policies"]), "branch_policies": st["policies"]})
@@ -153,8 +166,15 @@ FAKE
 cat >"$T/bin/curl" <<'FAKE'
 #!/bin/bash
 echo "curl $*" >>"$FAKE_STATE/other.log"
-if [ -n "${FAKE_CURL_TAMPER:-}" ]; then echo "echo pwned"; exit 0; fi
-cat "$FAKE_INSTALLER"
+out=""; url=""; while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift;; http*) url=$1;; esac; shift; done
+case "$url" in *github_known_hosts) src=$FAKE_KH;; *) src=$FAKE_INSTALLER;; esac
+if [ -n "${FAKE_CURL_TAMPER:-}" ]; then echo "echo pwned" >"${out:-/dev/stdout}"; exit 0; fi
+if [ -n "$out" ]; then cat "$src" >"$out"; else cat "$src"; fi
+FAKE
+cat >"$T/bin/id" <<'FAKE'
+#!/bin/bash
+[ -n "${FAKE_UID:-}" ] && { echo "$FAKE_UID"; exit 0; }
+exec /usr/bin/id "$@"
 FAKE
 cat >"$T/bin/sudo" <<'FAKE'
 #!/bin/bash
@@ -162,7 +182,7 @@ echo "sudo $*" >>"$FAKE_STATE/other.log"
 cat >"$FAKE_STATE/sudo.stdin"
 FAKE
 chmod +x "$T/bin/"*
-cp "$D/setup-deploy-nopasswd.sh" "$T/installer.sh"
+cp "$D/setup-deploy-nopasswd.sh" "$T/installer.sh"; cp "$D/github_known_hosts" "$T/kh.pinned"; echo revoked >"$T/tty.yes"
 
 # ---------------- harness ----------------
 init_state() { # fresh fake GitHub: the existing eve-web main-protect (no linear history, not strict), no env, no deploy keys
@@ -188,7 +208,7 @@ HOME_T=$T/home; LIBX=$T/libexec
 reset_home() { rm -rf "$HOME_T"; mkdir -p "$HOME_T"; rm -rf "$LIBX"; mkdir -p "$LIBX"; }
 # run the script in a copy next to a copy of the known_hosts file; PATH = fakes first. Exports a poisoned GH_TOKEN to prove it is not passed on.
 SD=$T/sd; mkdir -p "$SD"; cp "$SCRIPT" "$SD/mac-oneshot.sh"; cp "$D/github_known_hosts" "$SD/github_known_hosts"
-run() { ( cd "$T" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" ONESHOT_LIBEXEC="$LIBX" GH_TOKEN=LEAKED-TOKEN GITHUB_TOKEN=LEAKED-TOKEN2 TMPDIR="$T/tmp" "$@" ) >"$T/out" 2>"$T/err"; RC=$?; OUT=$(cat "$T/out" "$T/err"); }
+run() { ( cd "$T" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" GH_TOKEN=LEAKED-TOKEN GITHUB_TOKEN=LEAKED-TOKEN2 TMPDIR="$T/tmp" "$@" ) >"$T/out" 2>"$T/err"; RC=$?; OUT=$(cat "$T/out" "$T/err"); }
 mkdir -p "$T/tmp"
 glog() { cat "$T/state/gh.log" 2>/dev/null; }
 nwrites() { glog | python3 -c 'import sys,json; print(sum(1 for l in sys.stdin if json.loads(l).get("method") in ("POST","PUT","DELETE")))'; }
@@ -202,7 +222,7 @@ eq "dry-run rc" "$RC" 0
 [ ! -e "$HOME_T/.eve-web-release-tagger" ] && ok || bad "dry-run must not create the key dir"
 eq "dry-run changed no GitHub state" "$(state 'len(st["rulesets"])')" 1
 nothing_left && ok || bad "dry-run leaves no temp dir"
-for w in "sudo /bin/bash -s" "gh auth login --web --hostname github.com" "release-tags" "refs/tags/v*" '"actor_type":"DeployKey"' "main-protect" "required_linear_history" "environments/deploy" "immutable-releases" "sha_pinning_required" "default_workflow_permissions" "fork-pr-contributor-approval" "ssh-keygen -q -t ed25519" "repos/gun025bba/eve-web/keys"; do has "dry-run mentions [$w]" "$OUT" "$w"; done
+for w in "sudo /bin/bash -s" "gh auth login --web --hostname github.com" "release-tags" "release-tags-lock" "refs/tags/v*" '"actor_type":"DeployKey"' "main-protect" "required_linear_history" "environments/deploy" "immutable-releases" "sha_pinning_required" "default_workflow_permissions" "fork-pr-contributor-approval" "ssh-keygen -q -t ed25519" "repos/gun025bba/eve-web/keys"; do has "dry-run mentions [$w]" "$OUT" "$w"; done
 run bash "$SD/mac-oneshot.sh" --bogus; eq "unknown argument refused" "$RC" 1
 
 # ---------------- 2. full run ----------------
@@ -215,13 +235,23 @@ eq "sudo got exactly the checked installer text" "$(sha256 "$T/state/sudo.stdin"
 has "sudo invoked as sudo /bin/bash -s" "$(cat "$T/state/other.log")" "sudo /bin/bash -s"
 has "curl pinned https+tls1.2 and the pinned commit" "$(cat "$T/state/other.log")" "--proto =https --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$(sed -n 's/^INSTALL_COMMIT=\([0-9a-f]*\).*/\1/p' "$SCRIPT")/deploy/nopasswd/setup-deploy-nopasswd.sh"
 eq "login args" "$(glog | python3 -c 'import sys,json; [print(" ".join(d["args"])) for d in map(json.loads, sys.stdin) if d["cmd"]=="login"]')" "auth login --web --hostname github.com --git-protocol https --scopes repo --insecure-storage"
-eq "no GH_TOKEN/GITHUB_TOKEN reached gh" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("GH_TOKEN") or d.get("GITHUB_TOKEN")))')" 0
-eq "gh used a throwaway config dir under TMPDIR" "$(glog | python3 -c 'import sys,json; print(all(d.get("cfg","").startswith(sys.argv[1]+"/eve-oneshot-gh.") for d in map(json.loads, sys.stdin) if d.get("cfg")))' "$T/tmp")" True
+eq "no inherited GH_TOKEN/GITHUB_TOKEN reached gh" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if (d.get("GH_TOKEN") and d.get("GH_TOKEN") != "gho_FAKETOKEN0123456789") or d.get("GITHUB_TOKEN")))')" 0
+eq "gh used a throwaway config dir under TMPDIR" "$(glog | python3 -c 'import sys,json; print(all(d.get("cfg","").startswith((sys.argv[1]+"/eve-oneshot-gh.", sys.argv[1]+"/eve-oneshot-chk.")) for d in map(json.loads, sys.stdin) if d.get("cfg")))' "$T/tmp")" True
 eq "git config redirected into the throwaway dir" "$(glog | python3 -c 'import sys,json; d=[d for d in map(json.loads, sys.stdin) if d["cmd"]=="login"][0]; print(d["gitcfg"]==d["cfg"]+"/gitconfig")')" True
 eq "logged out with a live login" "$(glog | python3 -c 'import sys,json; print([d["had_login"] for d in map(json.loads, sys.stdin) if d["cmd"]=="logout"])')" "[True]"
 nothing_left && ok || bad "throwaway dir must be deleted on exit"
-eq "rulesets: 2 (release-tags created, main-protect updated in place)" "$(state 'sorted((r["name"], r["id"]==26085409) for r in st["rulesets"])')" "[('main-protect', True), ('release-tags', False)]"
-eq "release-tags rules" "$(state '",".join(sorted(r["type"] for r in [x for x in st["rulesets"] if x["name"]=="release-tags"][0]["rules"]))')" "creation,deletion,non_fast_forward,update"
+has "revoke: link printed" "$OUT" "https://github.com/settings/applications"
+has "revoke: prompt printed" "$OUT" 'Type "revoked"'
+has "revoke: token proven dead" "$OUT" "token is dead (GitHub answered 401)"
+eq "revoke: the token was tested exactly once, from a clean config dir" "$(glog | python3 -c 'import sys,json; print([(d["ep"], d["cfg"].startswith(sys.argv[1]+"/eve-oneshot-chk.")) for d in map(json.loads, sys.stdin) if d["cmd"]=="token-check"])' "$T/tmp")" "[('user', True)]"
+eq "revoke: token check came after the logout" "$(glog | python3 -c 'import sys,json; c=[d["cmd"] for d in map(json.loads, sys.stdin)]; print(c.index("logout") < c.index("token-check"))')" True
+hasnt "the OAuth token is never printed" "$OUT" "gho_FAKETOKEN"
+hasnt "the OAuth token is never in the temp files left" "$(ls "$T/tmp")" "gho_"
+eq "rulesets: 3 (release-tags and release-tags-lock created, main-protect updated in place)" "$(state 'sorted((r["name"], r["id"]==26085409) for r in st["rulesets"])')" "[('main-protect', True), ('release-tags', False), ('release-tags-lock', False)]"
+eq "release-tags rules: only creation" "$(state '",".join(sorted(r["type"] for r in [x for x in st["rulesets"] if x["name"]=="release-tags"][0]["rules"]))')" "creation"
+eq "release-tags-lock rules" "$(state '",".join(sorted(r["type"] for r in [x for x in st["rulesets"] if x["name"]=="release-tags-lock"][0]["rules"]))')" "deletion,non_fast_forward,update"
+eq "release-tags-lock bypass = admin role ONLY (no deploy key)" "$(state 'sorted((b["actor_type"], b["actor_id"], b["bypass_mode"]) for b in [x for x in st["rulesets"] if x["name"]=="release-tags-lock"][0]["bypass_actors"])')" "[('RepositoryRole', 5, 'always')]"
+eq "release-tags-lock ref pattern" "$(state '[x for x in st["rulesets"] if x["name"]=="release-tags-lock"][0]["conditions"]["ref_name"]["include"]')" "['refs/tags/v*']"
 eq "release-tags bypass = admin role + DeployKey" "$(state 'sorted((b["actor_type"], b["actor_id"], b["bypass_mode"]) for b in [x for x in st["rulesets"] if x["name"]=="release-tags"][0]["bypass_actors"])')" "[('DeployKey', None, 'always'), ('RepositoryRole', 5, 'always')]"
 eq "release-tags ref pattern" "$(state '[x for x in st["rulesets"] if x["name"]=="release-tags"][0]["conditions"]["ref_name"]["include"]')" "['refs/tags/v*']"
 eq "main-protect: linear history added" "$(state '",".join(sorted(r["type"] for r in [x for x in st["rulesets"] if x["name"]=="main-protect"][0]["rules"]))')" "deletion,non_fast_forward,required_linear_history,required_status_checks"
@@ -249,7 +279,7 @@ cp "$D/eve-deploy" "$LIBX/deploy"; : >"$T/state/other.log"; : >"$T/state/gh.log"
 run bash "$SD/mac-oneshot.sh"
 eq "re-run rc" "$RC" 0
 has "re-run: all checks passed" "$OUT" "ALL CHECKS PASSED"
-eq "re-run: still 2 rulesets" "$(state 'len(st["rulesets"])')" 2
+eq "re-run: still 3 rulesets" "$(state 'len(st["rulesets"])')" 3
 eq "re-run: still one key" "$(state 'len(st["keys"])')" 1
 eq "re-run: same key" "$(cat "$K/id_ed25519.pub")" "$PUB1"
 eq "re-run: still one environment policy" "$(state 'len(st["policies"])')" 1
@@ -282,9 +312,23 @@ eq "tampered installer rc" "$RC" 1; has "tampered installer message" "$OUT" "sha
 [ ! -e "$T/state/gh.log" ] && ok || bad "tampered installer: nothing else runs"
 
 init_state; reset_home; cp "$SD/github_known_hosts" "$T/kh.bak"; echo "x" >>"$SD/github_known_hosts"
-run bash "$SD/mac-oneshot.sh"
-eq "tampered known_hosts rc" "$RC" 1; has "tampered known_hosts message" "$OUT" "pinned sha256"; [ ! -e "$T/state/other.log" ] && ok || bad "tampered known_hosts: nothing runs"
+run env FAKE_CURL_TAMPER=1 bash "$SD/mac-oneshot.sh"
+eq "tampered local AND tampered downloaded known_hosts: rc" "$RC" 1; has "tampered known_hosts message" "$OUT" "pinned sha256"; [ ! -e "$T/state/gh.log" ] && ok || bad "tampered known_hosts: nothing runs"
+[ ! -e "$T/state/sudo.stdin" ] && ok || bad "tampered known_hosts: no sudo"
+nothing_left && ok || bad "tampered known_hosts: no temp dir left"
+init_state; reset_home; rm -f "$T/state/other.log"
+run bash "$SD/mac-oneshot.sh" --skip-install
+eq "tampered LOCAL known_hosts + good pinned download: rc" "$RC" 0
+has "pinned known_hosts downloaded from the pinned commit" "$(cat "$T/state/other.log")" "raw.githubusercontent.com/gun025bba/eve-serving/$(sed -n 's/^INSTALL_COMMIT=\([0-9a-f]*\).*/\1/p' "$SCRIPT")/deploy/nopasswd/github_known_hosts"
+hasnt "ssh used the downloaded copy, not the tampered local one" "$(grep '^ssh ' "$T/state/other.log")" "UserKnownHostsFile=$SD/"
+nothing_left && ok || bad "downloaded known_hosts dir is deleted on exit"
 cp "$T/kh.bak" "$SD/github_known_hosts"
+
+# clone-free: the script text passed to `bash -c` from a directory without the repository files (how the README line runs it)
+init_state; reset_home; mkdir -p "$T/empty"; rm -f "$T/state/other.log"
+( cd "$T/empty" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" TMPDIR="$T/tmp" bash -c "$(cat "$SCRIPT")" mac-oneshot ) >"$T/out" 2>&1; RC=$?; OUT=$(cat "$T/out")
+eq "clone-free run (bash -c) rc" "$RC" 0; has "clone-free: all checks passed" "$OUT" "ALL CHECKS PASSED"
+nothing_left && ok || bad "clone-free: no temp dir left"
 
 init_state; reset_home; mutate 'st["rulesets"].append(dict(st["rulesets"][0], id=77))'
 run bash "$SD/mac-oneshot.sh" --skip-install
@@ -322,10 +366,21 @@ mutate "st['keys']=[{'id':5,'key':'ssh-ed25519 AAAAOLD','title':'eve-web-release
 run bash "$SD/mac-oneshot.sh" --skip-install
 eq "stale same-title key and read-only copy are replaced by one write key" "$(state '[(k["title"], k["read_only"]) for k in st["keys"]]')" "[('eve-web-release-tagger', False)]"
 mutate "st['keys'].append({'id':9,'key':'ssh-ed25519 AAAAOTHER','title':'someone','read_only':False})"
+: >"$T/state/gh.log"; mutate "st['rulesets']=[r for r in st['rulesets'] if r['name']=='main-protect']"
 run bash "$SD/mac-oneshot.sh" --skip-install
-eq "another WRITE deploy key (it would inherit the tag bypass): verify fails" "$RC" 1
-has "reports the extra key" "$OUT" "FAIL  only write deploy key"
-eq "the other key is NOT deleted by the script" "$(state 'len(st["keys"])')" 2
+eq "M-1: a foreign WRITE deploy key aborts the run" "$RC" 1
+has "M-1: says no change" "$OUT" "NO change"
+has "M-1: names the foreign key" "$OUT" "FOREIGN WRITE deploy key: id 9, title 'someone'"
+eq "M-1: NO write call at all (no key change, no ruleset, no setting)" "$(nwrites)" 0
+eq "M-1: the foreign key is not deleted, nothing registered" "$(state 'sorted(k["id"] for k in st["keys"] if k["id"] == 9) + [len(st["keys"])]')" "[9, 2]"
+eq "M-1: the key list was read before anything else on the repo" "$(glog | python3 -c 'import sys,json; print([d["ep"] for d in map(json.loads, sys.stdin) if d["cmd"]=="api"][:3])')" "['user', 'repos/gun025bba/eve-web', 'repos/gun025bba/eve-web/keys']"
+eq "M-1: rulesets untouched" "$(state '[r["name"] for r in st["rulesets"]]')" "['main-protect']"
+eq "M-1: the login is still revoked (prompt, 401)" "$(glog | grep -c token-check || true)" 1
+# read-only foreign keys do not matter (they do not inherit the bypass)
+init_state; reset_home; mutate "st['keys']=[{'id':9,'key':'ssh-ed25519 AAAAOTHER','title':'ci-readonly','read_only':True}]"
+run bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-1: a read-only key of someone else is fine" "$RC" 0
+eq "M-1: and it is left alone" "$(state 'sorted(k["title"] for k in st["keys"])')" "['ci-readonly', 'eve-web-release-tagger']"
 
 # ssh test fails -> FAIL and non-zero
 init_state; reset_home
@@ -345,7 +400,43 @@ PY
 run bash "$SD/mac-oneshot.sh" --skip-install
 eq "a setting that did not apply: rc 1" "$RC" 1; has "FAIL line for fork approval" "$OUT" "FAIL  fork PR approval"
 
+# ---------------- M-2: the OAuth token must be proven dead ----------------
+init_state; reset_home; run env FAKE_TOKEN_DEAD=0 bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-2: token still valid after the prompt: rc 1" "$RC" 1
+has "M-2: FAIL row" "$OUT" "FAIL  GitHub CLI OAuth token revoked: got [confirmed=yes http=200]"
+has "M-2: loud warning" "$OUT" "may STILL BE VALID"
+init_state; reset_home; run env ONESHOT_TTY=/dev/null bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-2: no confirmation possible (no tty / EOF): rc 1" "$RC" 1
+has "M-2: unconfirmed FAIL row" "$OUT" "got [confirmed=no http=401]"
+printf 'no\nnope\nrevoked\n' >"$T/tty.late"; init_state; reset_home; run env ONESHOT_TTY="$T/tty.late" bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-2: the prompt repeats until the owner types revoked" "$RC" 0
+printf 'a\nb\nc\nrevoked\n' >"$T/tty.never"; init_state; reset_home; run env ONESHOT_TTY="$T/tty.never" bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-2: three wrong answers = unconfirmed" "$RC" 1
+# an early stop after the login still goes through the revoke flow (wrong user)
+init_state; reset_home; mutate 'st["user"]="someone-else"'; run bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-2: wrong-user stop still prompts for the revocation and proves it (one token check)" "$(glog | grep -c token-check || true)" 1
+has "M-2: wrong-user stop prints the link" "$OUT" "https://github.com/settings/applications"
+eq "M-2: wrong-user stop stays rc 1" "$RC" 1
+
+# ---------------- Lows ----------------
+init_state; reset_home; mkdir -p "$HOME_T/.eve-web-release-tagger"
+run env FAKE_UID=4242 bash "$SD/mac-oneshot.sh" --skip-install
+eq "owner check: a key dir not owned by you is refused" "$RC" 1; has "owner check message" "$OUT" "not owned by you"; eq "owner check: no GitHub call" "$([ -e "$T/state/gh.log" ] && echo yes || echo no)" no
+init_state; reset_home; run bash "$SD/mac-oneshot.sh" --skip-install
+run env FAKE_UID=4242 bash "$SD/mac-oneshot.sh" --skip-install
+eq "owner check: an existing key file not owned by you is refused" "$RC" 1
+init_state; reset_home; mutate 'st["env_put_fail"]=True'
+run bash "$SD/mac-oneshot.sh" --skip-install
+eq "environment PUT failing does not abort: the verify table decides (rc 1)" "$RC" 1
+has "environment failure is reported by the table" "$OUT" "FAIL  environment deploy"
+has "the other settings were still applied and verified" "$OUT" "PASS  immutable releases"
+has "the revoke flow still ran" "$OUT" "token is dead"
+
 # ---------------- 6. bash 3.2 (when the box has one) ----------------
+# README: the clone-free one-liner pins the sha256 of THIS script and a full commit
+grep -q "raw.githubusercontent.com/gun025bba/eve-serving/[0-9a-f]\{40\}/deploy/nopasswd/mac-oneshot.sh" "$D/README.md" && ok || bad "README must carry the clone-free mac-oneshot line with a full commit sha"
+grep -q "= $(sha256 "$SCRIPT") " "$D/README.md" && ok || bad "README mac-oneshot line must pin the sha256 of the current mac-oneshot.sh"
+grep -q 'bash -c "\$s" mac-oneshot' "$D/README.md" && ok || bad "README mac-oneshot line runs the checked text with bash -c"
 B32=${EVE_BASH32:-}
 if [ -n "$B32" ] && [ -x "$B32" ]; then
   init_state; reset_home; run "$B32" "$SD/mac-oneshot.sh"; eq "bash 3.2 full run rc" "$RC" 0; has "bash 3.2 all checks passed" "$OUT" "ALL CHECKS PASSED"
