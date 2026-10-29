@@ -415,12 +415,47 @@ load_state() {
   [ -z "$CUR_WEB" ] || valid_version "$CUR_WEB" || die "current_web_version invalid"
 }
 take_lock() { /bin/mkdir "$STATE/lock" 2>/dev/null || die "another deploy is running (or stale $STATE/lock)"; }
+# ----- unattended-deploy brakes (root-owned state; the poller user cannot read or write any of this) -----
+# PAUSE: while this entry exists no `deploy` / `deploy-web` runs (rollbacks still do). It is created by the installer (initial state), and by hold() below. Only the owner removes it (sudo rm).
+# blocklist: lines "<kind> <version>" of releases that failed their health check or were rolled back: never deployed again.
+# floor / floor_web: the lowest version a rollback may restore; raised (never lowered) to the previous version after every healthy deploy.
+check_brakes() { # $1 kind $2 version
+  [ ! -e "$STATE/PAUSE" ] && [ ! -L "$STATE/PAUSE" ] || die "deploys are PAUSED ($STATE/PAUSE exists): the owner must remove it (see docs/runbooks/unattended-deploy.md)"
+  if [ -f "$STATE/blocklist" ] && /usr/bin/grep -qxF "$1 $2" "$STATE/blocklist"; then die "$1 $2 is on the blocklist (it failed before)"; fi
+}
+check_floor() { # $1 floor file name  $2 version a rollback would restore. FAIL-CLOSED: a missing or invalid floor means refuse (the installer creates it; only `setup-unattended.sh raise-floor` raises it by hand)
+  local f c; f=$(read_state "$1" 2>/dev/null) || die "$1 is missing: rollback refused (the installer creates the floor; the owner can create it with setup-unattended.sh raise-floor)"
+  valid_version "$f" || die "$1 is invalid: rollback refused"
+  c=$(ver_cmp "$2" "$f") || die "version compare failed"
+  [ "$c" != -1 ] || die "rollback target $2 is below the floor $f"
+}
+raise_floor() { # $1 floor file name  $2 version: only upwards
+  local f c; f=$(read_state "$1" 2>/dev/null) || f=""
+  if [ -n "$f" ] && valid_version "$f"; then c=$(ver_cmp "$2" "$f") || return 0; [ "$c" = 1 ] || return 0; fi
+  write_state "$1" "$2" || log "WARNING: cannot raise $1 to $2"
+}
+latch_pause() { # $1 text. PAUSE first; if it cannot be written, fall back step by step to something that STILL stops every later deploy. 0 = latched, 1 = nothing worked
+  write_state PAUSE "$1" && return 0
+  /bin/rm -f "$STATE/PAUSE" 2>/dev/null || true
+  /bin/ln -s hold-failed "$STATE/PAUSE" 2>/dev/null && { log "WARNING: PAUSE written as a symlink latch (the file write failed)"; return 0; }
+  /bin/rm -f "$STATE/allowed_user" 2>/dev/null && [ ! -e "$STATE/allowed_user" ] && { log "WARNING: PAUSE could not be written: allowed_user removed instead (every deploy is refused until the owner restores it)"; return 0; }
+  return 1
+}
+hold() { # $1 kind $2 failed/rolled-back version: pause every deploy FIRST (the safety brake), then block the version. If no latch can be set, fail closed: log loudly and exit non-zero
+  local rc=0
+  latch_pause "kind=$1 version=$2 at=$(date '+%Y-%m-%dT%H:%M:%S%z')" || rc=1
+  /bin/rm -f "$STATE/rehearsal_ok" 2>/dev/null || true             # a real failure invalidates the rehearsal
+  ( umask 077; printf '%s %s\n' "$1" "$2" >>"$STATE/blocklist" ) || log "WARNING: cannot write the blocklist"
+  if [ "$rc" != 0 ]; then log "HOLD-LATCH-FAILED: $1 $2 could NOT be paused: manual action needed (create $STATE/PAUSE)"; printf 'eve-deploy: HOLD-LATCH-FAILED: cannot pause deploys after %s %s: create %s/PAUSE by hand\n' "$1" "$2" "$STATE" >&2; exit 1; fi
+  log "HOLD: $1 $2 blocked, PAUSE set"
+}
 make_work() { WORK=$(umask 077; /usr/bin/mktemp -d "$STATE/work.XXXXXX") || die "mktemp failed"; /bin/chmod 0700 "$WORK"; }
 
 do_deploy() {
   local v=$TARGET c
   c=$(ver_cmp "$v" "$CUR_VER") || die "version compare failed"
   [ "$c" = 1 ] || die "version $v is not higher than installed $CUR_VER (downgrade/same refused; use rollback)"
+  check_brakes gateway "$v"
   log "deploy gateway $v requested by $SUDO_USER (installed $CUR_VER)"
   make_work
   stage_and_verify gateway "$v" "$CUR_SCHEMA"
@@ -435,8 +470,10 @@ do_deploy() {
   if swap_and_check "$WORK/x" "$WORK/snap" keep; then
     /bin/rm -rf "$STATE/previous" && /bin/mv "$WORK/snap" "$STATE/previous" || die "cannot keep the previous version"
     write_state current_version "$v" || die "cannot record the new version (binaries ARE v$v)"
+    raise_floor floor "$CUR_VER"
     log "deploy gateway $v OK; previous $CUR_VER kept for rollback"
   else
+    hold gateway "$v"
     exit 1
   fi
 }
@@ -449,6 +486,7 @@ do_rollback() {
   c=$(ver_cmp "$pv" "$CUR_VER") || die "version compare failed"
   [ "$c" = -1 ] || die "kept version $pv is not lower than installed $CUR_VER"
   [ "$ps" = "$CUR_SCHEMA" ] || die "schema differs between $pv and $CUR_VER: automatic rollback refused (no DB down-migration here)"
+  check_floor floor "$pv"
   log "rollback gateway to $pv requested by $SUDO_USER (installed $CUR_VER)"
   make_work
   swap_window
@@ -459,6 +497,7 @@ do_rollback() {
   if swap_and_check "$STATE/previous" "$WORK/snap" exact; then
     /bin/rm -rf "$STATE/previous"
     write_state current_version "$pv" || die "cannot record the version (binaries ARE v$pv)"
+    hold gateway "$CUR_VER"
     log "rollback gateway to $pv OK (no further rollback is kept)"
   else
     exit 1
@@ -470,6 +509,7 @@ do_deploy_web() {
   [ -n "$CUR_WEB" ] || die "web version not initialised (current_web_version missing): re-run setup"
   c=$(ver_cmp "$v" "$CUR_WEB") || die "version compare failed"
   [ "$c" = 1 ] || die "web version $v is not higher than installed $CUR_WEB (downgrade/same refused; use rollback-web)"
+  check_brakes web "$v"
   log "deploy web $v requested by $SUDO_USER (installed $CUR_WEB)"
   make_work
   stage_and_verify web "$v" "$CUR_SCHEMA"
@@ -485,8 +525,10 @@ do_deploy_web() {
     printf '%s\n' "$CUR_WEB" >"$STATE/previous-web/version" && tree_digest "$OLDWEB" >"$STATE/previous-web/digest" \
       && /bin/mv "$OLDWEB" "$STATE/previous-web/tree" || die "cannot keep the previous web tree"
     write_state current_web_version "$v" || die "cannot record the new web version (the UI IS v$v)"
+    raise_floor floor_web "$CUR_WEB"
     log "deploy web $v OK; previous $CUR_WEB kept for rollback-web"
   else
+    hold web "$v"
     exit 1       # never delete $OLDWEB here: if the automatic restore failed it is the only copy of the old tree
   fi
 }
@@ -498,6 +540,7 @@ do_rollback_web() {
   pv=$(/usr/bin/head -1 "$STATE/previous-web/version" 2>/dev/null) && valid_version "$pv" || die "previous web version invalid"
   c=$(ver_cmp "$pv" "$CUR_WEB") || die "version compare failed"
   [ "$c" = -1 ] || die "kept web version $pv is not lower than installed $CUR_WEB"
+  check_floor floor_web "$pv"
   log "rollback web to $pv requested by $SUDO_USER (installed $CUR_WEB)"
   make_work
   swap_window
@@ -511,6 +554,7 @@ do_rollback_web() {
   if web_swap_and_check "$NEWWEB" "$OLDWEB"; then
     NEWWEB=""; /bin/rm -rf "$OLDWEB" "$STATE/previous-web"
     write_state current_web_version "$pv" || die "cannot record the web version (the UI IS v$pv)"
+    hold web "$CUR_WEB"
     log "rollback web to $pv OK (no further rollback is kept)"
   else
     exit 1       # never delete $OLDWEB here: if the automatic restore failed it is the only copy of the old tree
