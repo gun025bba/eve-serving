@@ -55,8 +55,9 @@ if argv[:2] == ["auth", "login"]:
     open(cfg + "/hosts.yml", "w").write("github.com: fake-token-in-throwaway-dir\n"); sys.exit(0)
 if argv[:2] == ["auth", "token"]:
     cfg = os.environ.get("GH_CONFIG_DIR", ""); log({"cmd": "token", "cfg": cfg})
+    if os.environ.get("FAKE_TOKEN_UNREADABLE"): sys.exit(1)
     if not os.path.exists(cfg + "/hosts.yml"): sys.exit(1)
-    print("gho_FAKETOKEN0123456789"); sys.exit(0)
+    print(os.environ.get("FAKE_TOKEN") or "gho_FAKETOKEN0123456789"); sys.exit(0)
 if argv[:2] == ["auth", "logout"]:
     cfg = os.environ.get("GH_CONFIG_DIR", ""); log({"cmd": "logout", "cfg": cfg, "had_login": os.path.exists(cfg + "/hosts.yml")})
     try: os.remove(cfg + "/hosts.yml")
@@ -74,13 +75,7 @@ while i < len(args):
     ep = a; i += 1
 body = json.loads(sys.stdin.read()) if inp else None
 path = ep.split("?")[0]
-log({"cmd": "api", "method": method, "ep": path, "ver": ver, "body": body, "GH_TOKEN": os.environ.get("GH_TOKEN"), "cfg": os.environ.get("GH_CONFIG_DIR")})
-if os.environ.get("GH_TOKEN") == "gho_FAKETOKEN0123456789":
-    # the revocation proof: the token of the (already logged out) login, used from a clean config dir
-    log({"cmd": "token-check", "ep": path, "cfg": os.environ.get("GH_CONFIG_DIR"), "alive": os.environ.get("FAKE_TOKEN_DEAD", "1") == "0"})
-    if os.environ.get("FAKE_TOKEN_DEAD", "1") != "0":
-        print("HTTP/2.0 401 Unauthorized\n\n{\"message\":\"Bad credentials\"}"); print("gh: Bad credentials (HTTP 401)", file=sys.stderr); sys.exit(1)
-    print("HTTP/2.0 200 OK\n\n{\"login\":\"gun025bba\"}"); sys.exit(0)
+log({"cmd": "api", "method": method, "ep": path, "ver": ver, "body": body, "GH_TOKEN": os.environ.get("GH_TOKEN"), "cfg": os.environ.get("GH_CONFIG_DIR"), "GH_DEBUG": os.environ.get("GH_DEBUG"), "DEBUG": os.environ.get("DEBUG"), "SHELLOPTS": os.environ.get("SHELLOPTS")})
 if not os.path.exists(os.environ.get("GH_CONFIG_DIR", "/nonexistent") + "/hosts.yml"): print("gh: not logged in", file=sys.stderr); sys.exit(4)
 st = load()
 def out(obj):
@@ -123,7 +118,7 @@ if path == R + "/immutable-releases":
     if method == "PUT": st["immutable"] = True; done()
 if path.startswith(R + "/actions/permissions"):
     if st.get("v1_actions_fail") and ver == "2022-11-28": print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
-    if st.get("actions_put_fail") and method == "PUT": print("gh: Forbidden (HTTP 403) token gho_FAKETOKEN0123456789 ghp_SECRETSECRET1", file=sys.stderr); sys.exit(1)
+    if st.get("actions_put_fail") and method == "PUT": print("gh: Forbidden (HTTP 403) token gho_FAKETOKEN0123456789 ghp_SECRETSECRET1 " + os.environ.get("FAKE_TOKEN", ""), file=sys.stderr); sys.exit(1)
 if path == R + "/actions/permissions":
     if method == "GET": out(st["actions"])
     if method == "PUT":
@@ -169,7 +164,16 @@ FAKE
 cat >"$T/bin/curl" <<'FAKE'
 #!/bin/bash
 echo "curl $*" >>"$FAKE_STATE/other.log"
-out=""; url=""; while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift;; http*) url=$1;; esac; shift; done
+out=""; url=""; hdr=""; while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift;; -H) if [ "$2" = "@-" ]; then hdr=$(cat); fi; shift;; http*) url=$1;; esac; shift; done
+case "$url" in
+  https://api.github.com/user)   # the revocation proof: the token arrives ONLY on stdin (-H @-); the answer is 401 once revoked
+    ok=no; [ "$hdr" = "Authorization: Bearer ${FAKE_TOKEN:-gho_FAKETOKEN0123456789}" ] && ok=yes
+    python3 - "$FAKE_STATE/gh.log" "$ok" "${FAKE_TOKEN_DEAD:-1}" <<'PY'
+import json, sys
+open(sys.argv[1], "a").write(json.dumps({"cmd": "token-check", "ep": "user", "stdin_token_ok": sys.argv[2], "alive": sys.argv[3] == "0"}) + "\n")
+PY
+    if [ "${FAKE_TOKEN_DEAD:-1}" = 0 ]; then printf 200; else printf 401; fi; exit 0;;
+esac
 case "$url" in *github_known_hosts) src=$FAKE_KH;; *) src=$FAKE_INSTALLER;; esac
 if [ -n "${FAKE_CURL_TAMPER:-}" ]; then echo "echo pwned" >"${out:-/dev/stdout}"; exit 0; fi
 if [ -n "$out" ]; then cat "$src" >"$out"; else cat "$src"; fi
@@ -185,10 +189,12 @@ echo "open $*" >>"$FAKE_STATE/other.log"
 n=$(cat "$FAKE_STATE/open.count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"$FAKE_STATE/open.count"
 [ -n "${FAKE_OPEN_NOADD:-}" ] && exit 0
 [ "$n" -lt "${FAKE_OPEN_ADD_ON:-1}" ] && exit 0
-python3 - "$FAKE_STATE" "${FAKE_OPEN_READONLY:-}" <<'PY'
+python3 - "$FAKE_STATE" "${FAKE_OPEN_READONLY:-}" "${FAKE_OPEN_FOREIGN:-}" <<'PY'
 import json, sys
 S = sys.argv[1]; st = json.load(open(S + "/gh.json")); pub = " ".join(open(S + "/clipboard").read().split()[:2])
-st["next"] += 1; st["keys"].append({"id": st["next"], "key": pub, "title": "eve-web-release-tagger", "read_only": bool(sys.argv[2])}); json.dump(st, open(S + "/gh.json", "w"))
+st["next"] += 1; st["keys"].append({"id": st["next"], "key": pub, "title": "eve-web-release-tagger", "read_only": bool(sys.argv[2])})
+if sys.argv[3]: st["next"] += 1; st["keys"].append({"id": st["next"], "key": "ssh-ed25519 AAAAFOREIGNBLOB", "title": "added-meanwhile", "read_only": False})
+json.dump(st, open(S + "/gh.json", "w"))
 PY
 FAKE
 cat >"$T/bin/id" <<'FAKE'
@@ -255,7 +261,7 @@ eq "sudo got exactly the checked installer text" "$(sha256 "$T/state/sudo.stdin"
 has "sudo invoked as sudo /bin/bash -s" "$(cat "$T/state/other.log")" "sudo /bin/bash -s"
 has "curl pinned https+tls1.2 and the pinned commit" "$(cat "$T/state/other.log")" "--proto =https --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$(sed -n 's/^INSTALL_COMMIT=\([0-9a-f]*\).*/\1/p' "$SCRIPT")/deploy/nopasswd/setup-deploy-nopasswd.sh"
 eq "login args" "$(glog | python3 -c 'import sys,json; [print(" ".join(d["args"])) for d in map(json.loads, sys.stdin) if d["cmd"]=="login"]')" "auth login --web --hostname github.com --git-protocol https --scopes repo --insecure-storage"
-eq "no inherited GH_TOKEN/GITHUB_TOKEN reached gh" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if (d.get("GH_TOKEN") and d.get("GH_TOKEN") != "gho_FAKETOKEN0123456789") or d.get("GITHUB_TOKEN")))')" 0
+eq "no GH_TOKEN/GITHUB_TOKEN (inherited or the login's own) ever reached gh" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("GH_TOKEN") or d.get("GITHUB_TOKEN")))')" 0
 eq "gh used a throwaway config dir under TMPDIR" "$(glog | python3 -c 'import sys,json; print(all(d.get("cfg","").startswith((sys.argv[1]+"/eve-oneshot-gh.", sys.argv[1]+"/eve-oneshot-chk.")) for d in map(json.loads, sys.stdin) if d.get("cfg")))' "$T/tmp")" True
 eq "git config redirected into the throwaway dir" "$(glog | python3 -c 'import sys,json; d=[d for d in map(json.loads, sys.stdin) if d["cmd"]=="login"][0]; print(d["gitcfg"]==d["cfg"]+"/gitconfig")')" True
 eq "logged out with a live login" "$(glog | python3 -c 'import sys,json; print([d["had_login"] for d in map(json.loads, sys.stdin) if d["cmd"]=="logout"])')" "[True]"
@@ -263,7 +269,9 @@ nothing_left && ok || bad "throwaway dir must be deleted on exit"
 has "revoke: link printed" "$OUT" "https://github.com/settings/applications"
 has "revoke: prompt printed" "$OUT" 'Type "revoked"'
 has "revoke: token proven dead" "$OUT" "token is dead (GitHub answered 401)"
-eq "revoke: the token was tested exactly once, from a clean config dir" "$(glog | python3 -c 'import sys,json; print([(d["ep"], d["cfg"].startswith(sys.argv[1]+"/eve-oneshot-chk.")) for d in map(json.loads, sys.stdin) if d["cmd"]=="token-check"])' "$T/tmp")" "[('user', True)]"
+eq "revoke: the token was tested exactly once, via stdin (curl -H @-), and it was the real token" "$(glog | python3 -c 'import sys,json; print([(d["ep"], d["stdin_token_ok"]) for d in map(json.loads, sys.stdin) if d["cmd"]=="token-check"])')" "[('user', 'yes')]"
+hasnt "revoke: the token is not on a curl command line" "$(cat "$T/state/other.log")" "gho_FAKETOKEN"
+has "revoke: curl pinned https+tls1.2 for the proof" "$(grep 'api.github.com' "$T/state/other.log")" "--proto =https --tlsv1.2"
 eq "revoke: token check came after the logout" "$(glog | python3 -c 'import sys,json; c=[d["cmd"] for d in map(json.loads, sys.stdin)]; print(c.index("logout") < c.index("token-check"))')" True
 hasnt "the OAuth token is never printed" "$OUT" "gho_FAKETOKEN"
 hasnt "the OAuth token is never in the temp files left" "$(ls "$T/tmp")" "gho_"
@@ -484,14 +492,16 @@ eq "key: already registered: rc 0" "$RC" 0; [ ! -e "$T/state/open.count" ] && ok
 # ---------------- 8. --only-fix ----------------
 keysum() { HOME_T=$HOME_T FS=$T/state/gh.json python3 -c 'import json,os; st=json.load(open(os.environ["FS"])); pub=" ".join(open(os.environ["HOME_T"]+"/.eve-web-release-tagger/id_ed25519.pub").read().split()[:2]); print([(k["title"],k["read_only"],k["key"]==pub) for k in st["keys"]])'; }
 KFILES() { cksum "$HOME_T/.eve-web-release-tagger/id_ed25519" "$HOME_T/.eve-web-release-tagger/id_ed25519.pub"; stat -c %Y "$HOME_T/.eve-web-release-tagger/id_ed25519" "$HOME_T/.eve-web-release-tagger/id_ed25519.pub" 2>/dev/null || stat -f %m "$HOME_T/.eve-web-release-tagger/id_ed25519" "$HOME_T/.eve-web-release-tagger/id_ed25519.pub"; }
-writes_outside_actions() { glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("method") in ("POST","PUT","DELETE") and not d["ep"].startswith("repos/gun025bba/eve-web/actions/permissions")))'; }
+writes_outside_actions() { glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("method") in ("POST","PUT","DELETE") and not d["ep"].startswith("repos/gun025bba/eve-web/actions/permissions") and not d["ep"].startswith("repos/gun025bba/eve-web/rulesets")))'; }
+others_snap() { state 'sorted((r["name"], json.dumps(r, sort_keys=True)) for r in st["rulesets"] if r["name"] != "release-tags")'; }
+tags_bypass() { state 'sorted((b["actor_type"], b["actor_id"]) for b in [x for x in st["rulesets"] if x["name"]=="release-tags"][0]["bypass_actors"])'; }
 # state after a first run whose Actions settings failed and whose API-created key was deleted by the revocation
 first_run_aftermath() {
   init_state; reset_home; run bash "$SD/mac-oneshot.sh" --skip-install
   mutate 'st["keys"]=[]; st["actions"]["sha_pinning_required"]=False; st["workflow"]={"default_workflow_permissions":"write","can_approve_pull_request_reviews":True}; st["fork"]={"approval_policy":"first_time_contributors"}'
   : >"$T/state/gh.log"; : >"$T/state/other.log"; rm -f "$T/state/open.count" "$T/state/sudo.stdin"
 }
-first_run_aftermath; KB=$(KFILES)
+first_run_aftermath; KB=$(KFILES); OTHERS0=$(others_snap)
 run bash "$SD/mac-oneshot.sh" --only-fix
 eq "only-fix: rc 0" "$RC" 0
 has "only-fix: all checks passed (the whole table is printed)" "$OUT" "ALL CHECKS PASSED"
@@ -500,8 +510,10 @@ eq "only-fix: the key files are untouched (content and mtime)" "$(KFILES)" "$KB"
 hasnt "only-fix: no sudo" "$(cat "$T/state/other.log")" "sudo"
 [ ! -e "$T/state/sudo.stdin" ] && ok || bad "only-fix: no installer"
 eq "only-fix: no key is generated" "$(grep -c 'ssh-keygen -q' "$T/state/other.log" || true)" 0
-eq "only-fix: no write outside the three Actions endpoints" "$(writes_outside_actions)" 0
-eq "only-fix: the three Actions settings were written" "$(glog | python3 -c 'import sys,json; print(sorted(d["ep"].rsplit("eve-web/",1)[1] for d in map(json.loads, sys.stdin) if d.get("method")=="PUT"))')" "['actions/permissions', 'actions/permissions/fork-pr-contributor-approval', 'actions/permissions/workflow']"
+eq "only-fix: no write outside the Actions endpoints and the release-tags ruleset" "$(writes_outside_actions)" 0
+eq "only-fix: the three Actions settings and release-tags were written" "$(glog | python3 -c 'import sys,json,re; print(sorted(re.sub(r"rulesets/[0-9]+", "rulesets/N", d["ep"].rsplit("eve-web/",1)[1]) for d in map(json.loads, sys.stdin) if d.get("method")=="PUT"))')" "['actions/permissions', 'actions/permissions/fork-pr-contributor-approval', 'actions/permissions/workflow', 'rulesets/N']"
+eq "only-fix: release-tags keeps the DeployKey bypass (our key is registered)" "$(tags_bypass)" "[('DeployKey', None), ('RepositoryRole', 5)]"
+eq "only-fix: main-protect and release-tags-lock are not rewritten" "$(others_snap)" "$OTHERS0"
 eq "only-fix: SHA pinning" "$(state '(st["actions"]["sha_pinning_required"], st["actions"]["allowed_actions"])')" "(True, 'all')"
 eq "only-fix: workflow perms" "$(state '(st["workflow"]["default_workflow_permissions"], st["workflow"]["can_approve_pull_request_reviews"])')" "('read', False)"
 eq "only-fix: fork approval" "$(state 'st["fork"]["approval_policy"]')" all_external_contributors
@@ -564,8 +576,89 @@ run bash "$SD/mac-oneshot.sh" --only-fix --skip-github; eq "only-fix + skip-gith
 init_state; reset_home; rm -f "$T/state/gh.log" "$T/state/other.log"
 run bash "$SD/mac-oneshot.sh" --only-fix --dry-run
 eq "only-fix dry-run rc" "$RC" 0; has "only-fix dry-run mentions the mode" "$OUT" "ONLY-FIX"; has "only-fix dry-run lists the Actions calls" "$OUT" "DRY-RUN PUT repos/gun025bba/eve-web/actions/permissions/fork-pr-contributor-approval"
-hasnt "only-fix dry-run does not mention rulesets calls" "$OUT" "create-or-update ruleset"
+has "only-fix dry-run: only release-tags among the rulesets" "$(printf '%s\n' "$OUT" | grep -c "ruleset '")" "1"
+has "only-fix dry-run: it is release-tags" "$OUT" "ruleset 'release-tags'"
+has "only-fix dry-run: M-1b re-check is announced" "$OUT" "M-1b"
 [ ! -e "$T/state/gh.log" ] && [ ! -e "$T/state/other.log" ] && [ ! -e "$HOME_T/.eve-web-release-tagger" ] && ok || bad "only-fix dry-run: no tool call, no key dir"
+
+# ---------------- 9. security review of #110 ----------------
+# M-1b: a foreign write key that shows up while the owner adds ours (after the first preflight) aborts BEFORE any ruleset is touched
+init_state; reset_home; printf 'added\nrevoked\n' >"$T/tty.m1b"
+run env FAKE_OPEN_FOREIGN=1 ONESHOT_TTY="$T/tty.m1b" bash "$SD/mac-oneshot.sh" --skip-install
+eq "M-1b: a foreign write key that appears during 3b aborts: rc 1" "$RC" 1
+has "M-1b: names the foreign key" "$OUT" "FOREIGN WRITE deploy key: id 1002, title 'added-meanwhile'"
+has "M-1b: says no ruleset was changed" "$OUT" "NO ruleset change"
+eq "M-1b: no ruleset was created or changed" "$(state '[r["name"] for r in st["rulesets"]]')" "['main-protect']"
+eq "M-1b: no write call at all" "$(nwrites)" 0
+eq "M-1b: the re-check came after the key was registered (key listings: preflight, two in 3b, the strict re-check)" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("cmd")=="api" and d["ep"].endswith("/keys")))')" 4
+has "M-1b: the login is still revoked" "$OUT" "token is dead"
+nothing_left && ok || bad "M-1b: no temp dir left"
+first_run_aftermath; printf 'added\nrevoked\n' >"$T/tty.m1b"; : >"$T/state/gh.log"
+run env FAKE_OPEN_FOREIGN=1 ONESHOT_TTY="$T/tty.m1b" bash "$SD/mac-oneshot.sh" --only-fix
+eq "M-1b in --only-fix: rc 1" "$RC" 1; has "M-1b in --only-fix: message" "$OUT" "NO ruleset change"
+eq "M-1b in --only-fix: no write call (no ruleset, no Actions setting)" "$(nwrites)" 0
+# a write key with OUR title but another public key is also foreign in the strict re-check (it is deleted in 3b first, so the run goes on)
+# our key not registered at all (never added): release-tags is applied WITHOUT the DeployKey bypass
+init_state; reset_home; printf 'added\nadded\nadded\nrevoked\n' >"$T/tty.three"
+run env FAKE_OPEN_NOADD=1 ONESHOT_TTY="$T/tty.three" bash "$SD/mac-oneshot.sh" --skip-install
+eq "MANUAL_KEY: release-tags has the admin bypass ONLY" "$(tags_bypass)" "[('RepositoryRole', 5)]"
+has "MANUAL_KEY: says so" "$OUT" "WITHOUT the DeployKey bypass"
+has "MANUAL_KEY: the table checks release-tags against the no-key shape" "$OUT" "PASS  ruleset release-tags: tag active refs/tags/v* creation bypass=RepositoryRole:5:always"
+eq "MANUAL_KEY: the other rulesets are as always" "$(state 'sorted(r["name"] for r in st["rulesets"])')" "['main-protect', 'release-tags', 'release-tags-lock']"
+# --only-fix with no key: tightens release-tags; a later successful --only-fix puts the DeployKey bypass back
+first_run_aftermath; printf 'added\nadded\nadded\nrevoked\n' >"$T/tty.three"
+run env FAKE_OPEN_NOADD=1 ONESHOT_TTY="$T/tty.three" bash "$SD/mac-oneshot.sh" --only-fix
+eq "MANUAL_KEY in --only-fix: release-tags tightened to admin only" "$(tags_bypass)" "[('RepositoryRole', 5)]"
+run bash "$SD/mac-oneshot.sh" --only-fix
+eq "then a successful --only-fix: rc 0" "$RC" 0
+eq "then a successful --only-fix: the DeployKey bypass is back" "$(tags_bypass)" "[('DeployKey', None), ('RepositoryRole', 5)]"
+
+# N-1: no xtrace / debug leak; the exact token value is masked in error text
+init_state; reset_home
+run env SHELLOPTS=xtrace GH_DEBUG=api DEBUG=1 FAKE_TOKEN=opaque-OAUTHTOKEN-9f8e7d bash "$SD/mac-oneshot.sh" --skip-install
+eq "N-1: SHELLOPTS=xtrace GH_DEBUG DEBUG in the environment: rc 0" "$RC" 0
+hasnt "N-1: the token never reaches stderr/stdout under SHELLOPTS=xtrace" "$OUT" "opaque-OAUTHTOKEN"
+hasnt "N-1: ... nor the temp files" "$(ls "$T/tmp" 2>/dev/null; cat "$T/state/other.log")" "opaque-OAUTHTOKEN"
+eq "N-1: gh never saw GH_DEBUG, DEBUG or SHELLOPTS" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("GH_DEBUG") or d.get("DEBUG") or d.get("SHELLOPTS")))')" 0
+eq "N-1: the revocation proof used the real token" "$(glog | python3 -c 'import sys,json; print([d["stdin_token_ok"] for d in map(json.loads, sys.stdin) if d["cmd"]=="token-check"])')" "['yes']"
+first_run_aftermath; mutate 'st["actions_put_fail"]=True'
+run env FAKE_TOKEN=opaque-OAUTHTOKEN-9f8e7d bash "$SD/mac-oneshot.sh" --only-fix
+has "N-1: an API error that contains the token prints [redacted]" "$OUT" "API ERROR: PUT repos/gun025bba/eve-web/actions/permissions -> gh: Forbidden (HTTP 403) token [redacted] [redacted] [redacted]"
+hasnt "N-1: the literal token value (any format) is masked" "$OUT" "opaque-OAUTHTOKEN"
+grep -q 'set +x' "$SCRIPT" && [ "$(grep -n 'set +x' "$SCRIPT" | head -1 | cut -d: -f1)" -lt "$(grep -n '^set -euo pipefail' "$SCRIPT" | head -1 | cut -d: -f1)" ] && ok || bad "N-1: set +x comes before set -euo pipefail"
+
+# N-2: the token cannot be read: the revoke instructions are still shown
+init_state; reset_home
+run env FAKE_TOKEN_UNREADABLE=1 bash "$SD/mac-oneshot.sh" --skip-install
+eq "N-2: unreadable token: rc 1" "$RC" 1; has "N-2: says why" "$OUT" "cannot read the token"
+has "N-2: the revoke link is shown" "$OUT" "https://github.com/settings/applications"
+has "N-2: the revoke prompt is shown" "$OUT" 'Type "revoked"'
+has "N-2: the revocation is reported as unproven" "$OUT" "http=unproven"
+eq "N-2: no token check was attempted" "$(glog | grep -c token-check || true)" 0
+eq "N-2: nothing was changed on GitHub" "$(nwrites)" 0
+nothing_left && ok || bad "N-2: no temp dir left"
+# a login that never happened does NOT ask to revoke anything
+init_state; reset_home; run env FAKE_LOGIN_FAIL=1 bash "$SD/mac-oneshot.sh" --skip-install
+hasnt "N-2: failed login: no revoke prompt" "$OUT" 'Type "revoked"'
+
+# N-3: .pub must match the private key (full run, existing key)
+init_state; reset_home; run bash "$SD/mac-oneshot.sh" --skip-install
+echo "ssh-ed25519 AAAAOTHERKEYBLOB eve-web-release-tagger" >"$HOME_T/.eve-web-release-tagger/id_ed25519.pub"; : >"$T/state/gh.log"
+run bash "$SD/mac-oneshot.sh" --skip-install
+eq "N-3: a .pub that is not the public key of the private key: rc 1" "$RC" 1; has "N-3: message" "$OUT" "is not the public key of"
+eq "N-3: refused before any GitHub call" "$(glog | grep -c . || true)" 0
+eq "N-3: the .pub was not rewritten" "$(cut -d' ' -f2 <"$HOME_T/.eve-web-release-tagger/id_ed25519.pub")" AAAAOTHERKEYBLOB
+
+# N-4: main-protect's bypass_actors and integration_id are verified
+first_run_aftermath; mutate "[r for r in st['rulesets'] if r['name']=='main-protect'][0]['bypass_actors']=[{'actor_id':5,'actor_type':'RepositoryRole','bypass_mode':'always'}]"
+run bash "$SD/mac-oneshot.sh" --only-fix
+eq "N-4: a bypass actor on main-protect: rc 1" "$RC" 1; has "N-4: FAIL row names the bypass" "$OUT" "FAIL  ruleset main-protect"; has "N-4: shows RepositoryRole:5:always" "$OUT" "bypass=RepositoryRole:5:always"
+first_run_aftermath; mutate "[r for r in st['rulesets'] if r['name']=='main-protect'][0]['rules'][-1]['parameters']['required_status_checks'][0]['integration_id']=1"
+run bash "$SD/mac-oneshot.sh" --only-fix
+eq "N-4: a wrong integration_id on main-protect: rc 1" "$RC" 1; has "N-4: FAIL row shows the id" "$OUT" "integration=1 "
+first_run_aftermath; mutate "[r for r in st['rulesets'] if r['name']=='main-protect'][0]['rules'][-1]['parameters']['required_status_checks'][0].pop('integration_id')"
+run bash "$SD/mac-oneshot.sh" --only-fix
+eq "N-4: a missing integration_id (any app may satisfy the check): rc 1" "$RC" 1; has "N-4: FAIL row" "$OUT" "FAIL  ruleset main-protect"
 
 # ---------------- 6. bash 3.2 (when the box has one) ----------------
 # README: the clone-free one-liner pins the sha256 of THIS script and a full commit

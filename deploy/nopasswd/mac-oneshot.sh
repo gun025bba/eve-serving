@@ -7,9 +7,9 @@
 #   --dry-run       prints every step and every GitHub API call it WOULD make; changes nothing, asks nothing, needs no login, no sudo, no network
 #   --skip-install  skip step 1;   --skip-github  skip the GitHub steps (login, eve-web settings, deploy-key registration, ssh test, verify)
 #   --only-fix      the repair run after a first run whose verify table had FAIL rows: NO sudo install, the key under ~/.eve-web-release-tagger is only READ (never created, changed or chmod-ed),
-#                   the rulesets, environment `deploy` and immutable releases are NOT re-applied (they are only read back); it logs in again (temporary), checks for foreign write deploy keys (M-1),
-#                   gets the existing public key registered as the write deploy key (step 3b), applies the three Actions settings, runs ssh -T, logs out, makes you revoke the token (401 proof)
-#                   and prints the whole verify table.
+#                   environment `deploy`, `release-tags-lock`, `main-protect` and immutable releases are NOT re-applied (they are only read back); it logs in again (temporary), checks for foreign write deploy keys (M-1),
+#                   gets the existing public key registered as the write deploy key (step 3b), checks for foreign write keys AGAIN (M-1b), re-applies ONLY `release-tags` (its DeployKey bypass depends on
+#                   whether our key is registered), applies the three Actions settings, runs ssh -T, logs out, makes you revoke the token (401 proof) and prints the whole verify table.
 #
 # What it does, in this order (the only things you type: your sudo password once, the GitHub login in the browser, and "revoked" at the end):
 #   0. KEY, local, FIRST: generates ~/.eve-web-release-tagger/id_ed25519 (ed25519, no passphrase, dir 0700, key 0600) unless it exists (an existing key is kept, but only if it and its dir are
@@ -22,7 +22,9 @@
 #      PREFLIGHT (read-only, before ANY change): lists the deploy keys of eve-web; if a WRITE key other than ours (same public key or same title eve-web-release-tagger) exists, it aborts with no
 #      change at all, because the DeployKey bypass below applies to EVERY write deploy key of the repository.
 #      Then gets our public key registered as a WRITE deploy key `eve-web-release-tagger` (a stale key with our title, or a read-only copy of our key, is replaced; the new key is added by you in the
-#      BROWSER, see 3b: a deploy key created through the API with this OAuth token is DELETED by GitHub when the token is revoked at the end), and then, idempotently
+#      BROWSER, see 3b: a deploy key created through the API with this OAuth token is DELETED by GitHub when the token is revoked at the end). M-1b: right after you added it the
+#      deploy keys are read AGAIN and any write key other than this public key aborts the run before a ruleset is touched. If our key is NOT registered, `release-tags` is applied
+#      WITHOUT the DeployKey bypass (admin bypass only). Then, idempotently
 #      (create or update; safe to re-run), on gun025bba/eve-web:
 #        - ruleset `release-tags` on refs/tags/v*: only CREATING a v* tag is blocked, with bypass = repository admin role + the DeployKey actor (any write deploy key, see above)
 #        - ruleset `release-tags-lock` on refs/tags/v*: update/delete/non-fast-forward blocked; bypass = repository admin role ONLY (the deploy key can create a tag, never move or delete one)
@@ -34,13 +36,17 @@
 #   4. VERIFY: reads every setting back and prints a PASS/FAIL table. Exit status is non-zero if anything is not as intended.
 #   5. REVOKE: `gh auth logout` only deletes the LOCAL copy of the OAuth token; GitHub keeps honouring it. So the script logs out, deletes the throwaway dir, prints
 #      https://github.com/settings/applications (Authorized OAuth Apps, "GitHub CLI", Revoke), waits for you to type "revoked", and then PROVES the token is dead by calling `gh api user`
-#      with it and expecting HTTP 401 (a FAIL row and a non-zero exit otherwise). This also runs when the script stops early (error, Ctrl-C) once a login exists.
+#      with it (sent to curl through stdin, never in the environment or on a command line) and expecting HTTP 401 (a FAIL row and a non-zero exit otherwise). The revoke instructions are shown
+#      even if the token could not be read (the revocation is then reported as unproven). This also runs when the script stops early (error, Ctrl-C) once a login exists.
 #      Not covered: SIGKILL (kill -9) or a power loss cannot run any cleanup: the throwaway dir under $TMPDIR (eve-oneshot-gh.*, mode 0700) then stays with the token inside. Delete it by hand
 #      and revoke the authorization at the link above.
 #
 # Bash 3.2 / BSD tools compatible. Needs: curl, shasum, sudo, git >= 2.32, gh, ssh, ssh-keygen. It uses `gh api --jq` only (no jq needed).
-# Meant to be read before it is run: every pin is a constant right below. No secret is ever printed or logged.
+# Meant to be read before it is run: every pin is a constant right below. No secret is ever printed or logged (xtrace, SHELLOPTS, GH_DEBUG and DEBUG are switched off first; error text is masked).
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
+# N-1: the very first commands. An xtrace inherited from the caller (the x option, SHELLOPTS=xtrace, BASH_XTRACEFD) would print every command with the OAuth token to stderr, and GH_DEBUG / DEBUG make gh
+# log requests: switch all of it off before anything else runs. SHELLOPTS is read-only inside bash, so it is only removed from the environment of the children.
+set +x +v; unset BASH_XTRACEFD GH_DEBUG DEBUG 2>/dev/null || true; export -n SHELLOPTS 2>/dev/null || true; unset SHELLOPTS 2>/dev/null || true
 set -euo pipefail
 
 # ---------- pins and constants (the tests check these against the files in the repository) ----------
@@ -65,7 +71,7 @@ ACTIONS_URL=https://github.com/$WEB_REPO/settings/actions
 
 DRY=0; DO_INSTALL=1; DO_GITHUB=1; ONLY_FIX=0; MANUAL_ACTIONS=0; MANUAL_KEY=0; TTY_FD=0
 HERE=$(cd "$(dirname "$0")" && pwd)
-GHDIR=""; FAILS=0; TOKEN=""; REVOKE_DONE=0; REVOKE_RESULT="not run"; KHDIR=""; KH=$HERE/github_known_hosts
+GHDIR=""; FAILS=0; TOKEN=""; LOGIN_OK=0; REVOKE_DONE=0; REVOKE_RESULT="not run"; KHDIR=""; KH=$HERE/github_known_hosts
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -113,7 +119,7 @@ ask_word() { # PROMPT WORD: 0 once the owner typed WORD (3 tries); 1 on a wrong 
   return 1
 }
 revoke_flow() { # the OAuth token is still valid on GitHub's side after `gh auth logout`: the owner revokes it, then we PROVE it is dead (401)
-  local confirmed=no code=other out tmp
+  local confirmed=no code=other out
   REVOKE_DONE=1
   printf '\n== 5. revoke the GitHub CLI authorization (gh auth logout only deleted the LOCAL copy of the token)\n'
   printf '   Open https://github.com/settings/applications -> "Authorized OAuth Apps" -> "GitHub CLI" -> Revoke.\n'
@@ -121,10 +127,15 @@ revoke_flow() { # the OAuth token is still valid on GitHub's side after `gh auth
     if ask_word '   Type "revoked" and press Enter once you have revoked it: ' revoked; then confirmed=yes; fi
     tty_close
   else printf '   (no terminal to ask on: not confirmed)\n'; fi
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/eve-oneshot-chk.XXXXXX") || tmp=""
-  if out=$(GH_CONFIG_DIR=${tmp:-/nonexistent} GH_TOKEN=$TOKEN GH_PROMPT_DISABLED=1 gh api -i user 2>&1); then code=200
-  else case "$out" in *"HTTP/"*" 401"*|*"(HTTP 401)"*) code=401;; *) code=other;; esac; fi
-  [ -z "$tmp" ] || rm -rf "$tmp"
+  if [ -z "$TOKEN" ]; then
+    code=unproven
+    printf '   (the token of this login could not be read, so its revocation cannot be proven here: check the list at that link by hand)\n'
+  else
+    # N-3: the token goes to curl through stdin (-H @-), never through the environment or a command line (printf is a builtin: nothing shows in ps)
+    if out=$(printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -sS -o /dev/null -w '%{http_code}' -m 30 --proto '=https' --tlsv1.2 -H @- -H 'Accept: application/vnd.github+json' -H "X-GitHub-Api-Version: $API_VERSION" https://api.github.com/user 2>/dev/null); then
+      case "$out" in 401) code=401;; 200) code=200;; *) code=other;; esac
+    else code=other; fi
+  fi
   TOKEN=""
   REVOKE_RESULT="confirmed=$confirmed http=$code"
   if [ "$confirmed" = yes ] && [ "$code" = 401 ]; then say "   token is dead (GitHub answered 401): OK"
@@ -138,7 +149,7 @@ teardown() { # idempotent: logout + delete the throwaway dir, then the revoke fl
     rm -rf "$GHDIR"
   fi
   GHDIR=""
-  if [ -n "$TOKEN" ] && [ "$REVOKE_DONE" = 0 ]; then revoke_flow; fi
+  if { [ -n "$TOKEN" ] || [ "$LOGIN_OK" = 1 ]; } && [ "$REVOKE_DONE" = 0 ]; then revoke_flow; fi   # N-2: also when the token could not be read
 }
 cleanup() {
   local rc=$?
@@ -155,7 +166,11 @@ trap 'exit 130' INT TERM HUP
 
 # ---------- GitHub API helpers (used only with the throwaway login) ----------
 ghq() { gh api -H "X-GitHub-Api-Version: $API_VERSION" "$@"; }
-redact() { sed -E 's/(gh[pousr]_|github_pa[t]_)[A-Za-z0-9_]+/[redacted]/g'; }
+redact() { # N-1: the exact value of this login's token is replaced first (whatever its format), then anything that looks like a GitHub token
+  local t; t=$(cat; printf x); t=${t%x}
+  if [ -n "$TOKEN" ]; then t=${t//"$TOKEN"/[redacted]}; fi
+  printf '%s' "$t" | sed -E 's/(gh[pousr]_|github_pa[t]_)[A-Za-z0-9_]+/[redacted]/g'
+}
 errline() { head -c 300 | tr '\n' ' ' | redact; }   # the first part of gh's error text (HTTP status and GitHub's message), never a token
 # write: METHOD ENDPOINT [JSON]; the JSON body goes through stdin (never on a command line). On failure the error text is PRINTED (it used to be swallowed); the call is
 # retried once with API_VERSION_ALT unless it is a POST (not idempotent)
@@ -199,6 +214,7 @@ upsert_ruleset() { # NAME JSON
 }
 
 RULESET_TAGS='{"name":"release-tags","target":"tag","enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"},{"actor_id":null,"actor_type":"DeployKey","bypass_mode":"always"}],"rules":[{"type":"creation"}]}'
+RULESET_TAGS_NOKEY='{"name":"release-tags","target":"tag","enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"rules":[{"type":"creation"}]}'   # admin bypass ONLY (used while our key is not registered)
 RULESET_LOCK='{"name":"release-tags-lock","target":"tag","enforcement":"active","conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},"bypass_actors":[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}],"rules":[{"type":"update"},{"type":"deletion"},{"type":"non_fast_forward"}]}'
 RULESET_MAIN='{"name":"main-protect","target":"branch","enforcement":"active","conditions":{"ref_name":{"include":["~DEFAULT_BRANCH"],"exclude":[]}},"bypass_actors":[],"rules":[{"type":"deletion"},{"type":"non_fast_forward"},{"type":"required_linear_history"},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"do_not_enforce_on_create":false,"required_status_checks":[{"context":"test","integration_id":'"$ACTIONS_APP_ID"'}]}}]}'
 ENV_BODY='{"can_admins_bypass":false,"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
@@ -250,7 +266,7 @@ step_login() {
     say "  DRY-RUN require: gh api user -> login == $GH_USER and admin on $WEB_REPO; on exit: gh auth logout + rm -rf the temp dir"
     return 0
   fi
-  need gh git
+  need gh git curl
   git_ok || die "git >= 2.32 is required"
   GHDIR=$(mktemp -d "${TMPDIR:-/tmp}/eve-oneshot-gh.XXXXXX") || die "cannot create the temp dir"
   chmod 700 "$GHDIR"
@@ -258,6 +274,7 @@ step_login() {
   unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_HOST
   say "  log in as $GH_USER in the browser window that opens (the one-time code is shown below)"
   gh auth login --web --hostname github.com --git-protocol https --scopes repo --insecure-storage || die "gh login failed"
+  LOGIN_OK=1   # from here on the owner is always told to revoke, even if the token cannot be read below
   TOKEN=$(gh auth token --hostname github.com 2>/dev/null) || TOKEN=""   # kept in memory only, to prove its revocation at the end
   [ -n "$TOKEN" ] || die "cannot read the token of this login (needed to prove its revocation at the end)"
   who=$(ghq user --jq .login) || die "cannot read the logged-in user"
@@ -267,22 +284,28 @@ step_login() {
   say "  logged in as $who, admin of $WEB_REPO"
 }
 
-preflight_keys() { # READ-ONLY, before any change: a write deploy key other than ours would inherit the DeployKey bypass
-  local type blob pub rows id rk title key foreign=0
-  if [ "$DRY" = 1 ]; then say "  DRY-RUN list deploy keys of $WEB_REPO; abort with no change if a write key other than ours exists"; return 0; fi
+preflight_keys() { # READ-ONLY. A write deploy key other than ours would inherit the DeployKey bypass. Before step 3b ("loose"): ours = this public key OR this title (3b replaces a stale one).
+  # M-1b, again right after 3b ("strict"): the owner has just pasted a key in the browser, so ours = exactly this public key; ANY other write key aborts the run before a ruleset is touched.
+  local mode=${1-loose} chg=change type blob pub rows id rk title key foreign=0
+  if [ "$mode" = strict ]; then chg="ruleset change (the keys are registered, the run stops before any ruleset)"; fi
+  if [ "$DRY" = 1 ]; then
+    if [ "$mode" = strict ]; then say "  DRY-RUN M-1b: list the deploy keys again after 3b; abort if ANY write key other than this public key exists (no ruleset is changed then)"
+    else say "  DRY-RUN list deploy keys of $WEB_REPO; abort with no change if a write key other than ours exists"; fi
+    return 0
+  fi
   read -r type blob _ <"$KEY.pub"
   pub="$type $blob"
   rows=$(ghq "repos/$WEB_REPO/keys?per_page=100" --jq '.[] | "\(.id)\t\(.read_only)\t\(.title)\t\(.key)"') || die "cannot list the deploy keys of $WEB_REPO: aborting (nothing was changed)"
   while IFS=$'\t' read -r id rk title key; do
     [ -n "${id:-}" ] || continue
-    if [ "$rk" = false ] && [ "$key" != "$pub" ] && [ "$title" != "$KEY_TITLE" ]; then
+    if [ "$rk" = false ] && [ "$key" != "$pub" ] && { [ "$mode" = strict ] || [ "$title" != "$KEY_TITLE" ]; }; then
       foreign=$((foreign + 1)); say "  FOREIGN WRITE deploy key: id $id, title '$title'"
     fi
   done <<EOF2
 $rows
 EOF2
-  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than $KEY_TITLE exist on $WEB_REPO: the DeployKey bypass would apply to them too. Aborting with NO change; delete them in the repository settings (Deploy keys) or make them read-only, then re-run"
-  say "  preflight OK: no write deploy key other than ours"
+  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than $KEY_TITLE exist on $WEB_REPO: the DeployKey bypass would apply to them too. Aborting with NO $chg; delete them in the repository settings (Deploy keys) or make them read-only, then re-run"
+  say "  preflight OK ($mode): no write deploy key other than ours"
 }
 
 sync_env_policies() { # exactly one deployment policy: tag v*
@@ -300,10 +323,17 @@ EOF2
   if [ "$nt" = 0 ]; then gw POST "repos/$WEB_REPO/environments/deploy/deployment-branch-policies" '{"name":"v*","type":"tag"}'; fi
 }
 
+upsert_tags() { # release-tags: the DeployKey bypass only if our key IS registered (MANUAL_KEY=0); otherwise admin bypass only, so no key can create a v* tag
+  if [ "$MANUAL_KEY" = 1 ]; then
+    say "  release-tags: our key is NOT registered: applying it WITHOUT the DeployKey bypass (admin bypass only)"
+    upsert_ruleset release-tags "$RULESET_TAGS_NOKEY"
+  else upsert_ruleset release-tags "$RULESET_TAGS"; fi
+}
+
 step_settings() {
   step "2b. settings on $WEB_REPO (idempotent)"
   local cur
-  upsert_ruleset release-tags "$RULESET_TAGS"
+  upsert_tags
   upsert_ruleset release-tags-lock "$RULESET_LOCK"
   upsert_ruleset main-protect "$RULESET_MAIN"
   say "  environment deploy: v* tags only, admins cannot bypass"
@@ -334,6 +364,7 @@ step_actions() { # the three repository Actions settings; a failing call does no
 
 # ---------- step 3: the web tag key ----------
 step_keygen() {
+  local pt pb kt kb
   step "3a. web release-tag key $KEY"
   if [ "$DRY" = 1 ]; then
     say "  DRY-RUN mkdir 0700 $KEY_DIR; ssh-keygen -q -t ed25519 -N '' -C $KEY_TITLE -f $KEY (only if it does not exist); chmod 0600 the key"
@@ -350,6 +381,10 @@ step_keygen() {
     [ "$(owner_of "$KEY")" = "$(id -u)" ] || die "$KEY is not owned by you: refusing to reuse it"
     chmod 600 "$KEY"
     ssh-keygen -y -P '' -f "$KEY" >"$KEY_DIR/.pub.check" 2>/dev/null </dev/null || { rm -f "$KEY_DIR/.pub.check"; die "existing $KEY is not a readable key without passphrase: refusing to touch it"; }
+    if [ -f "$KEY.pub" ]; then   # N-3: the public key that gets registered must be the one of THIS private key
+      read -r pt pb _ <"$KEY.pub"; read -r kt kb _ <"$KEY_DIR/.pub.check"
+      [ "$kt $kb" = "$pt $pb" ] || { rm -f "$KEY_DIR/.pub.check"; die "$KEY.pub is not the public key of $KEY: refusing to register it (delete the .pub or fix it by hand)"; }
+    fi
     rm -f "$KEY_DIR/.pub.check"
     say "  key already exists: kept"
   else
@@ -443,16 +478,17 @@ rs_id() { gr "repos/$WEB_REPO/rulesets?per_page=100" ".[] | select(.name==\"$1\"
 
 verify() {
   step "4. verify (read back from GitHub)"
-  local id g hello fp type blob
+  local id g hello fp type blob want
   id=$(rs_id release-tags)
   g=$(gr "repos/$WEB_REPO/rulesets/$id" '"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[].type]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"')
-  chk "ruleset release-tags" "tag active refs/tags/v* creation bypass=DeployKey:null:always,RepositoryRole:5:always" "$g"
+  if [ "$MANUAL_KEY" = 1 ]; then want="tag active refs/tags/v* creation bypass=RepositoryRole:5:always"; else want="tag active refs/tags/v* creation bypass=DeployKey:null:always,RepositoryRole:5:always"; fi   # no key registered: no DeployKey bypass
+  chk "ruleset release-tags" "$want" "$g"
   id=$(rs_id release-tags-lock)
   g=$(gr "repos/$WEB_REPO/rulesets/$id" '"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[].type]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"')
   chk "ruleset release-tags-lock" "tag active refs/tags/v* deletion,non_fast_forward,update bypass=RepositoryRole:5:always" "$g"
   id=$(rs_id main-protect)
-  g=$(gr "repos/$WEB_REPO/rulesets/$id" '"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[].type]|sort|join(",")) strict=\(first(.rules[]|select(.type=="required_status_checks")|.parameters.strict_required_status_checks_policy)) checks=\([.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context]|sort|join(","))"')
-  chk "ruleset main-protect" "branch active ~DEFAULT_BRANCH deletion,non_fast_forward,required_linear_history,required_status_checks strict=true checks=test" "$g"
+  g=$(gr "repos/$WEB_REPO/rulesets/$id" '"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[].type]|sort|join(",")) strict=\(first(.rules[]|select(.type=="required_status_checks")|.parameters.strict_required_status_checks_policy)) checks=\([.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[].context]|sort|join(",")) integration=\([.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks[]|.integration_id|tostring]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"')
+  chk "ruleset main-protect" "branch active ~DEFAULT_BRANCH deletion,non_fast_forward,required_linear_history,required_status_checks strict=true checks=test integration=$ACTIONS_APP_ID bypass=" "$g"
   g=$(gr "repos/$WEB_REPO/environments/deploy" '"admins_bypass=\(.can_admins_bypass) custom_policies=\(.deployment_branch_policy.custom_branch_policies) protected_branches=\(.deployment_branch_policy.protected_branches)"')
   chk "environment deploy" "admins_bypass=false custom_policies=true protected_branches=false" "$g"
   g=$(gr "repos/$WEB_REPO/environments/deploy/deployment-branch-policies?per_page=100" '[.branch_policies[]|"\(.type):\(.name)"]|sort|join(",")')
@@ -504,8 +540,11 @@ main() {
     step "2a'. preflight: deploy keys of $WEB_REPO (read-only)"
     preflight_keys
     step_register
+    step "3b'. re-check right after the key was added (M-1b): deploy keys of $WEB_REPO (read-only)"
+    preflight_keys strict
     if [ "$ONLY_FIX" = 1 ]; then
-      step "2b. Actions settings on $WEB_REPO (the only settings written by --only-fix)"
+      step "2b. release-tags (its DeployKey bypass depends on 3b) and the Actions settings on $WEB_REPO (the only settings written by --only-fix)"
+      upsert_tags
       step_actions
     else
       step_settings
