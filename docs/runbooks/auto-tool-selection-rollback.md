@@ -13,8 +13,11 @@ paths below are examples.
 3. **Old config keys removed**: `web.default_mode: force` must be deleted (6.0.0 refuses to load a config that has it). `web.max_searches` above 2 is
    capped at 2. Set `tools.pim_window_start` to the time 5.1.0 went live (empty means "earliest", which is safe but makes more requests search-free)
    and, after the first 6.0.0 start, `tools.pim_window_end` to that start time.
-4. **Kill switch file** `tools-killswitch.yaml` (same directory as the other gateway files, 0600, owned by the gateway account) may exist from the start. Check any
-   candidate first: `eve-gw killswitch-check <file>` (exit 0 = valid; 3 = valid here but a 5.x build would reject it; 1 = invalid).
+4. **Kill switch file `tools-killswitch.yaml` is REQUIRED before 6.0.0 starts** (`tools_killswitch_file` / `GW_TOOLS_KILLSWITCH_FILE`, same directory as the other
+   gateway files, 0600, owned by the gateway account). Without the setting, or with a file that does not exist at start-up, automatic web tool selection stays
+   off (fail closed; the log says `web_auto_select_off reason=no_killswitch_file`) because there would be no 5 s off switch. Create the file first (an empty
+   `disabled: []` is valid), check it with `eve-gw killswitch-check <file>` (exit 0 = valid; 3 = valid here but a 5.x build would reject it; 1 = invalid).
+   A config that still has `web.default_mode: off` is read as `auto_select_off` (delete the key to turn the tools on); `force` refuses to load.
 5. **Start the new binary** with `auto_select_off: true` in the kill switch file if you want it dark first; remove that key to enable.
 6. **Enable gate (first week, every day):** automatic search rate, `echo_rejected`, `injection_suspect` and `approve_refused` audit events, budget use,
    `llm_pim_window_assumed_total`. **If more than 10% of normal queries are rejected by the echo filter, do not enable (or set `auto_select_off`) and tell the PM.**

@@ -52,8 +52,12 @@
   characters. **Every rejection returns the same model-facing message and `error_code: query_rejected`** (no rule id, word or count); rule ids stay in the audit
   event only. Rule (c) (M-i): inside an accepted user word plus tail, a protected word that starts in the user's word and ends after it is rejected
   (`나` + `나비`). A closed list of Korean function-word suffixes (`가`, `는`, `에서` ... in `functionTails`) attached to a user word is not new text
-  for the tail overlap checks. Measured on the committed synthetic corpus: `echo_normal_queries_results.txt`. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
+  for the tail overlap checks. Stem variants (N-1): the content tokens of P also count with their last one or two runes cut (stem of two runes or
+  more, not a stopword), so `아하윤`, `가나비`, `선물과하윤`, `하 윤` are rejected when memory says `하윤이다` / `나비랑`. Measured on the committed synthetic corpus: `echo_normal_queries_results.txt`. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
 - **Freshness:** a time-sensitive question where no tool was called now ends as `fresh: "unverified"` (also stored in `messages.metadata`).
+- **Kill switch file is required for automatic tools:** without `tools_killswitch_file`, or with no file at start-up, automatic selection stays off
+  (fail closed). `web.default_mode: off` is read as `web.auto_select_off` (an old deployment that had the web tools off keeps them off; delete the key to
+  turn them on). **`web.enabled` now defaults to `true`: every deployment that did not set it gets automatic web tools after the upgrade.**
 - **Config:** `web.enabled` defaults to `true`; `web.default_mode: force` is removed (a config that still sets it fails to load: delete the key);
   `web.max_searches` is capped at 2; new `web.args_retention_days` (default 90, stored args are cleared after that), `tools.log_hmac_key_file`
   (`GW_TOOLS_LOG_HMAC_KEY_FILE`, REQUIRED: without a usable key automatic selection is off and web calls are denied `no_hmac_key`), `tools.v4_mode`
