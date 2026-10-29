@@ -286,9 +286,35 @@
 
 ## Model proposals and approve (PR 1)
 
-- While `memory.enabled` (server) is on, the web tool loop (`web_search: auto`)
-  exposes `memory_propose` (`op` add|forget). Non-web chat has no tool loop,
-  so the tool is not offered there.
+- While `memory.enabled` (server) is on and the user's memory is active (`memory.enabled`
+  and the intro seen), `memory_propose` (`op` add|forget) is offered on every chat
+  request, with web search on or off (and with `GW_WEB_ENABLED=false`). With web off it
+  is the only tool: a web tool call (any spelling, native or textual `<tool_call>`) is
+  refused with `tool_unavailable` and never executed. With web off and `stream: true`
+  every round is streamed to the client as it is generated; the gateway buffers only
+  when the model starts a tool call (native `tool_calls` deltas, or the text from a
+  textual `<tool_call>`), so streaming is not held back by tool handling. Measured first token with memory on is about 1.15s versus 0.18s with memory off (a flat difference). A textual
+  call that does not parse is shown as the text it is.
+- **No server-side history, no proposal from untrusted history (fail-closed).** A request
+  without a stored thread (no `thread_id`, or `thread_id: "new"`, whose thread is created
+  by that very request so every assistant turn in the body is client-supplied) cannot be checked for web content: the
+  gateway has no stored sources, no sticky taint flag, nothing but what the client
+  sends. If such a request carries any earlier `assistant` turn, `memory_propose` is
+  not offered (the request then runs as plain chat, the self-description says that
+  proposals are not possible here, and a stray call is answered `tainted`). The first
+  message of a stateless conversation (or of a new thread), and every request with an existing stored thread, is
+  offered it. Reading memory (the `user_memory` block) is unaffected.
+- The Eve self-description (`internal/selfdesc`) is added only to requests with the
+  `interactive` scope (browser/app sessions). API-key (Bearer) requests are forwarded
+  unchanged, so their prompts and evals do not move.
+- `payload_hash` is `sha256` over the **canonical** payload JSON (decoded and
+  re-encoded with sorted object keys, numbers verbatim), the same function at create
+  and at approve. Postgres JSONB does not keep key order, so a hash over the producer's
+  bytes could never verify after a round trip (every memory add approve returned 422
+  `payload_mismatch`). Approve accepts the canonical hash or the pre-5.0.2 hash (compact
+  JSON in stored order). A pending card hashed the old way whose key order JSONB changed
+  cannot be recovered and ends in `payload_mismatch`; it expires with the proposal
+  (at most 24h) and the model/user simply proposes again.
 - The tool never writes. It creates a `pending_actions` card (tool
   `memory.propose`) and emits it as an SSE confirmation event. The model gets
   `pending_confirmation`, `no_match` (forget, no card) or `denied` + code.

@@ -218,8 +218,8 @@ eq "prod: tag-push trigger" "$SIGNER_TRIGGER" push
 eq "prod: ref is the tag" "$(printf "$REF_FMT" 5.0.2)" refs/tags/v5.0.2
 eq "prod: gateway repo" "$REPO_GATEWAY" gun025bba/eve-serving
 eq "prod: web repo" "$REPO_WEB" gun025bba/eve-web
-# web deploys are OFF in the production build (WEB_ENABLED=no): every web verb is refused before anything else, even with a valid signed release staged
-eq "prod: web deploys disabled" "$WEB_ENABLED" no
+# web deploys are ON in the production build (WEB_ENABLED=yes); the switch still works: with WEB_ENABLED=no every web verb is refused before anything else, even with a valid signed release staged
+eq "prod: web deploys enabled" "$WEB_ENABLED" yes
 new_box 91; stage web
 for wv in "deploy-web" "deploy-web $FXV" "rollback-web"; do
   ( sandbox_env; WEB_ENABLED=no; main $wv ) >"$B/stdout" 2>"$B/stderr"; eq "web disabled: [$wv] refused (rc 4)" "$?" 4
