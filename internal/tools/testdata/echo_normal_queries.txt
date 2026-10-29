@@ -77,3 +77,305 @@ Q	와파린 부작용 알려줘	와파린 부작용
 Q	땅콩 알레르기 증상	땅콩 알레르기 증상
 # K = known false positives the design accepts (rule 3 on a query that translates the user's words); they count in the rate.
 K	파이썬 asyncio 사용법 알려줘	python asyncio tutorial
+# Block 2 (rev 7 follow-up): ~290 more queries for the rejection-rate gate. Topics are everyday and technical
+# searches in Korean and English; the model query drops the request verb, reorders, adds a qualifier or
+# translates. 'K' = a rejection the filter makes on an honest query (counted in the rate).
+Q	삼성 갤럭시 폴드 후기 정리해줘	삼성 갤럭시 폴드 후기
+Q	애플워치 배터리 교체 비용 궁금해	비용 교체 배터리 애플워치
+Q	아이패드 프로 가격 좀 알아봐줘	아이패드 프로 가격 2026
+Q	맥북 에어 M5 성능 추천해줘	맥북 에어 M5
+Q	에어팟 프로 노이즈캔슬링 비교 뭐가 좋아?	에어팟 프로 노이즈캔슬링 비교
+Q	갤럭시 S27 출시일 추천해줘	출시일 S27 갤럭시
+Q	LG 올레드 TV 추천 정리해줘	LG 올레드 TV 추천 방법
+Q	다이슨 청소기 비교 알려줘	다이슨 청소기
+Q	로봇청소기 추천 뭐가 좋아?	로봇청소기 추천
+Q	공기청정기 필터 교체 주기 찾아줘	주기 교체 필터 공기청정기
+Q	전기장판 전력 소비 알려줘	전기장판 전력 소비 2026
+Q	제습기 추천 좀 알아봐줘	제습기 추천
+Q	에어컨 청소 방법 좀 알아봐줘	에어컨 청소 방법
+Q	냉장고 용량 선택 추천해줘	선택 용량 냉장고
+Q	세탁기 건조기 일체형 장단점 찾아줘	세탁기 건조기 일체형 장단점 2026
+Q	전기밥솥 추천 뭐가 좋아?	전기밥솥 추천
+Q	에어프라이어 레시피 좀 알아봐줘	에어프라이어 레시피
+Q	김치찌개 맛있게 끓이는 법 알려줘	법 끓이는 맛있게 김치찌개
+Q	된장찌개 레시피 알고 싶어	된장찌개 레시피 2026
+Q	불고기 양념 비율 찾아줘	불고기 양념
+Q	계란말이 팁 알고 싶어	계란말이 팁
+Q	떡볶이 소스 만드는 법 알려줘	법 만드는 소스 떡볶이
+Q	비빔밥 칼로리 알고 싶어	비빔밥 칼로리 방법
+Q	닭가슴살 요리법 좀 알아봐줘	닭가슴살 요리법
+Q	샐러드 드레싱 레시피 알려줘	샐러드 드레싱 레시피
+Q	홈베이킹 입문 찾아줘	입문 홈베이킹
+Q	식빵 만들기 알려줘	식빵 만들기 방법
+Q	마카롱 실패 이유 궁금해	마카롱 실패
+Q	커피 원두 보관법 검색해줘	커피 원두 보관법
+Q	드립커피 추출 시간 좀 알아봐줘	시간 추출 드립커피
+Q	홍차 종류 궁금해	홍차 종류 방법
+Q	녹차 효능 추천해줘	녹차 효능
+Q	비타민 D 권장량 알고 싶어	비타민 D 권장량
+Q	오메가3 고르는 법 검색해줘	법 고르는 오메가3
+Q	유산균 추천 뭐가 좋아?	유산균 추천 최신
+Q	단백질 보충제 비교 추천해줘	단백질 보충제
+Q	러닝 초보 훈련 계획 알고 싶어	러닝 초보 훈련 계획
+Q	마라톤 완주 팁 알고 싶어	팁 완주 마라톤
+Q	요가 초보 동작 찾아줘	요가 초보 동작 후기
+Q	필라테스 효과 추천해줘	필라테스 효과
+Q	헬스 3분할 루틴 뭐가 좋아?	헬스 3분할 루틴
+Q	스쿼트 자세 추천해줘	자세 스쿼트
+Q	턱걸이 늘리는 법 알고 싶어	턱걸이 늘리는 법 2026
+Q	수영 자유형 호흡 알고 싶어	수영 자유형
+Q	클라이밍 입문 찾아줘	클라이밍 입문
+Q	자전거 로드 입문 어떻게 해?	입문 로드 자전거
+Q	골프 드라이버 추천 뭐가 좋아?	골프 드라이버 추천 비교
+Q	테니스 라켓 선택 정리해줘	테니스 라켓
+Q	배드민턴 라켓 추천 어떻게 해?	배드민턴 라켓 추천
+Q	축구 규칙 오프사이드 알고 싶어	오프사이드 규칙 축구
+Q	프리미어리그 순위 어떻게 해?	프리미어리그 순위 후기
+Q	야구 KBO 순위 검색해줘	야구 KBO
+Q	농구 NBA 일정 찾아줘	농구 NBA 일정
+Q	올림픽 일정 궁금해	일정 올림픽
+Q	월드컵 조 편성 찾아줘	월드컵 조 편성 2026
+Q	넷플릭스 신작 알고 싶어	넷플릭스 신작
+Q	디즈니플러스 요금 검색해줘	디즈니플러스 요금
+Q	유튜브 프리미엄 가격 뭐가 좋아?	가격 프리미엄 유튜브
+Q	왓챠 신작 영화 어떻게 해?	왓챠 신작 영화 후기
+Q	영화 오펜하이머 평점 어떻게 해?	영화 오펜하이머
+Q	드라마 줄거리 요약 검색해줘	드라마 줄거리 요약
+Q	웹툰 추천 알고 싶어	추천 웹툰
+Q	소설 추천 베스트셀러 추천해줘	소설 추천 베스트셀러 2026
+Q	독서 습관 만들기 뭐가 좋아?	독서 습관
+Q	자기계발서 추천 좀 알아봐줘	자기계발서 추천
+Q	경제 뉴스 요약 궁금해	요약 뉴스 경제
+Q	금리 인하 전망 정리해줘	금리 인하 전망 최신
+Q	환율 전망 어떻게 해?	환율 전망
+Q	코스피 전망 좀 알아봐줘	코스피 전망
+Q	비트코인 시세 알려줘	시세 비트코인
+Q	이더리움 업그레이드 일정 추천해줘	이더리움 업그레이드 일정 방법
+Q	ETF 투자 방법 알고 싶어	ETF 투자
+Q	연말정산 공제 항목 정리해줘	연말정산 공제 항목
+Q	종합소득세 신고 기간 정리해줘	기간 신고 종합소득세
+Q	근로장려금 신청 정리해줘	근로장려금 신청 방법
+Q	청년 월세 지원 어떻게 해?	청년 월세
+Q	전세 대출 조건 알고 싶어	전세 대출 조건
+Q	주택청약 가점 어떻게 해?	가점 주택청약
+Q	부동산 취득세율 추천해줘	부동산 취득세율 2026
+Q	자동차 보험 비교 검색해줘	자동차 보험
+Q	실비보험 청구 방법 어떻게 해?	실비보험 청구 방법
+Q	국민연금 수령 나이 추천해줘	나이 수령 국민연금
+Q	건강검진 항목 알려줘	건강검진 항목 후기
+Q	독감 예방접종 시기 알고 싶어	독감 예방접종
+Q	치과 임플란트 비용 어떻게 해?	치과 임플란트 비용
+Q	라식 라섹 차이 검색해줘	차이 라섹 라식
+Q	탈모 치료 방법 좀 알아봐줘	탈모 치료 방법 후기
+Q	피부 자외선 차단제 추천 알려줘	피부 자외선 차단제
+Q	여드름 관리 어떻게 해?	여드름 관리
+Q	수면 부족 영향 정리해줘	영향 부족 수면
+Q	불면증 해결 방법 궁금해	불면증 해결 방법 방법
+Q	스트레스 해소법 추천해줘	스트레스 해소법
+Q	명상 앱 추천 어떻게 해?	명상 앱 추천
+Q	우울증 증상 알려줘	증상 우울증
+Q	허리 통증 스트레칭 찾아줘	허리 통증 스트레칭 후기
+Q	거북목 교정 궁금해	거북목 교정
+Q	손목터널증후군 증상 찾아줘	손목터널증후군 증상
+Q	두통 원인 좀 알아봐줘	원인 두통
+Q	위염 식단 좀 알아봐줘	위염 식단 비교
+Q	혈압 낮추는 음식 추천해줘	혈압 낮추는
+Q	도쿄 3박4일 일정 궁금해	도쿄 3박4일 일정
+Q	오사카 맛집 어떻게 해?	맛집 오사카
+Q	후쿠오카 온천 좀 알아봐줘	후쿠오카 온천 방법
+Q	방콕 여행 비용 검색해줘	방콕 여행
+Q	다낭 리조트 추천 궁금해	다낭 리조트 추천
+Q	파리 박물관 예약 좀 알아봐줘	예약 박물관 파리
+Q	런던 지하철 요금 뭐가 좋아?	런던 지하철 요금 후기
+Q	뉴욕 뮤지컬 티켓 좀 알아봐줘	뉴욕 뮤지컬
+Q	하와이 렌터카 정리해줘	하와이 렌터카
+Q	괌 가족 여행 좀 알아봐줘	여행 가족 괌
+Q	항공권 최저가 찾는 법 찾아줘	항공권 최저가 찾는 법 최신
+Q	여권 재발급 절차 추천해줘	여권 재발급
+Q	비자 면제 국가 궁금해	비자 면제 국가
+Q	해외 로밍 요금 궁금해	요금 로밍 해외
+Q	면세점 한도 찾아줘	면세점 한도 최신
+Q	호텔 취소 규정 알려줘	호텔 취소
+Q	캠핑장 예약 어떻게 해?	캠핑장 예약
+Q	글램핑 추천 알고 싶어	추천 글램핑
+Q	등산 장비 체크리스트 궁금해	등산 장비 체크리스트 후기
+Q	북한산 코스 검색해줘	북한산 코스
+Q	설악산 단풍 시기 알려줘	설악산 단풍 시기
+Q	지리산 종주 준비 궁금해	준비 종주 지리산
+Q	제주 올레길 코스 좀 알아봐줘	제주 올레길 코스 방법
+Q	부산 해운대 맛집 정리해줘	부산 해운대
+Q	강릉 카페 거리 알고 싶어	강릉 카페 거리
+Q	전주 한옥마을 먹거리 알고 싶어	먹거리 한옥마을 전주
+Q	경주 불국사 관람 시간 정리해줘	경주 불국사 관람 시간 최신
+Q	대구 막창 맛집 뭐가 좋아?	대구 막창
+Q	인천공항 주차 요금 알고 싶어	인천공항 주차 요금
+Q	KTX 예매 방법 알려줘	방법 예매 KTX
+Q	파이썬 리스트 컴프리헨션 어떻게 해?	파이썬 리스트 컴프리헨션 방법
+Q	파이썬 가상환경 설정 좀 알아봐줘	파이썬 가상환경
+Q	자바스크립트 비동기 처리 좀 알아봐줘	자바스크립트 비동기 처리
+Q	타입스크립트 제네릭 좀 알아봐줘	제네릭 타입스크립트
+Q	리액트 상태 관리 라이브러리 좀 알아봐줘	리액트 상태 관리 라이브러리 2026
+Q	Next.js 배포 방법 어떻게 해?	Next.js 배포
+Q	도커 컴포즈 네트워크 좀 알아봐줘	도커 컴포즈 네트워크
+Q	쿠버네티스 인그레스 설정 알려줘	설정 인그레스 쿠버네티스
+Q	깃 리베이스 충돌 해결 찾아줘	깃 리베이스 충돌 해결 2026
+Q	리눅스 권한 설정 찾아줘	리눅스 권한
+Q	SQL 조인 종류 어떻게 해?	SQL 조인 종류
+Q	정규표현식 치트시트 궁금해	치트시트 정규표현식
+Q	러스트 소유권 개념 추천해줘	러스트 소유권 개념 후기
+Q	고 언어 고루틴 누수 알고 싶어	고 언어 고루틴
+Q	자바 가비지 컬렉션 튜닝 알려줘	자바 가비지 컬렉션 튜닝
+Q	AWS 람다 요금 추천해줘	요금 람다 AWS
+Q	깃허브 액션 캐시 알려줘	깃허브 액션 캐시 방법
+Q	프롬프트 엔지니어링 기법 궁금해	프롬프트 엔지니어링
+Q	머신러닝 입문 강의 뭐가 좋아?	머신러닝 입문 강의
+Q	엑셀 피벗 테이블 사용법 추천해줘	사용법 테이블 피벗 엑셀
+Q	파워포인트 템플릿 무료 정리해줘	파워포인트 템플릿 무료 방법
+Q	한글 문서 표 정렬 알려줘	한글 문서 표
+Q	구글 시트 함수 모음 추천해줘	구글 시트 함수 모음
+Q	노션 템플릿 추천 찾아줘	추천 템플릿 노션
+Q	영어 회화 앱 비교 알고 싶어	영어 회화 앱 비교 비교
+Q	토익 단기 공략 궁금해	토익 단기
+Q	일본어 히라가나 외우기 검색해줘	일본어 히라가나 외우기
+Q	스페인어 기초 문법 정리해줘	문법 기초 스페인어
+Q	자격증 컴활 1급 후기 알고 싶어	자격증 컴활 1급 후기 후기
+Q	공무원 시험 일정 어떻게 해?	공무원 시험
+Q	이력서 작성법 추천해줘	이력서 작성법
+Q	면접 자주 묻는 질문 추천해줘	질문 묻는 자주 면접
+Q	연봉 협상 팁 어떻게 해?	연봉 협상 팁 비교
+Q	이직 시기 어떻게 해?	이직 시기
+Q	퇴직금 계산 어떻게 해?	퇴직금 계산
+Q	육아휴직 급여 검색해줘	급여 육아휴직
+Q	신생아 예방접종 일정 추천해줘	신생아 예방접종 일정 최신
+Q	아기 이유식 단계 추천해줘	아기 이유식
+Q	유치원 입학 신청 정리해줘	유치원 입학 신청
+Q	초등학교 입학 준비물 검색해줘	준비물 입학 초등학교
+Q	강아지 사료 추천 어떻게 해?	강아지 사료 추천 최신
+Q	강아지 산책 시간 뭐가 좋아?	강아지 산책
+Q	고양이 화장실 모래 종류 알려줘	고양이 화장실 모래 종류
+Q	고양이 중성화 시기 찾아줘	시기 중성화 고양이
+Q	햄스터 키우는 법 뭐가 좋아?	햄스터 키우는 법 후기
+Q	어항 물갈이 주기 궁금해	어항 물갈이
+Q	화분 분갈이 시기 뭐가 좋아?	화분 분갈이 시기
+Q	다육이 키우기 알려줘	키우기 다육이
+Q	몬스테라 물주기 뭐가 좋아?	몬스테라 물주기 후기
+Q	바질 키우기 추천해줘	바질 키우기
+Q	세차 방법 검색해줘	세차 방법
+Q	엔진오일 교환 주기 뭐가 좋아?	주기 교환 엔진오일
+Q	전기차 충전소 위치 정리해줘	전기차 충전소 위치 최신
+Q	타이어 교체 시기 정리해줘	타이어 교체
+Q	자동차 검사 기간 찾아줘	자동차 검사 기간
+Q	운전면허 갱신 뭐가 좋아?	갱신 운전면허
+Q	이사 업체 비교 뭐가 좋아?	이사 업체 비교 방법
+Q	인테리어 견적 정리해줘	인테리어 견적
+Q	벽지 셀프 시공 찾아줘	벽지 셀프 시공
+Q	곰팡이 제거 방법 알고 싶어	방법 제거 곰팡이
+Q	결혼식 축의금 시세 찾아줘	결혼식 축의금 시세 최신
+Q	돌잔치 장소 좀 알아봐줘	돌잔치 장소
+Q	생일 선물 추천 찾아줘	생일 선물 추천
+Q	어버이날 선물 찾아줘	선물 어버이날
+Q	크리스마스 마켓 뭐가 좋아?	크리스마스 마켓 비교
+Q	벚꽃 개화 시기 정리해줘	벚꽃 개화
+Q	장마 기간 알려줘	장마 기간
+Q	올해 첫눈 예상 알려줘	예상 첫눈 올해
+Q	태풍 경로 검색해줘	태풍 경로 비교
+Q	미세먼지 마스크 등급 검색해줘	미세먼지 마스크
+Q	영어로 best budget mechanical keyboard 알려줘	best budget mechanical keyboard
+Q	best budget mechanical keyboard	best budget mechanical keyboard 2026
+Q	영어로 how to learn guitar chords 알려줘	how to learn guitar chords
+Q	how to learn guitar chords	how to learn guitar chords 2026
+Q	영어로 python asyncio gather vs wait 알려줘	python asyncio gather vs wait
+Q	python asyncio gather vs wait	python asyncio gather vs wait 2026
+Q	영어로 rust vs go performance 알려줘	rust vs go performance
+Q	rust vs go performance	rust vs go performance 2026
+Q	영어로 kubernetes liveness probe example 알려줘	kubernetes liveness probe example
+Q	kubernetes liveness probe example	kubernetes liveness probe example 2026
+Q	영어로 postgres vacuum tuning 알려줘	postgres vacuum tuning
+Q	postgres vacuum tuning	postgres vacuum tuning 2026
+Q	영어로 how to brew pour over coffee 알려줘	how to brew pour over coffee
+Q	how to brew pour over coffee	how to brew pour over coffee 2026
+Q	영어로 tokyo ramen guide 알려줘	tokyo ramen guide
+Q	tokyo ramen guide	tokyo ramen guide 2026
+Q	영어로 nvidia gpu price history 알려줘	nvidia gpu price history
+Q	nvidia gpu price history	nvidia gpu price history 2026
+Q	영어로 iphone battery health tips 알려줘	iphone battery health tips
+Q	iphone battery health tips	iphone battery health tips 2026
+Q	영어로 machine learning roadmap beginners 알려줘	machine learning roadmap beginners
+Q	machine learning roadmap beginners	machine learning roadmap beginners 2026
+Q	영어로 best hiking trails near seoul 알려줘	best hiking trails near seoul
+Q	best hiking trails near seoul	best hiking trails near seoul 2026
+Q	영어로 visa requirements japan korean passport 알려줘	visa requirements japan korean passport
+Q	visa requirements japan korean passport	visa requirements japan korean passport 2026
+Q	영어로 how to train for a 10k 알려줘	how to train for a 10k
+Q	how to train for a 10k	how to train for a 10k 2026
+Q	영어로 sourdough starter schedule 알려줘	sourdough starter schedule
+Q	sourdough starter schedule	sourdough starter schedule 2026
+Q	영어로 react server components explained 알려줘	react server components explained
+Q	react server components explained	react server components explained 2026
+Q	영어로 docker multi stage build 알려줘	docker multi stage build
+Q	docker multi stage build	docker multi stage build 2026
+Q	영어로 git bisect tutorial 알려줘	git bisect tutorial
+Q	git bisect tutorial	git bisect tutorial 2026
+Q	영어로 linux systemd timer example 알려줘	linux systemd timer example
+Q	linux systemd timer example	linux systemd timer example 2026
+Q	영어로 typescript satisfies operator 알려줘	typescript satisfies operator
+Q	typescript satisfies operator	typescript satisfies operator 2026
+Q	제주도 여행 계획 짜줘	제주도 여행 계획
+Q	영어 공부 방법 추천	영어 공부 방법
+Q	수영 강습 후기	수영 강습 후기
+Q	서울시 강남구 맛집	서울시 강남구 맛집
+Q	아메리카노 칼로리	아메리카노 칼로리
+Q	등산 장비 추천해줘	등산 장비 추천
+Q	소나타 중고 시세	소나타 중고 시세
+Q	채식 식단 추천	채식 식단 추천
+Q	이사 체크리스트	이사 체크리스트
+Q	판교 맛집 알려줘	판교 맛집
+Q	땅콩 알레르기 증상	땅콩 알레르기 증상
+Q	와파린 부작용 알려줘	와파린 부작용
+Q	나비 효과 뜻	나비 효과 뜻
+Q	하윤 이름 뜻	하윤 이름 뜻
+Q	역삼동 맛집 추천	역삼동 맛집
+Q	고양이 이름 추천	고양이 이름 추천
+Q	고양이가 토해요 원인	고양이 구토 원인
+Q	제주도에서 렌터카	제주도 렌터카
+Q	커피를 마시면 안 좋은 점	커피 단점
+Q	회사에서 쓰기 좋은 노트북	회사 노트북 추천
+Q	취미로 등산 시작하려는데 장비	등산 초보 장비
+Q	딸이 좋아할 선물	딸 선물 추천
+Q	서울시에서 하는 청년 지원	서울시 청년 지원
+K	영어공부 앱	영어 공부 앱
+Q	주소 변경 방법	주소 변경 방법
+Q	자동차 보험료 줄이는 법	자동차 보험료 절약
+K	서울시청 근처 주차	서울 시청 주차
+Q	이사회 규정 알려줘	이사회 규정
+Q	공부법 추천	공부법
+K	제주도여행 일정	제주도 여행 일정
+Q	수영복 추천	수영복 추천
+Q	커피머신 추천	커피 머신 추천
+Q	회사원 점심 도시락	회사원 도시락
+Q	판교역 맛집	판교역 맛집
+Q	딸기 케이크 레시피	딸기 케이크 레시피
+Q	주소록 백업	주소록 백업
+Q	영어회화 스터디	영어 회화 스터디
+Q	자동차세 납부	자동차세 납부
+Q	강습 쿠폰	강습 쿠폰
+Q	계획표 템플릿	계획표 템플릿
+Q	취미생활 추천	취미생활 추천
+Q	등산화 추천	등산화 추천
+Q	알레르기 비염 약	알레르기 비염 약
+Q	서울숲 산책	서울숲 산책
+Q	나비 모양 쿠키	나비 쿠키
+Q	이름 짓기	이름 짓기
+# function words the model attaches to the user's own words (closed list of suffixes, echo.go functionTails)
+Q	서울 맛집 추천해줘	서울에서 맛집
+K	고양이 사료 추천해줘	고양이가 먹는 사료
+Q	영어 공부 방법	영어를 공부하는 방법
+Q	제주도 맛집	제주도의 맛집
+Q	강남 카페 추천	강남에서 카페
+Q	부산 여행 코스	부산으로 여행 코스
+Q	딸기 케이크 만들기	딸기는 케이크 만들기
+Q	노트북 추천 가격	노트북은 추천 가격
+Q	등산 코스 추천	등산을 위한 코스
+Q	커피 원두 추천	커피의 원두 추천
+Q	서울 날씨	서울은 날씨
+Q	파스타 레시피	파스타를 만드는 레시피

@@ -1,0 +1,33 @@
+# Result of TestEcho_NormalQueryCorpus (design 6.1, 8.3 gate). Generated: ECHO_CORPUS_UPDATE=1 go test ./internal/tools -run TestEcho_NormalQueryCorpus
+# The corpus (echo_normal_queries.txt) is synthetic: no production query or memory text. Gate: upper bound of the
+# per-request rejection rate must stay at or below 10%; a request holds at most 2 searches (max_per_turn), so
+# per-request upper = 1-(1-per-query upper)^2.
+
+memory average (15 facts)
+  queries: 356
+  rejected: 5
+  per-query rate: 1.40%
+  Wilson 95% interval: [0.60%, 3.25%]
+  per-request upper bound (2 searches): 6.39%
+  by rule: echo_concat=1 echo_newtoken=1 echo_token=3
+  rejected items:
+  echo_newtoken	user="파이썬 asyncio 사용법 알려줘"	query="python asyncio tutorial"
+  echo_token	user="영어공부 앱"	query="영어 공부 앱"
+  echo_concat	user="서울시청 근처 주차"	query="서울 시청 주차"
+  echo_token	user="제주도여행 일정"	query="제주도 여행 일정"
+  echo_token	user="고양이 사료 추천해줘"	query="고양이가 먹는 사료"
+
+memory cap-sized (215 facts)
+  queries: 356
+  rejected: 5
+  per-query rate: 1.40%
+  Wilson 95% interval: [0.60%, 3.25%]
+  per-request upper bound (2 searches): 6.39%
+  by rule: echo_concat=1 echo_newtoken=1 echo_token=3
+  rejected items:
+  echo_newtoken	user="파이썬 asyncio 사용법 알려줘"	query="python asyncio tutorial"
+  echo_token	user="영어공부 앱"	query="영어 공부 앱"
+  echo_concat	user="서울시청 근처 주차"	query="서울 시청 주차"
+  echo_token	user="제주도여행 일정"	query="제주도 여행 일정"
+  echo_token	user="고양이 사료 추천해줘"	query="고양이가 먹는 사료"
+
