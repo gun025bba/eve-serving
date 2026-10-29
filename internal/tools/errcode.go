@@ -75,10 +75,15 @@ func PublicCode(c *Call) string {
 	return ErrCodeSearch
 }
 
+// QueryRejectedMessage is what the model is told for every rejected query,
+// whichever rule fired (rev 7, §4.3.1 "fixed message"): no rule id, no word,
+// no count. Changing it needs a security review (TestEcho_RejectionMessageFixed).
+const QueryRejectedMessage = "검색어를 보낼 수 없습니다. 사용자 메시지에 있는 말만으로 다시 쓰세요."
+
 var publicMsg = map[string]string{
 	ErrCodeSSRF: "target not allowed", ErrCodePerm: "not permitted", ErrCodeKill: "web tools are disabled",
 	ErrCodeTimeout: "timed out", ErrCodeInvalid: "invalid arguments", ErrCodeSearch: "search unavailable",
-	ErrCodeFetch: "fetch failed", ErrCodeRate: "rate limited", ErrCodeQuery: "query rejected",
+	ErrCodeFetch: "fetch failed", ErrCodeRate: "rate limited", ErrCodeQuery: QueryRejectedMessage,
 	ErrCodeBudget: "budget exhausted", ErrCodeDup: "duplicate request", ErrCodeContent: "unsupported content",
 	ErrCodeRedirect: "redirect not allowed", ErrCodeUnknown: "unknown tool",
 }

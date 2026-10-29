@@ -59,7 +59,7 @@ var (
 	semverRe  = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	egressRe  = regexp.MustCompile(`^[a-z][a-z0-9_]*$`) // symbolic egress classes only; no hosts or IP literals
 	sideEff   = map[string]bool{"read": true, "write": true, "send": true}
-	modeNames = map[string]bool{"auto": true, "force": true}
+	modeNames = map[string]bool{"auto": true}
 )
 
 const maxTimeout = 30 * time.Second

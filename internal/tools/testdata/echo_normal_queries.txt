@@ -1,0 +1,79 @@
+# Fixed corpus of normal queries (design §6.1 TestEcho_NormalQueryCorpus, §8.3).
+# Append-only. F = synthetic memory fact (the fixture, never real data);
+# Q<TAB>user text<TAB>query an honest model writes. Every Q must pass the echo
+# filter with all F in P. The last block uses the user's own words for words
+# that also occur in a fact: the user typed them, so they are exempt.
+F	고양이 이름은 나비
+F	이사 예정
+F	역삼동 거주
+F	땅콩 알레르기가 있다
+F	딸 이름은 하윤
+F	매일 아침 와파린을 먹는다
+F	취미는 등산
+F	회사는 판교에 있다
+F	커피는 아메리카노를 좋아한다
+F	내년 봄에 제주도 여행 계획
+F	채식 위주로 식사한다
+F	자동차는 소나타
+F	매주 화요일 수영 강습
+F	영어 공부 중
+F	주소는 서울시 강남구
+Q	고양이 사료 추천해줘	고양이 사료 추천
+Q	고양이 사료 추천해줘	고양이 사료
+Q	오늘 서울 날씨 알려줘	서울 날씨 오늘
+Q	오늘 서울 날씨 알려줘	서울 날씨
+Q	파이썬 asyncio 사용법 알려줘	파이썬 asyncio 사용법
+Q	go 1.27 release notes 알려줘	go 1.27 release notes
+Q	삼성전자 주가 알려줘	삼성전자 주가
+Q	삼성전자 주가 알려줘	삼성전자 주가 오늘
+Q	제주도 맛집 추천해줘	제주도 맛집 추천
+Q	제주도 맛집 추천해줘	제주도 맛집
+Q	강남역 근처 점심 식당	강남역 점심 식당
+Q	아이폰 17 가격 비교	아이폰 17 가격 비교
+Q	노트북 추천 가격대 100만원	노트북 추천 100만원
+Q	서울에서 부산 KTX 시간표	서울 부산 KTX 시간표
+Q	코로나 백신 최신 지침	코로나 백신 최신 지침
+Q	환율 달러 원 오늘	달러 원 환율 오늘
+Q	kubernetes pod 재시작 원인	kubernetes pod 재시작 원인
+Q	postgres 인덱스 성능 튜닝 방법	postgres 인덱스 성능 튜닝
+Q	리액트 useEffect 사용법	react useEffect 사용법
+Q	영화 추천 이번 주 개봉	이번 주 개봉 영화
+Q	월드컵 일정 알려줘	월드컵 일정
+Q	건강한 아침 식단 추천해줘	건강한 아침 식단 추천
+Q	와인 페어링 스테이크	와인 페어링 스테이크
+Q	파스타 레시피 간단한	간단한 파스타 레시피
+Q	부동산 대출 금리 최근	부동산 대출 금리 최근
+Q	대중교통 요금 인상 소식	대중교통 요금 인상
+Q	최신 노이즈캔슬링 헤드폰 비교	노이즈캔슬링 헤드폰 비교
+Q	겨울 캠핑 장비 추천	겨울 캠핑 장비 추천
+Q	러닝화 추천 발볼 넓은	러닝화 추천 발볼 넓은
+Q	how to cook rice in a pot	how to cook rice pot
+Q	best laptop for programming 2026	best laptop programming 2026
+Q	weather in Tokyo tomorrow	Tokyo weather tomorrow
+Q	트위터 대신 쓸 SNS	SNS 대안
+Q	한국 공휴일 2026	한국 공휴일 2026
+Q	무선 충전기 규격 비교	무선 충전기 규격 비교
+Q	전기차 보조금 신청 방법	전기차 보조금 신청 방법
+Q	프로그래밍 입문 책 추천	프로그래밍 입문 책 추천
+Q	스마트워치 수면 측정 정확도	스마트워치 수면 측정 정확도
+Q	미세먼지 오늘 서울	서울 미세먼지 오늘
+Q	유럽 여행 비수기 항공권	유럽 여행 비수기 항공권
+Q	자동차 보험 비교 사이트	자동차 보험 비교
+Q	해외 직구 관세 기준	해외 직구 관세 기준
+Q	커피 원두 보관 방법	커피 원두 보관 방법
+Q	수영 자유형 호흡법	수영 자유형 호흡법
+Q	등산 초보 코스 서울	서울 등산 초보 코스
+Q	영어 회화 앱 추천	영어 회화 앱 추천
+Q	채식 단백질 식품 목록	채식 단백질 식품
+Q	알레르기 비염 약 종류	알레르기 비염 약 종류
+Q	판교 맛집 점심	판교 맛집 점심
+Q	역삼동 날씨	역삼동 날씨
+Q	나비 효과 뜻이 뭐야	나비 효과 뜻
+Q	하윤 이라는 이름 뜻	하윤 이름 뜻
+Q	이사 업체 비용 비교	이사 업체 비용 비교
+Q	소나타 신형 가격	소나타 신형 가격
+Q	제주도 3박 4일 일정 추천	제주도 3박 4일 일정
+Q	와파린 부작용 알려줘	와파린 부작용
+Q	땅콩 알레르기 증상	땅콩 알레르기 증상
+# K = known false positives the design accepts (rule 3 on a query that translates the user's words); they count in the rate.
+K	파이썬 asyncio 사용법 알려줘	python asyncio tutorial

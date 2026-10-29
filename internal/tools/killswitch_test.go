@@ -185,3 +185,32 @@ func TestKillSwitch_FileCreatedAfterStartupIsPickedUp(t *testing.T) {
 		t.Fatal("a file created later must be applied by polling")
 	}
 }
+
+// §6.7 rollback order: the candidate that sets `disabled` for the web tools
+// first is valid for this build and (without auto_select_off) for a 5.x build;
+// the candidate that still carries auto_select_off is flagged for 5.x.
+func TestKillswitchCheck_RollbackSequence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tools-killswitch.yaml")
+	chk := func(body string) KillswitchReport {
+		atomicWrite(t, path, body)
+		return CheckKillswitchFile(path, os.Getuid())
+	}
+	// step 1: web tools disabled with a key old builds know, plus auto_select_off
+	r := chk("disabled: [web_search, web_fetch]\nauto_select_off: true\n")
+	if r.Result != "ok" || !r.WebToolsOff || !r.AutoSelectOff {
+		t.Fatalf("step 1: %+v", r)
+	}
+	if r.OldBuild == "valid" {
+		t.Fatal("a 5.x build must reject auto_select_off (it would turn every tool off): killswitch-check has to say so")
+	}
+	// step 2: auto_select_off removed, disabled stays: valid for both builds, web tools off
+	r = chk("disabled: [web_search, web_fetch]\n")
+	if r.Result != "ok" || !r.WebToolsOff || r.OldBuild != "valid" {
+		t.Fatalf("step 2: %+v", r)
+	}
+	// a file that does not parse is "every tool off" (fail closed), also for the check
+	r = chk("disabled: [web_search\n")
+	if r.Result == "ok" || !r.AllOff || !r.WebToolsOff {
+		t.Fatalf("broken file: %+v", r)
+	}
+}

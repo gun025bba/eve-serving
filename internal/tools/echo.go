@@ -25,7 +25,12 @@ import (
 // unless t is a word the user typed. A user word is a token u of the user's
 // texts with t == u, or one a prefix of the other and a length difference of
 // at most EchoUserSlack runes (word boundaries; concatenated text is never
-// searched). Rule ③ (echo_newtoken): the runes of the query tokens that are
+// searched). Rev 7 adds two parts to rule ②: the concatenation match
+// (echo_concat: a content token of P that shows up in the concatenation of all
+// query tokens across at least one token boundary, unless every covered token
+// is a user word) and the tail check (a prefix-exempt token u+w: w is new text;
+// it is compared with P like a token and the runes it shares with P are added
+// to the rule ③ sum). Rule ③ (echo_newtoken): the runes of the query tokens that are
 // neither user words nor stopwords add up to EchoNewRunes-1 at most, and the
 // query must reuse a content word of the user's texts when there is one.
 const (
@@ -174,6 +179,7 @@ const (
 	RuleEchoFilter   = "echo_filter"
 	RuleEchoURL      = "echo_filter_url"
 	RuleEchoToken    = "echo_token"
+	RuleEchoConcat   = "echo_concat"
 	RuleEchoNewToken = "echo_newtoken"
 	RuleEchoNoToken  = "echo_notoken"
 )
@@ -194,6 +200,9 @@ func (e *Echo) Check(q string) string {
 		if e.rejectToken(queryTokens(q)) {
 			return RuleEchoToken
 		}
+		if e.rejectConcat(splitTokens(q)) {
+			return RuleEchoConcat
+		}
 	}
 	return e.newTokens(q)
 }
@@ -202,35 +211,147 @@ func (e *Echo) Check(q string) string {
 // token u of the user's texts, or a prefix of it (or it of t) with a length
 // difference of at most EchoUserSlack runes.
 func userWord(t string, toks []string) bool {
+	k, _ := userMatch(t, toks)
+	return k != matchNone
+}
+
+// How a query token relates to the user's words.
+const (
+	matchNone  = iota
+	matchWhole // equal to a user word, or a prefix of one: no new characters
+	matchTail  // user word u plus a tail w of 1-3 new characters (rev 7, H-2 b)
+)
+
+// userMatch classifies t against the user's tokens. For matchTail it returns
+// the tail w (the characters the user did not write); with several user words
+// the longest u is taken, i.e. the shortest tail.
+func userMatch(t string, toks []string) (int, string) {
 	nt := utf8.RuneCountInString(t)
+	best, tail := matchNone, ""
 	for _, u := range toks {
 		if u == t {
-			return true
+			return matchWhole, ""
 		}
-		d := utf8.RuneCountInString(u) - nt
+		nu := utf8.RuneCountInString(u)
+		d := nu - nt
 		if d < 0 {
 			d = -d
 		}
 		// the prefix relation needs two runes on the shorter side, so a query
 		// spelled one rune at a time cannot hide behind a user word
-		if d <= EchoUserSlack && min(nt, utf8.RuneCountInString(u)) >= 2 && (strings.HasPrefix(u, t) || strings.HasPrefix(t, u)) {
-			return true
+		if d > EchoUserSlack || min(nt, nu) < 2 {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(u, t): // t is part of u: nothing new
+			best, tail = matchWhole, ""
+		case strings.HasPrefix(t, u) && best != matchWhole:
+			w := string([]rune(t)[nu:])
+			if best == matchNone || utf8.RuneCountInString(w) < utf8.RuneCountInString(tail) {
+				best, tail = matchTail, w
+			}
 		}
 	}
-	return false
+	return best, tail
+}
+
+// tailVsP compares a tail w with the content tokens of P: sub reports a
+// substring relation in either direction (w of two runes or more); lcs is the
+// longest common substring in runes (1 or more means the tail overlaps P).
+func (e *Echo) tailVsP(w string) (sub bool, lcs int) {
+	nw := utf8.RuneCountInString(w)
+	for _, p := range e.prot {
+		for m := range p.cont {
+			if nw >= 2 && (strings.Contains(m, w) || strings.Contains(w, m)) {
+				sub = true
+			}
+			if l := lcsRunes(w, m); l > lcs {
+				lcs = l
+			}
+		}
+	}
+	return sub, lcs
+}
+
+func lcsRunes(a, b string) int {
+	x, y := []rune(a), []rune(b)
+	best := 0
+	prev := make([]int, len(y)+1)
+	for i := 1; i <= len(x); i++ {
+		cur := make([]int, len(y)+1)
+		for j := 1; j <= len(y); j++ {
+			if x[i-1] == y[j-1] {
+				cur[j] = prev[j-1] + 1
+				if cur[j] > best {
+					best = cur[j]
+				}
+			}
+		}
+		prev = cur
+	}
+	return best
 }
 
 // rejectToken is rule ②: a query token that has a content token of P inside
 // it, or sits inside one, and is not a user word.
 func (e *Echo) rejectToken(qtoks []string) bool {
 	for _, t := range qtoks {
-		if userWord(t, e.userTok) {
+		switch k, w := userMatch(t, e.userTok); k {
+		case matchWhole:
+			continue
+		case matchTail:
+			if sub, _ := e.tailVsP(w); sub {
+				return true // the tail is text the user did not write (H-2 b)
+			}
 			continue
 		}
 		for _, p := range e.prot {
 			for m := range p.cont {
 				if strings.Contains(m, t) || strings.Contains(t, m) {
 					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// rejectConcat is the concatenation match (rev 7, H-2 a). All tokens of the
+// query (one-rune tokens and stopwords included, in order) are joined; a
+// content token m of P (two runes or more) that appears in the joined text
+// across at least one token boundary rejects the query, unless every token the
+// match covers is a user word. The user's texts are never joined.
+func (e *Echo) rejectConcat(toks []string) bool {
+	if len(toks) < 2 {
+		return false
+	}
+	var cat []rune
+	owner := []int{} // token index of every rune of cat
+	for i, t := range toks {
+		for _, r := range t {
+			cat = append(cat, r)
+			owner = append(owner, i)
+		}
+	}
+	exempt := make([]bool, len(toks))
+	for i, t := range toks {
+		exempt[i] = userWord(t, e.userTok)
+	}
+	for _, p := range e.prot {
+		for m := range p.cont {
+			mr := []rune(m)
+			for i := 0; i+len(mr) <= len(cat); i++ {
+				if string(cat[i:i+len(mr)]) != m {
+					continue
+				}
+				first, last := owner[i], owner[i+len(mr)-1]
+				if first == last {
+					continue // inside one token: rule ② compares those
+				}
+				for k := first; k <= last; k++ {
+					if !exempt[k] {
+						return true
+					}
 				}
 			}
 		}
@@ -246,9 +367,13 @@ func (e *Echo) newTokens(q string) string {
 	toks := splitTokens(q)
 	sum, reuse := 0, false
 	for _, t := range toks {
-		if userWord(t, e.userTok) {
+		if k, w := userMatch(t, e.userTok); k != matchNone {
 			if userWord(t, e.userCont) {
 				reuse = true
+			}
+			if k == matchTail && e.Active() {
+				_, l := e.tailVsP(w) // characters shared with P count as new
+				sum += l
 			}
 			continue
 		}
@@ -406,8 +531,22 @@ func contentTokens(s string) map[string]struct{} {
 func LintStopwords(raw string, entities map[string]bool) []string {
 	var bad []string
 	seen := map[string]bool{}
+	layerD := map[string]bool{}
+	inD := false
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# layer ") {
+			inD = strings.HasPrefix(line, "# layer d")
+			continue
+		}
+		if inD && line != "" && !strings.HasPrefix(line, "#") {
+			layerD[strings.ToLower(line)] = true
+		}
+	}
 	for _, w := range parseStopwords(raw) {
 		switch {
+		case layerD[w] && utf8.RuneCountInString(w) != 2:
+			bad = append(bad, "layer d needs exactly two runes: "+w)
 		case seen[w]:
 			bad = append(bad, "duplicate: "+w)
 		case entities[w]:

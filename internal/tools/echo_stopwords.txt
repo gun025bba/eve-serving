@@ -263,3 +263,13 @@ lang
 filetype
 intitle
 inurl
+
+# layer d: low-specificity two-rune common nouns (rev 7). Every entry must be
+# exactly two runes, a plain common noun that is not an entity and that is
+# frequent in ordinary queries; "이사" (a move) is deliberately NOT here:
+# it can be the core of a private fact. Additions go through security review.
+이름
+가족
+직장
+취미
+주소

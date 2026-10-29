@@ -11,7 +11,7 @@ import (
 // SanitizeUntrusted normalizes text that comes from outside the gateway
 // (search snippets, fetched pages) before it is wrapped for the model or
 // inspected by the suspect rules: NFKC, then control, format (bidi, zero
-// width, soft hyphen, tag characters) and variation-selector characters are
+// width, soft hyphen, tag characters), the invisible Hangul filler letters and variation-selector characters are
 // removed. Newlines and tabs are kept.
 func SanitizeUntrusted(s string) string {
 	s = norm.NFKC.String(s)
@@ -22,6 +22,8 @@ func SanitizeUntrusted(s string) string {
 		case r == '\r':
 			return '\n'
 		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+			return -1
+		case r == 0x115F, r == 0x1160, r == 0x3164, r == 0xFFA0, r == 0x2800: // invisible Hangul fillers, braille blank
 			return -1
 		case r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F:
 			return -1

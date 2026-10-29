@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -246,5 +247,35 @@ func TestPublicCode_Mapping(t *testing.T) {
 		if got := PublicCode(&c.c); got != c.want {
 			t.Errorf("%d: %q want %q", i, got, c.want)
 		}
+	}
+}
+
+type pimStub struct{ name, out string }
+
+func (p pimStub) Name() string { return p.name }
+func (p pimStub) Call(_ context.Context, _ *Session, c *Call, _ map[string]any) string {
+	c.Status = "ok"
+	return p.out
+}
+
+// P②: every string field of a personal-data tool result is protected text,
+// whichever field it is in (title, location, notes, nested lists).
+func TestEcho_PIMToolResultFieldsInP(t *testing.T) {
+	out := `{"events":[{"title":"치과정기검진","location":"서울대병원","notes":"마취알레르기","attendees":["박서준"],"calendar":{"name":"가족일정"}}]}`
+	s := NewSession(Deps{Auto: true, Extra: map[string]Adapter{"calendar_list_events": pimStub{"calendar_list_events", out}}}, "u", []string{"일정 알려줘"})
+	if _, c := s.Exec(context.Background(), 1, "c1", "calendar_list_events", `{}`); c.Status != "ok" {
+		t.Fatalf("%+v", c)
+	}
+	for _, w := range []string{"치과정기검진", "서울대병원", "마취알레르기", "박서준", "가족일정"} {
+		if rule := s.echo.Check(w + " 정보"); rule == "" {
+			t.Errorf("field word %q is not protected", w)
+		}
+	}
+	if rule := s.echo.Check("일정 안내"); rule != "" {
+		t.Errorf("user's own words rejected: %s", rule)
+	}
+	// a failed read protects what it returned too
+	if !s.PrivateRead() {
+		t.Fatal("private read not recorded")
 	}
 }

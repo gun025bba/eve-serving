@@ -86,6 +86,10 @@ type Deps struct {
 	Budget *Budget
 	// StepBudget caps the summed tool latency of one request (Auto only).
 	StepBudget time.Duration
+	// Suspicious replaces the instruction-like text detector (nil: the
+	// built-in R1-R7 rules). Tests switch it off to show that the structural
+	// controls (G1-G3, Echo, SSRF guard, approval cards) hold without it.
+	Suspicious func(text string) []string
 	// OnEcho / OnSuspect are audit hooks. They receive rule ids and counts
 	// only, never text.
 	OnEcho    func(c Call, rule string)
@@ -207,6 +211,13 @@ func (s *Session) Limits() Limits { return s.d.Limits }
 // and right before the network request. Calls rejected by a pre-check never
 // trigger it (so no tool_call event is sent for them).
 func (s *Session) OnAccepted(fn func(c Call)) { s.onAccept = fn }
+
+func (s *Session) suspicious(text string) []string {
+	if s.d.Suspicious != nil {
+		return s.d.Suspicious(text)
+	}
+	return Suspicious(text)
+}
 
 // Suspect reports whether a tool result was removed as instruction-like. The
 // caller then offers no web tool and no memory tool, and sends FinalNotice
@@ -498,7 +509,9 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 		return ""
 	}
 	if r := CheckQueryMax(q, maxQ); r != "" {
-		c.Status, c.Error, c.BlockReason, c.ErrorCode = "blocked", "query rejected: "+r, ReasonQuery, ErrCodeQuery
+		// not memory-dependent (length, secret shape), so the status may differ;
+		// code and model-facing message are the same constants as for echo rules
+		c.Status, c.Error, c.BlockReason, c.ErrorCode = "blocked", publicMsg[ErrCodeQuery], ReasonQuery, ErrCodeQuery
 		return ""
 	}
 	if s.d.Auto {
@@ -575,7 +588,7 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 			continue
 		}
 		if s.d.Auto {
-			if rules := Suspicious(r.Title + "\n" + r.Snippet); len(rules) > 0 {
+			if rules := s.suspicious(r.Title + "\n" + r.Snippet); len(rules) > 0 {
 				// instruction-like result: not shown, not citable, not fetchable
 				removed++
 				s.markSuspect(c, rules, r.Title+" "+r.Snippet)
@@ -704,7 +717,7 @@ func (s *Session) fetch(ctx context.Context, c *Call, a map[string]any) string {
 	}
 	c.Status, c.FetchBytes = "ok", r.Bytes
 	if s.d.Auto {
-		if rules := Suspicious(r.Title + "\n" + r.Text); len(rules) > 0 {
+		if rules := s.suspicious(r.Title + "\n" + r.Text); len(rules) > 0 {
 			s.markSuspect(c, rules, r.Title+" "+r.Text)
 			return s.budget(WrapUntrusted("web_fetch", "", mustJSON(map[string]any{"removed": true, "note": "page content removed: instruction-like text"})))
 		}
