@@ -18,6 +18,9 @@ paths below are examples.
 5. **Start the new binary** with `auto_select_off: true` in the kill switch file if you want it dark first; remove that key to enable.
 6. **Enable gate (first week, every day):** automatic search rate, `echo_rejected`, `injection_suspect` and `approve_refused` audit events, budget use,
    `llm_pim_window_assumed_total`. **If more than 10% of normal queries are rejected by the echo filter, do not enable (or set `auto_select_off`) and tell the PM.**
+   The measured rate on the committed corpus (`internal/tools/testdata/echo_normal_queries_results.txt`, over 300 queries, with the Wilson 95% bound) is
+   the baseline; compare production against it.
+   The shared API-key budget has its own audit event `budget_exhausted` (once per day, kind and code); look for it when API clients report missing search.
    The echo rule ids are in the audit events only; the model and the client always see one fixed message.
 
 ## 2. The kill switch (no restart, no signal)
@@ -45,6 +48,9 @@ A 5.x gateway rejects unknown keys (`auto_select_off`) and would turn **every** 
 4. Roll back the binary to 5.x. The migration stays (additive).
 5. Verify the web tools stay off (a test request must show no tool calls).
 6. Clear `disabled` only as a separate decision.
+7. **On every redeploy of 6.0.0 after a rollback (M-j), set `tools.pim_window_end` (T_600) to the time of that redeploy**, not to the first 6.0.0 start.
+   While 5.x ran, its assistant messages carry no `metadata.tools`; an old T_600 would leave them outside the window and the next 6.0.0 turn would
+   treat a possible personal-data read as a normal answer. Check the value before removing `disabled`.
 
 Config keys introduced in 6.0.0 (`tools.*`, `web.args_retention_days`) must be removed before a 5.x binary starts if it refuses unknown keys; start
 the 5.x binary against a copy of the config first.

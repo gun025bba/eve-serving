@@ -50,7 +50,9 @@
   `나 비` for `나비`), the prefix tail check, a new-token cap (13 or more runes of text the user did not write), the stopword file
   `internal/tools/echo_stopwords.txt` (data, security-reviewed) and `echo_notoken`. Invisible Hangul filler characters are stripped like other format
   characters. **Every rejection returns the same model-facing message and `error_code: query_rejected`** (no rule id, word or count); rule ids stay in the audit
-  event only. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
+  event only. Rule (c) (M-i): inside an accepted user word plus tail, a protected word that starts in the user's word and ends after it is rejected
+  (`나` + `나비`). A closed list of Korean function-word suffixes (`가`, `는`, `에서` ... in `functionTails`) attached to a user word is not new text
+  for the tail overlap checks. Measured on the committed synthetic corpus: `echo_normal_queries_results.txt`. The operational gate: if more than 10% of normal queries are rejected, do not enable (see the rollback runbook).
 - **Freshness:** a time-sensitive question where no tool was called now ends as `fresh: "unverified"` (also stored in `messages.metadata`).
 - **Config:** `web.enabled` defaults to `true`; `web.default_mode: force` is removed (a config that still sets it fails to load: delete the key);
   `web.max_searches` is capped at 2; new `web.args_retention_days` (default 90, stored args are cleared after that), `tools.log_hmac_key_file`
@@ -63,6 +65,7 @@
 - `messages.metadata` carries `{fresh, tools[]}` on every assistant message written by 6.0.0 (the key `tools` is always present, possibly empty).
 - `tool_calls`: new columns `selected_by`, `error_code`, `result_count`, `args_expires_at`; status `denied` is stored as `denied`.
 - Threads: `web_search` setting accepted/ignored/not returned (see above). Model-facing and client-facing text for a rejected query is one fixed message.
+- New audit event `budget_exhausted` (identity `api-key`, kind, code, day; no content), written once per day, kind and code when the shared API-key budget refuses a call.
 - New metric `llm_pim_window_assumed_total` (requests only; no content).
 
 ### Added (operations)
