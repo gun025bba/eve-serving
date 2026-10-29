@@ -155,7 +155,7 @@ trap 'exit 130' INT TERM HUP
 
 # ---------- GitHub API helpers (used only with the throwaway login) ----------
 ghq() { gh api -H "X-GitHub-Api-Version: $API_VERSION" "$@"; }
-redact() { sed -E 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/[redacted]/g'; }
+redact() { sed -E 's/(gh[pousr]_|github_pa[t]_)[A-Za-z0-9_]+/[redacted]/g'; }
 errline() { head -c 300 | tr '\n' ' ' | redact; }   # the first part of gh's error text (HTTP status and GitHub's message), never a token
 # write: METHOD ENDPOINT [JSON]; the JSON body goes through stdin (never on a command line). On failure the error text is PRINTED (it used to be swallowed); the call is
 # retried once with API_VERSION_ALT unless it is a POST (not idempotent)
