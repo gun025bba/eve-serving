@@ -16,8 +16,8 @@
 #
 # ORDER (the sudo step is reached ONLY if every earlier step and the settings table PASSED; any failure stops there, then only the token clean-up runs):
 #   0  pins:      the merge commit is on main and belongs to a merged PR; the installer, setup-unattended.sh and the settings files at that commit have the sha256 pinned below
-#   1  login:     `gh auth login --web` as gun025bba in a THROWAWAY gh config dir (OAuth); admin of eve-serving and eve-web; the repositories are public
-#   2  settings:  the reviewed JSON files, applied with that login (rulesets, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings)
+#   1  login:     `gh auth login --web` as gun025bba in a THROWAWAY gh config dir (OAuth); admin of eve-serving, eve-web and eve-ios; the repositories are public
+#   2  settings:  the reviewed JSON files, applied with that login (rulesets incl. release-branches on eve-serving, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings; eve-ios: only the main-protect ruleset with the required check `compile`)
 #   3  verify:    every setting is read back (PASS/FAIL table). A FAIL row stops the run: no sudo.
 #   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
 #   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; both are PROVEN dead with an HTTP 401. Not dead = FAIL (non-zero exit).
@@ -32,19 +32,20 @@ set -euo pipefail
 # the temporary token is taken out of the environment at once: no child process (gh, git, curl, sudo) ever inherits it
 TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 
-# ---------- pins and constants (setup-pins.sh --oneshot rewrites the three sha256 lines; the tests check them against the files) ----------
+# ---------- pins and constants (pin-unattended.sh --oneshot rewrites the three sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-PIN_INSTALLER_SHA256=9a8afd1c5d28181b2c0575b34bfb15ff45c23f436c260c37669cf59d28997032   # deploy/nopasswd/setup-deploy-nopasswd.sh
-PIN_UNATTENDED_SHA256=23bb3ab5c7f247ecd193b4280c7bb2da53f91a922aadfb91156c2e3fdd7b1833  # deploy/nopasswd/setup-unattended.sh
-PIN_SETTINGS_SHA256=fcbd9902bffe9b5e2265b0722d91a915bd98d92be3e393c19bd2a3a60b848161    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
+PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
+PIN_UNATTENDED_SHA256=6e946c5d18547f629e0eda8340103e32693579c38a33f0d500066d130abe12c1  # deploy/nopasswd/setup-unattended.sh
+PIN_SETTINGS_SHA256=6041ce8a4a90f6572f46830cf4c4343b42e7a2a4c25346f93563b1cac6916bef    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
+IOS_REPO=gun025bba/eve-ios   # only main-protect (required check "compile") is applied here: no release tags, no deploy environments, no deploy keys
 TTY=${ONESHOT_TTY:-/dev/tty}
 API_VERSION=2022-11-28
 API_VERSION_ALT=2026-03-10
 OAUTH_URL=https://github.com/settings/applications
 PAT_URL=https://github.com/settings/personal-access-tokens
-SETTINGS_FILES="release-tags.json release-tags.nokey.json release-tags-lock.json main-protect.eve-serving.json main-protect.eve-web.json env-deploy.json env-deploy-major.json security-and-analysis.json actions-workflow.json actions-fork-approval.json"
+SETTINGS_FILES="release-tags.json release-tags.nokey.json release-tags-lock.json main-protect.eve-serving.json main-protect.eve-web.json main-protect.eve-ios.json release-branches.eve-serving.json env-deploy.json env-deploy-major.json security-and-analysis.json actions-workflow.json actions-fork-approval.json"
 
 DRY=0; MERGE=""; WEB_VER=""; REH_KIND=""; REH_VER=""; UNPAUSE=0; SETTINGS_ONLY=0; TTY_FD=0
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -184,7 +185,7 @@ step_pins() {
   case "$t" in identical|ahead) ;; *) die "$MERGE is not in the history of main (compare says '$t')";; esac
   pr=$(pub_get "https://api.github.com/repos/$r/commits/$MERGE/pulls" | jq -r --arg m "$MERGE" '[.[]|select(.merged_at != null and .merge_commit_sha == $m and .base.ref == "main")]|length')
   [ "$pr" -ge 1 ] 2>/dev/null || die "$MERGE is not the merge commit of a merged pull request into main"
-  for r in $REPOS; do [ "$(pub_get "https://api.github.com/repos/$r" | jq -r .private)" = false ] || die "$r is not public: the poller design needs public releases (U-10)"; done
+  for r in $REPOS $IOS_REPO; do [ "$(pub_get "https://api.github.com/repos/$r" | jq -r .private)" = false ] || die "$r is not public: the poller design needs public releases (U-10)"; done
   WORKD=$(mktemp -d "${TMPDIR:-/tmp}/eve-oneshot.XXXXXX") || die "mktemp failed"; chmod 700 "$WORKD"
   SETTINGS=$WORKD/settings; mkdir "$SETTINGS"
   INST_TEXT=$(pub_get "$RAW/$MERGE/deploy/nopasswd/setup-deploy-nopasswd.sh"); [ "$(printf '%s\n' "$INST_TEXT" | sha_of)" = "$PIN_INSTALLER_SHA256" ] || die "installer sha256 does not match the pin: NOT running anything"
@@ -195,7 +196,7 @@ step_pins() {
     [ "$(sha_of <"$SETTINGS/$f")" = "$(awk -v f="$f" '$2==f {print $1}' "$SETTINGS/SHA256SUMS")" ] || die "settings/$f does not match the pinned manifest"
     jq -e . "$SETTINGS/$f" >/dev/null || die "settings/$f is not valid JSON"
   done
-  say "  merge commit on main, merged PR, installer + setup-unattended + $(printf '%s' "$SETTINGS_FILES" | wc -w | tr -d ' ') settings files match their pins; both repositories are public"
+  say "  merge commit on main, merged PR, installer + setup-unattended + $(printf '%s' "$SETTINGS_FILES" | wc -w | tr -d ' ') settings files match their pins; the three repositories are public"
 }
 temp_token_precheck() { # the temporary token (if given) must NOT see admin-only settings; one read, no change
   local c pat=$TEMP_TOKEN
@@ -217,7 +218,7 @@ step_login() {
   local who r admin
   if [ "$DRY" = 1 ]; then
     say "  DRY-RUN GH_CONFIG_DIR=<mktemp -d, 0700> gh auth login --web --hostname github.com --git-protocol https --scopes repo --insecure-storage (GH_TOKEN, GITHUB_TOKEN and EVE_TEMP_TOKEN are NOT used for it)"
-    say "  DRY-RUN require: login == $GH_USER and admin on each of: $REPOS"
+    say "  DRY-RUN require: login == $GH_USER and admin on each of: $REPOS $IOS_REPO"
     return 0
   fi
   need gh git curl
@@ -232,8 +233,8 @@ step_login() {
   who=$(ghq user --jq .login) || die "cannot read the logged-in user"
   [ "$who" = "$GH_USER" ] || die "logged in as '$who', not $GH_USER: aborting (nothing was changed)"
   OWNER_ID=$(ghq user --jq .id); [[ "$OWNER_ID" =~ ^[0-9]+$ ]] || die "cannot read the user id"
-  for r in $REPOS; do admin=$(ghq "repos/$r" --jq .permissions.admin) || die "cannot read $r"; [ "$admin" = true ] || die "$GH_USER is not an admin of $r: aborting (nothing was changed)"; done
-  say "  logged in as $who, admin of both repositories"
+  for r in $REPOS $IOS_REPO; do admin=$(ghq "repos/$r" --jq .permissions.admin) || die "cannot read $r"; [ "$admin" = true ] || die "$GH_USER is not an admin of $r: aborting (nothing was changed)"; done
+  say "  logged in as $who, admin of all three repositories"
 }
 
 # ---------- step 2: settings ----------
@@ -284,6 +285,7 @@ apply_repo() {
   if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then upsert_ruleset "$r" release-tags "$(body_of release-tags.json)"; else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
   upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)"
   upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")"
+  if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
   gw PUT "repos/$r/environments/deploy" "$(body_of env-deploy.json)" || say "  warning: environment deploy PUT failed; the table decides"
   sync_env_policies "$r" deploy || say "  warning: policies of deploy not synced; the table decides"
   major=$(jq -c --argjson id "${OWNER_ID:-0}" '.reviewers[0].id = $id' "$SETTINGS/env-deploy-major.json")
@@ -299,16 +301,21 @@ apply_repo() {
   gw PUT "repos/$r/actions/permissions/workflow" "$(body_of actions-workflow.json)" || say "  FAILED; the table decides"
   gw PUT "repos/$r/actions/permissions/fork-pr-contributor-approval" "$(body_of actions-fork-approval.json)" || say "  FAILED; the table decides"
 }
+apply_ios() { # eve-ios: ONLY the main-protect ruleset (required status check "compile" from the Actions app, PR required, 0 approvals, squash/rebase, no force-push, no deletion)
+  say "  -- $IOS_REPO (main-protect only)"
+  upsert_ruleset "$IOS_REPO" main-protect "$(body_of main-protect.eve-ios.json)"
+}
 step_settings() {
   local r
-  step "2. settings of both repositories (idempotent; applied ONLY with the throwaway OAuth login, never with the temporary token)"
+  step "2. settings of the repositories (idempotent; applied ONLY with the throwaway OAuth login, never with the temporary token)"
   for r in $REPOS; do preflight_keys "$r"; done
   for r in $REPOS; do apply_repo "$r"; done
+  apply_ios
 }
 
 # ---------- step 3: verify ----------
 chk() { if [ "$2" = "$3" ]; then printf '  PASS  %s: %s\n' "$1" "$3"; else printf '  FAIL  %s: got [%s] want [%s]\n' "$1" "$3" "$2"; FAILS=$((FAILS + 1)); fi; }
-RS_SUM='"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[]|if .type=="pull_request" then "pull_request(\(.parameters.required_approving_review_count),codeowner=\(.parameters.require_code_owner_review))" elif .type=="required_status_checks" then "checks(\(.parameters.strict_required_status_checks_policy):\([.parameters.required_status_checks[]|"\(.context)@\(.integration_id)"]|sort|join("+")))" else .type end]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"'
+RS_SUM='"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[]|if .type=="pull_request" then "pull_request(\(.parameters.required_approving_review_count),codeowner=\(.parameters.require_code_owner_review),dismiss_stale=\(.parameters.dismiss_stale_reviews_on_push),threads=\(.parameters.required_review_thread_resolution),methods=\([.parameters.allowed_merge_methods[]?]|sort|join("+")))" elif .type=="required_status_checks" then "checks(\(.parameters.strict_required_status_checks_policy):\([.parameters.required_status_checks[]|"\(.context)@\(.integration_id)"]|sort|join("+")))" else .type end]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"'
 ENV_SUM='"wait=\(([.protection_rules[]?|select(.type=="wait_timer")|.wait_timer]|.[0]) // 0) admins_bypass=\(.can_admins_bypass) custom=\(.deployment_branch_policy.custom_branch_policies) reviewers=\([.protection_rules[]?|select(.type=="required_reviewers")|.reviewers[]?|"\(.type):\(.reviewer.id)"]|sort|join(","))"'
 rs_check() { # REPO NAME FILE
   local id g want
@@ -323,6 +330,7 @@ verify_repo() {
   if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then rs_check "$r" release-tags release-tags.json; else rs_check "$r" release-tags release-tags.nokey.json; chk "$r DeployKey bypass present (tagging with the key works)" key nokey; fi
   rs_check "$r" release-tags-lock release-tags-lock.json
   rs_check "$r" main-protect "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json"
+  if [ "$s" = serving ]; then rs_check "$r" release-branches release-branches.eve-serving.json; fi
   chk "$r environment deploy" "wait=$(jq -r .wait_timer "$SETTINGS/env-deploy.json") admins_bypass=false custom=true reviewers=" "$(gr "repos/$r/environments/deploy" "$ENV_SUM")"
   chk "$r environment deploy policies" "tag:v*" "$(gr "repos/$r/environments/deploy/deployment-branch-policies?per_page=100" '[.branch_policies[]|"\(.type):\(.name)"]|sort|join(",")')"
   chk "$r environment deploy-major" "wait=0 admins_bypass=false custom=true reviewers=User:$OWNER_ID" "$(gr "repos/$r/environments/deploy-major" "$ENV_SUM")"
@@ -335,23 +343,26 @@ verify_repo() {
   g=$(gr "repos/$r/keys?per_page=100" '[.[]|select(.read_only==false)|.title]|sort|join(",")')
   if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then chk "$r write deploy keys (only the tagger)" "$(keytitle_of "$r")" "$g"; else chk "$r write deploy keys (none)" "" "$g"; fi
 }
+verify_ios() { rs_check "$IOS_REPO" main-protect main-protect.eve-ios.json; }
 step_verify() {
   local r
   step "3. verify (read back from GitHub)"
-  if [ "$DRY" = 1 ]; then say "  DRY-RUN read back: rulesets (release-tags, release-tags-lock, main-protect), environments deploy (wait timer, no admin bypass, tag v*) and deploy-major (reviewer = you), secret scanning + push protection, immutable releases, 3 Actions settings, write deploy keys; compared with the pinned JSON files"; return 0; fi
+  if [ "$DRY" = 1 ]; then say "  DRY-RUN read back: rulesets (release-tags, release-tags-lock, main-protect, [eve-serving only] release-branches; eve-ios: main-protect with check compile@15368), environments deploy (wait timer, no admin bypass, tag v*) and deploy-major (reviewer = you), secret scanning + push protection, immutable releases, 3 Actions settings, write deploy keys; compared with the pinned JSON files"; return 0; fi
   for r in $REPOS; do verify_repo "$r"; done
+  verify_ios
   if [ "$FAILS" != 0 ]; then say "  $FAILS CHECK(S) FAILED: the sudo step is NOT run. Fix the cause (see the FAIL and API ERROR lines) and re-run; the run is idempotent."; return 1; fi
   say "  ALL SETTINGS CHECKS PASSED"
 }
 
 # ---------- step 4: the one sudo session ----------
-# Runs as root: only checked texts and values that were validated above. $1 = setup-unattended text, $2 = installer text, $3 web version or "-", $4 rehearsal kind or "-", $5 rehearsal version, $6 unpause 0|1.
+# Runs as root: only checked texts and values that were validated above. $1 = setup-unattended text, $2 = installer text, $3 web version or "-", $4 rehearsal kind or "-", $5 rehearsal version, $6 unpause 0|1,
+# $7 = the verified main merge commit (both scripts download only from it, and trust only their pinned sha256). The installer creates PAUSE and the floors BEFORE the sudoers rule goes live.
 # shellcheck disable=SC2016  # the session text is meant to be passed literally to the root shell
 ROOT_SESSION='set -e
-SU=$1; INST=$2; WEB=$3; RK=$4; RV=$5; UP=$6
-su_() { /bin/bash -c "$SU" setup-unattended "$@"; }
+SU=$1; INST=$2; WEB=$3; RK=$4; RV=$5; UP=$6; MC=$7
+su_() { /bin/bash -c "$SU" setup-unattended --src-commit "$MC" "$@"; }
 su_ accounts
-/bin/bash -c "$INST" setup-deploy-nopasswd --deploy-user evedeploy
+/bin/bash -c "$INST" setup-deploy-nopasswd --src-commit "$MC" --pause --deploy-user evedeploy
 if [ "$WEB" != - ]; then su_ deploy web "$WEB"; fi
 su_ state
 if [ "$RK" != - ]; then su_ rehearse "$RK" "$RV"; if [ "$UP" = 1 ]; then su_ unpause; fi; fi
@@ -360,13 +371,13 @@ su_ verify'
 step_sudo() {
   step "4. install (sudo, ONE password prompt): accounts, entrypoint with PAUSE/floor/blocklist and WEB_ENABLED, poller, PAUSE"
   if [ "$DRY" = 1 ]; then
-    say "  DRY-RUN sudo /bin/bash -c '<session>' _ <setup-unattended text> <installer text> ${WEB_VER:--} ${REH_KIND:--} ${REH_VER:--} $UNPAUSE   with the session:"
+    say "  DRY-RUN sudo /bin/bash -c '<session>' _ <setup-unattended text> <installer text> ${WEB_VER:--} ${REH_KIND:--} ${REH_VER:--} $UNPAUSE ${MERGE:-<merge>}   with the session:"
     printf '%s\n' "$ROOT_SESSION" | sed 's/^/    | /'
     return 0
   fi
   need sudo
   say "  checked texts, one sudo call (it asks for your password once)"
-  sudo /bin/bash -c "$ROOT_SESSION" _ "$SU_TEXT" "$INST_TEXT" "${WEB_VER:--}" "${REH_KIND:--}" "${REH_VER:--}" "$UNPAUSE" || { SUDO_RC=$?; FAILS=$((FAILS + 1)); die "the sudo session failed (exit $SUDO_RC): read the output above; the run is idempotent"; }
+  sudo /bin/bash -c "$ROOT_SESSION" _ "$SU_TEXT" "$INST_TEXT" "${WEB_VER:--}" "${REH_KIND:--}" "${REH_VER:--}" "$UNPAUSE" "$MERGE" || { SUDO_RC=$?; FAILS=$((FAILS + 1)); die "the sudo session failed (exit $SUDO_RC): read the output above; the run is idempotent"; }
 }
 
 main() {

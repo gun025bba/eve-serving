@@ -423,9 +423,9 @@ check_brakes() { # $1 kind $2 version
   [ ! -e "$STATE/PAUSE" ] && [ ! -L "$STATE/PAUSE" ] || die "deploys are PAUSED ($STATE/PAUSE exists): the owner must remove it (see docs/runbooks/unattended-deploy.md)"
   if [ -f "$STATE/blocklist" ] && /usr/bin/grep -qxF "$1 $2" "$STATE/blocklist"; then die "$1 $2 is on the blocklist (it failed before)"; fi
 }
-check_floor() { # $1 floor file name  $2 version a rollback would restore
-  local f c; f=$(read_state "$1" 2>/dev/null) || return 0
-  valid_version "$f" || die "$1 is invalid"
+check_floor() { # $1 floor file name  $2 version a rollback would restore. FAIL-CLOSED: a missing or invalid floor means refuse (the installer creates it; only `setup-unattended.sh raise-floor` raises it by hand)
+  local f c; f=$(read_state "$1" 2>/dev/null) || die "$1 is missing: rollback refused (the installer creates the floor; the owner can create it with setup-unattended.sh raise-floor)"
+  valid_version "$f" || die "$1 is invalid: rollback refused"
   c=$(ver_cmp "$2" "$f") || die "version compare failed"
   [ "$c" != -1 ] || die "rollback target $2 is below the floor $f"
 }
@@ -434,9 +434,19 @@ raise_floor() { # $1 floor file name  $2 version: only upwards
   if [ -n "$f" ] && valid_version "$f"; then c=$(ver_cmp "$2" "$f") || return 0; [ "$c" = 1 ] || return 0; fi
   write_state "$1" "$2" || log "WARNING: cannot raise $1 to $2"
 }
-hold() { # $1 kind $2 failed/rolled-back version: block it and pause every deploy
+latch_pause() { # $1 text. PAUSE first; if it cannot be written, fall back step by step to something that STILL stops every later deploy. 0 = latched, 1 = nothing worked
+  write_state PAUSE "$1" && return 0
+  /bin/rm -f "$STATE/PAUSE" 2>/dev/null || true
+  /bin/ln -s hold-failed "$STATE/PAUSE" 2>/dev/null && { log "WARNING: PAUSE written as a symlink latch (the file write failed)"; return 0; }
+  /bin/rm -f "$STATE/allowed_user" 2>/dev/null && [ ! -e "$STATE/allowed_user" ] && { log "WARNING: PAUSE could not be written: allowed_user removed instead (every deploy is refused until the owner restores it)"; return 0; }
+  return 1
+}
+hold() { # $1 kind $2 failed/rolled-back version: pause every deploy FIRST (the safety brake), then block the version. If no latch can be set, fail closed: log loudly and exit non-zero
+  local rc=0
+  latch_pause "kind=$1 version=$2 at=$(date '+%Y-%m-%dT%H:%M:%S%z')" || rc=1
+  /bin/rm -f "$STATE/rehearsal_ok" 2>/dev/null || true             # a real failure invalidates the rehearsal
   ( umask 077; printf '%s %s\n' "$1" "$2" >>"$STATE/blocklist" ) || log "WARNING: cannot write the blocklist"
-  write_state PAUSE "kind=$1 version=$2 at=$(date '+%Y-%m-%dT%H:%M:%S%z')" || log "WARNING: cannot write PAUSE"
+  if [ "$rc" != 0 ]; then log "HOLD-LATCH-FAILED: $1 $2 could NOT be paused: manual action needed (create $STATE/PAUSE)"; printf 'eve-deploy: HOLD-LATCH-FAILED: cannot pause deploys after %s %s: create %s/PAUSE by hand\n' "$1" "$2" "$STATE" >&2; exit 1; fi
   log "HOLD: $1 $2 blocked, PAUSE set"
 }
 make_work() { WORK=$(umask 077; /usr/bin/mktemp -d "$STATE/work.XXXXXX") || die "mktemp failed"; /bin/chmod 0700 "$WORK"; }

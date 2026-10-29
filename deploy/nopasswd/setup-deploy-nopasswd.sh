@@ -6,6 +6,8 @@
 #   deploy | deploy-web | rollback | rollback-web      (exact arguments, no wildcard; all via /usr/local/libexec/eve/deploy)
 # Remove it again with /usr/local/libexec/eve/uninstall, or by hand: sudo rm /etc/sudoers.d/eve-deploy. Never reads or prints secrets.
 #   optional: --schema N  --current X.Y.Z  --current-web X.Y.Z   (otherwise: newest migration, the live gateway's own version, the live UI's version)
+#   --src-commit <40-hex>   REQUIRED (except in the tests): the one commit on main the pinned files are downloaded from. The files are trusted by their sha256 below, never by the commit.
+#   optional: --pause       create the PAUSE state (no `deploy`/`deploy-web` runs) BEFORE the sudoers rule goes live; used by the unattended one-shot
 #   optional: --deploy-user NAME   the account that may call the four commands and owns the staging dir (default: the user who ran sudo). setup-unattended.sh creates a dedicated one (evedeploy).
 # Everything is inside main() and the file ends with the call, so when bash reads this script from a pipe nothing is left on stdin for a
 # child command to swallow, and main() starts by pointing stdin at /dev/null.
@@ -23,12 +25,11 @@ if [ "$(id -u)" = 0 ]; then for _v in $(compgen -e); do case "$_v" in EVE_*) uns
 unset _v
 # --- end drop ---
 
-# ----- pins: what gets installed, byte for byte (the README line pins the hash of THIS file) -----
-SRC_COMMIT=a4a6c026bdca3edc8021abe852f833e38f9bb387
+# ----- pins: what gets installed, byte for byte (the README line pins the hash of THIS file; the commit comes from --src-commit, so no commit is written into any file) -----
 SRC_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 COSIGN_URL=https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-darwin-arm64
 SHA_COSIGN=9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4
-SHA_DEPLOY=26b91a29598e7a3c0cdd14c34620bcf7b12b0d22eae849cf26d5b9b33dcf7039
+SHA_DEPLOY=5cc95f749dbe4b441d3858f5749d3698c8be0772a0cf7f4c1fe4f6f251d2a10a
 SHA_FETCH=52ea1729eb4e96beebe2032114fe804f33c9a21f3eac2e54058ff47bde59b0f2
 SHA_ROOT=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 SHA_UNINSTALL=2bde36730633cfe8624bcc3f5eec1924985a30563baa90e9290c56a9e9586d00
@@ -55,13 +56,15 @@ SUDOERS_FILE=$SUDOERS_D/eve-deploy
 die() { echo "setup-deploy-nopasswd: $*" >&2; exit 1; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }
 
-SCHEMA=$DEFAULT_SCHEMA CUR="" CURW="" DEPLOY_USER=""
+SCHEMA=$DEFAULT_SCHEMA CUR="" CURW="" DEPLOY_USER="" SRC_COMMIT="" PAUSE_FIRST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --schema) SCHEMA=${2:-}; shift 2;;
     --current) CUR=${2:-}; shift 2;;
     --current-web) CURW=${2:-}; shift 2;;
     --deploy-user) DEPLOY_USER=${2:-}; shift 2;;
+    --src-commit) SRC_COMMIT=${2:-}; shift 2;;
+    --pause) PAUSE_FIRST=1; shift;;
     *) die "unknown argument: $1";;
   esac
 done
@@ -75,13 +78,21 @@ USER_NAME=${SUDO_USER:-}
 U_UID=$(id -u "$USER_NAME") || die "unknown user"
 [ "$U_UID" != 0 ] && [ "$U_UID" != 451 ] || die "user uid not allowed"
 U_GID=$(id -g "$USER_NAME")
+[ -z "$SRC_COMMIT" ] || [[ "$SRC_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--src-commit needs the full 40-hex sha of a commit on main"
+[ -n "$SRC_DIR" ] || [[ "$SRC_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--src-commit <40-hex commit on main> is required (the README / pin-unattended.sh --print give the line)"
 [[ "$SCHEMA" =~ ^(0|[1-9][0-9]{0,5})$ ]] || die "--schema must be a number (newest goose migration)"
 [ -z "$CUR" ] || [[ "$CUR" =~ $V_RE ]] || die "--current must be X.Y.Z"
 [ -z "$CURW" ] || [[ "$CURW" =~ $V_RE ]] || die "--current-web must be X.Y.Z"
 
+verify_installed() { # re-hash every installed destination (what is on disk now, not what was downloaded) against its pin
+  local pair
+  for pair in deploy:$SHA_DEPLOY fetch:$SHA_FETCH uninstall:$SHA_UNINSTALL cosign:$SHA_COSIGN trusted_root.json:$SHA_ROOT; do
+    [ "$(sha_of "$LIBEXEC/${pair%%:*}")" = "${pair#*:}" ] || die "installed $LIBEXEC/${pair%%:*} does not match its pin after the install"
+  done
+}
 # 1. fetch the pinned files into a root-only dir and verify EVERY one against its pin before anything is installed
 WORKD=""; TMP=""
-cleanup() { [ -z "$WORKD" ] || rm -rf "$WORKD"; [ -z "$TMP" ] || rm -f "$TMP"; }   # ONE exit trap: a second `trap ... EXIT` would replace it
+cleanup() { [ -z "$WORKD" ] || rm -rf "$WORKD"; }   # ONE exit trap: a second `trap ... EXIT` would replace it
 trap cleanup EXIT
 WORKD=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/eve-setup.XXXXXX") || die "mktemp failed"
 chmod 0700 "$WORKD"
@@ -147,6 +158,7 @@ for pair in eve-deploy:deploy eve-fetch:fetch uninstall-deploy-nopasswd.sh:unins
   install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0755 "$WORKD/${pair%%:*}" "$LIBEXEC/${pair##*:}.new" && mv -f "$LIBEXEC/${pair##*:}.new" "$LIBEXEC/${pair##*:}"
 done
 install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0644 "$WORKD/trusted_root.json" "$LIBEXEC/trusted_root.json.new" && mv -f "$LIBEXEC/trusted_root.json.new" "$LIBEXEC/trusted_root.json"
+verify_installed                                                  # M-1: BEFORE anything that lets a user in (state, allowed_user, sudoers) is created
 rm -f "$LIBEXEC/allowed_signers"                                  # the old laptop-key trust root (PR #90) is gone: no key can sign a deploy any more
 install -d -o "$USER_NAME" -g "$U_GID" -m 0700 "$LIBEXEC/staging"
 install -d -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0700 "$STATE"
@@ -154,12 +166,16 @@ if [ ! -f "$STATE/current_version" ]; then ( umask 077; echo "$CUR" >"$STATE/cur
 else echo "note: keeping existing $STATE/current_version ($(head -1 "$STATE/current_version"))"; fi
 if [ ! -f "$STATE/current_web_version" ]; then ( umask 077; echo "$CURW" >"$STATE/current_web_version" )
 else echo "note: keeping existing $STATE/current_web_version ($(head -1 "$STATE/current_web_version"))"; fi
+# the brakes exist from the first moment: PAUSE (if asked) BEFORE the sudoers rule below, and the rollback floors (a missing floor makes the entrypoint refuse a rollback)
+if [ "$PAUSE_FIRST" = 1 ] && [ ! -e "$STATE/PAUSE" ] && [ ! -L "$STATE/PAUSE" ]; then ( umask 077; printf 'reason=install (paused until the owner or the rehearsal lifts it) at=%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$STATE/PAUSE" ); fi
+if [ ! -f "$STATE/floor" ]; then ( umask 077; head -1 "$STATE/current_version" >"$STATE/floor" ); fi
+if [ ! -f "$STATE/floor_web" ]; then ( umask 077; head -1 "$STATE/current_web_version" >"$STATE/floor_web" ); fi
 ( umask 077; echo "$USER_NAME" >"$STATE/allowed_user" )
 [ -L "$LOGF" ] && die "$LOGF is a symlink"
 ( umask 077; : >>"$LOGF" ); chown "$OWNER" "$LOGF"; chmod 0600 "$LOGF"          # BSD install rejects /dev/null as a source
 
 # 5. sudoers: one user, one exact path, four exact argument lists (no wildcard), no SETENV, env reset. Validated before and after install.
-TMP=$(mktemp "${TMPDIR:-/tmp}/eve-sudoers.XXXXXX") || die "mktemp failed"
+TMP=$WORKD/sudoers.snippet
 cat >"$TMP" <<SUD
 # Managed by setup-deploy-nopasswd.sh. Remove with $LIBEXEC/uninstall or: rm $SUDOERS_FILE
 Defaults!$ENTRY env_reset, !setenv
@@ -170,6 +186,10 @@ install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0440 "$TMP" "$SUDOERS_FILE.new"
 visudo -c -q -f "$SUDOERS_FILE.new" || { rm -f "$SUDOERS_FILE.new"; die "installed snippet failed visudo -c"; }
 mv -f "$SUDOERS_FILE.new" "$SUDOERS_FILE"
 [ "$SKIP_FULL" = 1 ] || visudo -c -q -f "$SUDOERS_MAIN" || { rm -f "$SUDOERS_FILE"; die "visudo -c failed on the full config: removed $SUDOERS_FILE"; }
+
+# 6. final re-check of the same, plus the sudoers rule that is live now (its sha256 must be the one of the snippet that was validated)
+verify_installed
+[ "$(sha_of "$SUDOERS_FILE")" = "$(sha_of "$TMP")" ] || die "$SUDOERS_FILE is not the validated snippet"
 
 echo "installed cosign $(sha_of "$LIBEXEC/cosign" | cut -c1-12)…, trust root $(sha_of "$LIBEXEC/trusted_root.json" | cut -c1-12)…, entrypoint $(sha_of "$ENTRY" | cut -c1-12)…"
 echo "OK. From now on, WITHOUT a password and only for releases signed by the pinned CI workflow (user: $USER_NAME):"

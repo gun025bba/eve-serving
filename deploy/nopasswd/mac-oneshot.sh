@@ -1,8 +1,8 @@
 #!/bin/bash
 # mac-oneshot.sh: the one-time setup of the passwordless deploy, run ONCE by the owner on the Mac (tonight); it can be re-run safely.
 #
-#   clone-free (the pinned one-liner is in deploy/nopasswd/README.md):  s=$(curl ... mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = <sha256> ] && bash -c "$s" mac-oneshot
-#   from a clone:   bash deploy/nopasswd/mac-oneshot.sh [--dry-run] [--skip-install] [--skip-github] [--only-fix]      (bash, not zsh)
+#   clone-free (the pinned one-liner is in deploy/nopasswd/README.md):  s=$(curl ... mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = <sha256> ] && bash -c "$s" mac-oneshot --src-commit <main commit>
+#   from a clone:   bash deploy/nopasswd/mac-oneshot.sh --src-commit <main commit> [--dry-run] [--skip-install] [--skip-github] [--only-fix]      (bash, not zsh)
 #
 #   --dry-run       prints every step and every GitHub API call it WOULD make; changes nothing, asks nothing, needs no login, no sudo, no network
 #   --skip-install  skip step 1;   --skip-github  skip the GitHub steps (login, eve-web settings, deploy-key registration, ssh test, verify)
@@ -14,8 +14,8 @@
 # What it does, in this order (the only things you type: your sudo password once, the GitHub login in the browser, and "revoked" at the end):
 #   0. KEY, local, FIRST: generates ~/.eve-web-release-tagger/id_ed25519 (ed25519, no passphrase, dir 0700, key 0600) unless it exists (an existing key is kept, but only if it and its dir are
 #      owned by you and not accessible to others), so a problem with an existing key stops everything before sudo or any GitHub change. The private key is never printed, copied or sent.
-#   1. INSTALL (sudo): downloads the installer from a FIXED commit, refuses unless its sha256 matches the pin below, and pipes exactly the checked text to `sudo /bin/bash -s`
-#      (the same thing as the README line). kind=web is accepted by the entrypoint (WEB_ENABLED=yes in eve-deploy) once the installer has been re-run with these pins.
+#   1. INSTALL (sudo): downloads the installer from the main commit given with --src-commit, refuses unless its sha256 matches the pin below, and pipes exactly the checked text to `sudo /bin/bash -s`
+#      (the same thing as the README line; the installer gets the same --src-commit). kind=web is accepted by the entrypoint (WEB_ENABLED=yes in eve-deploy) once the installer has been re-run with these pins.
 #      Skipped if /usr/local/libexec/eve/deploy already has the pinned bytes.
 #   2. GITHUB: `gh auth login --web` as gun025bba in a THROWAWAY gh config dir (token stored only there, git credential config redirected there; your own gh login is untouched).
 #      Aborts unless `gh api user` says gun025bba and that account is admin of gun025bba/eve-web.
@@ -51,9 +51,9 @@ set -euo pipefail
 
 # ---------- pins and constants (the tests check these against the files in the repository) ----------
 INSTALL_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-INSTALL_COMMIT=adebcf13a945c11ca4e97c8fc965eb98082da3c7
-INSTALL_SHA256=9a8afd1c5d28181b2c0575b34bfb15ff45c23f436c260c37669cf59d28997032
-ENTRY_SHA256=26b91a29598e7a3c0cdd14c34620bcf7b12b0d22eae849cf26d5b9b33dcf7039   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
+SRC_COMMIT=""                                             # from --src-commit: ONE commit on main that the installer and github_known_hosts are downloaded from; both are trusted only by the sha256 below
+INSTALL_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26
+ENTRY_SHA256=5cc95f749dbe4b441d3858f5749d3698c8be0772a0cf7f4c1fe4f6f251d2a10a   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
 KNOWN_HOSTS_SHA256=f455f6ec65126db336c18d44d7c73b8066e6c91e9529a92dea2712cd1552bfee
 LIBEXEC=${ONESHOT_LIBEXEC:-/usr/local/libexec/eve}       # only decides whether step 1 can be skipped
 GH_USER=gun025bba
@@ -93,11 +93,14 @@ while [ $# -gt 0 ]; do
     --skip-install) DO_INSTALL=0;;
     --skip-github) DO_GITHUB=0;;
     --only-fix) ONLY_FIX=1; DO_INSTALL=0;;
-    -h|--help) say "usage: mac-oneshot.sh [--dry-run] [--skip-install] [--skip-github] [--only-fix]   (see the comment block at the top of the script)"; exit 0;;
+    --src-commit) SRC_COMMIT=${2:-}; shift;;
+    -h|--help) say "usage: mac-oneshot.sh --src-commit <40-hex main commit> [--dry-run] [--skip-install] [--skip-github] [--only-fix]   (see the comment block at the top of the script)"; exit 0;;
     *) die "unknown argument: $1 (see --help)";;
   esac
   shift
 done
+[ -z "$SRC_COMMIT" ] || [[ "$SRC_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--src-commit needs the full 40-hex sha of a commit on main"
+need_commit() { [ "$DRY" = 1 ] || [[ "$SRC_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--src-commit <40-hex commit on main> is required (the README line has it); nothing is downloaded without it"; }
 if [ "$ONLY_FIX" = 1 ] && [ "$DO_GITHUB" = 0 ]; then die "--only-fix and --skip-github exclude each other (the fix IS the GitHub part)"; fi
 
 # ---------- cleanup: log the throwaway login out, delete the throwaway dir, make the owner revoke the token ----------
@@ -224,27 +227,27 @@ get_known_hosts() {
   KH=$HERE/github_known_hosts
   if [ -f "$KH" ] && [ "$(sha_of <"$KH")" = "$KNOWN_HOSTS_SHA256" ]; then return 0; fi
   if [ "$DRY" = 1 ]; then say "  DRY-RUN fetch github_known_hosts from the pinned commit and check its sha256"; return 0; fi
-  need curl
+  need curl; need_commit
   KHDIR=$(mktemp -d "${TMPDIR:-/tmp}/eve-oneshot-kh.XXXXXX") || die "cannot create a temp dir"
   chmod 700 "$KHDIR"; KH=$KHDIR/github_known_hosts
-  curl -fsSL --proto '=https' --tlsv1.2 -o "$KH" "$INSTALL_RAW/$INSTALL_COMMIT/deploy/nopasswd/github_known_hosts" || die "cannot download github_known_hosts"
+  curl -fsSL --proto '=https' --tlsv1.2 -o "$KH" "$INSTALL_RAW/$SRC_COMMIT/deploy/nopasswd/github_known_hosts" || die "cannot download github_known_hosts"
   [ "$(sha_of <"$KH")" = "$KNOWN_HOSTS_SHA256" ] || die "downloaded github_known_hosts does not match its pinned sha256: NOT using it"
 }
 
 # ---------- step 1: the one-time sudo install ----------
 step_install() {
   step "1. install the passwordless-deploy entrypoint (sudo)"
-  local url=$INSTALL_RAW/$INSTALL_COMMIT/deploy/nopasswd/setup-deploy-nopasswd.sh cur="" s got
-  say "  pinned installer: commit $INSTALL_COMMIT, sha256 $INSTALL_SHA256"
+  local url=$INSTALL_RAW/${SRC_COMMIT:-<commit>}/deploy/nopasswd/setup-deploy-nopasswd.sh cur="" s got
+  say "  pinned installer: sha256 $INSTALL_SHA256, downloaded from main commit ${SRC_COMMIT:-<--src-commit>}"
   if [ -f "$LIBEXEC/deploy" ]; then cur=$(sha_of <"$LIBEXEC/deploy" 2>/dev/null || true); fi
   if [ "$cur" = "$ENTRY_SHA256" ]; then say "  already installed with the pinned entrypoint ($LIBEXEC/deploy): skipping"; return 0; fi
   if [ "$DRY" = 1 ]; then say "  DRY-RUN download $url, check sha256, pipe to: sudo /bin/bash -s"; return 0; fi
-  need curl sudo
+  need curl sudo; need_commit
   s=$(curl -fsSL --proto '=https' --tlsv1.2 "$url") || die "cannot download the installer"
   got=$(printf '%s\n' "$s" | sha_of)
   [ "$got" = "$INSTALL_SHA256" ] || die "installer sha256 mismatch (got $got): NOT running it"
   say "  sha256 OK; running the installer with sudo (it asks for your password)"
-  printf '%s\n' "$s" | sudo /bin/bash -s
+  printf '%s\n' "$s" | sudo /bin/bash -s -- --src-commit "$SRC_COMMIT"
 }
 
 # ---------- step 2: login + eve-web settings ----------

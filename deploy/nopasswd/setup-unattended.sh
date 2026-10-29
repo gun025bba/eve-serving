@@ -1,14 +1,17 @@
 #!/bin/bash
 # setup-unattended.sh: the root half of the unattended-deploy install. It is run by eve-oneshot.sh INSIDE THE SAME sudo session as setup-deploy-nopasswd.sh (one password), as
-#   sudo /bin/bash -c "<this checked text>" setup-unattended <subcommand> [args]
+#   sudo /bin/bash -c "<this checked text>" setup-unattended [--src-commit <40-hex main commit>] <subcommand> [args]
+# Files it downloads (eve-poll, the plist template) come from that ONE main commit and are trusted only by the sha256 pinned below. Root keeps every temporary file in ONE `mktemp -d` (0700) directory.
 # Subcommands (each idempotent):
 #   accounts            create the two service accounts (evedeploy: runs the poller and is the only user in sudoers; evebackup: unused until the DB backup job exists), hidden, no login
 #                       shell, no password, not admin, home 0700 under /var, plus the poller work dir /var/evedeploy/poll
-#   state               first time only (marker file): PAUSE (reason=initial), floors = the live versions, empty blocklist; installs the poller and its LaunchDaemon plist (NOT loaded)
-#   deploy KIND X.Y.Z   a SUPERVISED deploy as the deploy user through the sudoers rule, run before `state` (the owner is sitting there); refused by the entrypoint while PAUSE exists
+#   state               first time only (marker file): PAUSE (kept if the installer already made it), floors = the live versions (if missing), empty blocklist; installs the poller and its LaunchDaemon plist (NOT loaded),
+#                       then re-verifies the sha256 of every installed file (poller and the rendered plist). Needs --src-commit. Invalidates rehearsal_ok.
+#   deploy KIND X.Y.Z   a SUPERVISED deploy as the deploy user through the sudoers rule (the owner is sitting there). An install/initial PAUSE is lifted for the duration and put back on every exit path
 #   rehearse KIND X.Y.Z removes the initial PAUSE, deploys a signed test release that MUST fail its health check, then checks: it failed, the previous version is live again, PAUSE is back,
 #                       the version is on the blocklist, the floor is intact. PASS writes $STATE/rehearsal_ok. PAUSE is recreated on every exit path.
-#   unpause             removes PAUSE, only if rehearsal_ok exists (the owner can always `sudo rm $STATE/PAUSE` by hand)
+#   unpause             removes PAUSE, only if rehearsal_ok exists; rehearsal_ok is consumed (the owner can always `sudo rm $STATE/PAUSE` by hand)
+#   raise-floor KIND X.Y.Z   the ONLY manual way to change a rollback floor, and it can only RAISE it (equal = no-op; lower or above the live version = refused)
 #   load                loads the poller LaunchDaemon (do this last)
 #   verify              read-only PASS/FAIL table of the finished install (accounts, sudoers, entrypoint, poller, state, loaded); a FAIL makes the exit status non-zero
 # Never reads or prints a secret; there is none. macOS arm64 only (EVE_SKIP_OS=1 is for the tests).
@@ -20,9 +23,9 @@ umask 022
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 if [ "$(id -u)" = 0 ]; then for _v in $(compgen -e); do case "$_v" in EVE_*) unset "$_v";; esac; done; fi   # a root run never honours the test knobs
 unset _v
-SRC_COMMIT=a4a6c026bdca3edc8021abe852f833e38f9bb387   # pin-unattended.sh <A> rewrites the three pins below
+SRC_COMMIT=""   # from --src-commit (the main commit the files are fetched from); the content is trusted only by the two sha256 pins below
 SRC_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-SHA_POLL=d14ad0d4f612370dfa8d67b2159379b4dc450af0d70f42b4024b3c672f863996
+SHA_POLL=edce0faf4171901f02561da1b19a966804e824f717834e436a13151452904b5d
 SHA_PLIST=e85875caf422172dd8fbfa860f4650ac42c3d50af471fb0d1ff20105035df5ed
 DEPLOY_USER=evedeploy BACKUP_USER=evebackup LABEL=com.llmserving.evepoll
 LIBEXEC=${EVE_LIBEXEC:-/usr/local/libexec/eve}; STATE=${EVE_STATE:-/var/db/eve-deploy}; HOME_BASE=${EVE_HOME_BASE:-/var}
@@ -34,7 +37,8 @@ say() { printf '%s\n' "$*"; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }
 [ "$SKIP_ROOT" = 1 ] || [ "$(id -u)" = 0 ] || die "run with sudo"
 [ "$SKIP_OS" = 1 ] || { [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; } || die "macOS on Apple silicon only"
-[ $# -ge 1 ] || die "usage: accounts | state | deploy KIND X.Y.Z | rehearse KIND X.Y.Z | unpause | load | verify"
+if [ "${1:-}" = --src-commit ]; then SRC_COMMIT=${2:-}; shift; shift || true; fi
+[ $# -ge 1 ] || die "usage: [--src-commit <40-hex>] accounts | state | deploy KIND X.Y.Z | rehearse KIND X.Y.Z | unpause | raise-floor KIND X.Y.Z | load | verify"
 CMD=$1; shift
 V_RE='^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'
 HOME_D=$HOME_BASE/$DEPLOY_USER WORK_D=$HOME_BASE/$DEPLOY_USER/poll
@@ -63,11 +67,15 @@ ensure_dir() { # $1 dir $2 user $3 mode
   if [ "$SKIP_ROOT" = 1 ]; then install -d -m "$3" "$1"; else install -d -o "$2" -m "$3" "$1"; fi   # SKIP_ROOT is a test knob (ignored for root)
 }
 
-fetch_pinned() { # $1 name $2 sha $3 dest
-  local t; t=$(mktemp "${TMPDIR:-/tmp}/eve-unatt.XXXXXX") || die "mktemp failed"
-  if [ -n "$SRC_DIR" ]; then cp "$SRC_DIR/$(basename "$4")" "$t"; else curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --max-time 120 -o "$t" "$SRC_RAW/$SRC_COMMIT/deploy/nopasswd/$4" || { rm -f "$t"; die "download failed: $1"; }; fi
-  [ "$(sha_of "$t")" = "$2" ] || { rm -f "$t"; die "$1: sha256 does not match the pin"; }
-  cp "$t" "$3" && rm -f "$t"
+# ONE private temp directory for everything root writes outside its destinations: mktemp -d (0700, random name); no other name under /tmp is ever created or derived from it.
+TMPD=""
+cleanup() { [ -z "$TMPD" ] || rm -rf "$TMPD"; }
+trap cleanup EXIT
+mk_tmpd() { [ -n "$TMPD" ] || { TMPD=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/eve-unatt.XXXXXX") || die "mktemp -d failed"; chmod 0700 "$TMPD"; }; }
+fetch_pinned() { # $1 name $2 sha $3 dest (inside $TMPD) $4 path under deploy/nopasswd
+  [ -n "$SRC_DIR" ] || [[ "$SRC_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--src-commit <40-hex commit on main> is required for this step"
+  if [ -n "$SRC_DIR" ]; then cp "$SRC_DIR/$(basename "$4")" "$3" || die "cannot copy $1"; else curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --max-time 120 -o "$3" "$SRC_RAW/$SRC_COMMIT/deploy/nopasswd/$4" || die "download failed: $1"; fi
+  [ "$(sha_of "$3")" = "$2" ] || die "$1: sha256 does not match the pin"
 }
 
 cmd_accounts() {
@@ -78,28 +86,39 @@ cmd_accounts() {
   ensure_dir "$WORK_D" "$DEPLOY_USER" 0700
 }
 
+installed_ok() { # re-verify the sha256 of every file this script installed (the poller and the rendered plist) as they are on disk now; prints a row per file
+  local ok=0 want
+  want=$(head -1 "$STATE/plist_sha256" 2>/dev/null || true)
+  if [ "$(sha_of "$LIBEXEC/poll" 2>/dev/null || true)" = "$SHA_POLL" ]; then say "  PASS  installed poller matches its pin"; else say "  FAIL  installed poller does not match its pin"; ok=1; fi
+  if [ -n "$want" ] && [ "$(sha_of "$LAUNCHD_DIR/$LABEL.plist" 2>/dev/null || true)" = "$want" ]; then say "  PASS  installed plist matches the rendered text"; else say "  FAIL  installed plist does not match the rendered text"; ok=1; fi
+  return "$ok"
+}
 state_ok() { [ -d "$STATE" ] && [ ! -L "$STATE" ] && [ -f "$STATE/current_version" ] || die "the deploy entrypoint is not installed ($STATE)"; }
 cmd_state() {
   say "state, poller files"
   state_ok
   [ -d "$WORK_D" ] || die "the poller work dir does not exist: run the accounts step first"
   [ "$(head -1 "$STATE/allowed_user" 2>/dev/null)" = "$DEPLOY_USER" ] || die "allowed_user is not $DEPLOY_USER: run the installer with --deploy-user $DEPLOY_USER first"
-  local t; t=$(mktemp "${TMPDIR:-/tmp}/eve-unatt.XXXXXX")
-  fetch_pinned poll "$SHA_POLL" "$t.poll" eve-poll; install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0755 "$t.poll" "$LIBEXEC/poll.new" && mv -f "$LIBEXEC/poll.new" "$LIBEXEC/poll"
-  fetch_pinned plist "$SHA_PLIST" "$t.plist" launchd/com.llmserving.evepoll.plist.template
-  sed -e "s#__USER__#$DEPLOY_USER#g" -e "s#__LIBEXEC__#$LIBEXEC#g" -e "s#__WORK__#$WORK_D#g" "$t.plist" >"$t.out"
-  if command -v plutil >/dev/null 2>&1; then plutil -lint "$t.out" >/dev/null || die "rendered plist is invalid"; fi
-  install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0644 "$t.out" "$LAUNCHD_DIR/$LABEL.plist"
-  rm -f "$t" "$t.poll" "$t.plist" "$t.out"
-  say "  poller installed ($LIBEXEC/poll, $LAUNCHD_DIR/$LABEL.plist), not loaded"
+  mk_tmpd
+  fetch_pinned poll "$SHA_POLL" "$TMPD/poll" eve-poll
+  fetch_pinned plist "$SHA_PLIST" "$TMPD/plist.template" launchd/com.llmserving.evepoll.plist.template
+  sed -e "s#__USER__#$DEPLOY_USER#g" -e "s#__LIBEXEC__#$LIBEXEC#g" -e "s#__WORK__#$WORK_D#g" "$TMPD/plist.template" >"$TMPD/plist.rendered"
+  if command -v plutil >/dev/null 2>&1; then plutil -lint "$TMPD/plist.rendered" >/dev/null || die "rendered plist is invalid"; fi
+  PLIST_SHA=$(sha_of "$TMPD/plist.rendered")
+  install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0755 "$TMPD/poll" "$LIBEXEC/poll.new" && mv -f "$LIBEXEC/poll.new" "$LIBEXEC/poll"
+  install -o "${OWNER%:*}" -g "${OWNER#*:}" -m 0644 "$TMPD/plist.rendered" "$LAUNCHD_DIR/$LABEL.plist.new" && mv -f "$LAUNCHD_DIR/$LABEL.plist.new" "$LAUNCHD_DIR/$LABEL.plist"
+  ( umask 077; printf '%s\n' "$PLIST_SHA" >"$STATE/plist_sha256" ); chown "$OWNER" "$STATE/plist_sha256" 2>/dev/null || true
+  rm -f "$STATE/rehearsal_ok"                                        # new files installed: an earlier rehearsal says nothing about them
+  installed_ok || die "an installed file does not match its pin after the install (see above)"
+  say "  poller installed ($LIBEXEC/poll, $LAUNCHD_DIR/$LABEL.plist), sha256 re-verified, not loaded"
   if [ -f "$STATE/unattended_installed" ]; then say "  state files already created earlier: PAUSE, floors and blocklist left as they are"; return 0; fi
   ( umask 077
-    printf 'reason=initial (no rehearsal yet) at=%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$STATE/PAUSE"
+    [ -e "$STATE/PAUSE" ] || [ -L "$STATE/PAUSE" ] || printf 'reason=initial (no rehearsal yet) at=%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" >"$STATE/PAUSE"
     [ -f "$STATE/blocklist" ] || : >"$STATE/blocklist"
     [ -f "$STATE/floor" ] || head -1 "$STATE/current_version" >"$STATE/floor"
     if [ -f "$STATE/current_web_version" ] && [ ! -f "$STATE/floor_web" ]; then head -1 "$STATE/current_web_version" >"$STATE/floor_web"; fi
     date '+%Y-%m-%dT%H:%M:%S%z' >"$STATE/unattended_installed" )
-  chown "$OWNER" "$STATE/PAUSE" "$STATE/blocklist" "$STATE/floor" "$STATE/unattended_installed" 2>/dev/null || true
+  chown -h "$OWNER" "$STATE/PAUSE" "$STATE/blocklist" "$STATE/floor" "$STATE/unattended_installed" 2>/dev/null || true
   [ ! -f "$STATE/floor_web" ] || chown "$OWNER" "$STATE/floor_web" 2>/dev/null || true
   # seed the poller's "done" marks with the live versions: it must not try to redeploy the release that is already running
   head -1 "$STATE/current_version" >"$WORK_D/done_gateway"
@@ -117,25 +136,38 @@ run_deploy() { # $1 kind $2 version ; prints the entrypoint's last line; returns
   as_deploy_user "$LIBEXEC/fetch" "$1" "$2" >/dev/null || return 99
   as_deploy_user /usr/bin/sudo -n "$LIBEXEC/deploy" "$VERB" 2>&1 | tail -3 || return "${PIPESTATUS[0]}"
 }
+restore_pause() { [ -e "$STATE/PAUSE" ] || [ -L "$STATE/PAUSE" ] || printf 'reason=install (restored after the supervised deploy) at=%s\n' "$(date +%s)" >"$STATE/PAUSE"; }
 cmd_deploy() {
   [ $# -eq 2 ] || die "usage: deploy KIND X.Y.Z"
-  local VERB CURF; kind_args "$1" "$2"; state_ok
+  local VERB CURF held=0; kind_args "$1" "$2"; state_ok
   say "supervised deploy of $1 $2 as $DEPLOY_USER"
-  [ ! -e "$STATE/PAUSE" ] || die "PAUSE exists: a supervised deploy is done BEFORE the state step (or after the owner removed PAUSE)"
+  if [ -e "$STATE/PAUSE" ] || [ -L "$STATE/PAUSE" ]; then
+    case "$(head -1 "$STATE/PAUSE" 2>/dev/null)" in reason=install*|reason=initial*) ;; *) die "PAUSE exists with a reason other than the install: remove it by hand if you mean it";; esac
+    held=1
+    # the install PAUSE is lifted ONLY for this supervised deploy and put back on every exit path
+    rm -f "$STATE/PAUSE"; trap 'restore_pause; cleanup' EXIT
+  fi
   run_deploy "$1" "$2" || die "the deploy of $1 $2 failed (see above and $LOGF); nothing else was done"
   [ "$(head -1 "$STATE/$CURF")" = "$2" ] || die "after the deploy the installed $1 version is not $2"
   say "  $1 $2 is live"
+  [ "$held" = 0 ] || say "  (the install PAUSE is put back now)"
 }
 cmd_rehearse() {
   [ $# -eq 2 ] || die "usage: rehearse KIND X.Y.Z"
   local VERB CURF before rc=0 fl bad=0; kind_args "$1" "$2"; state_ok
   [ -f "$STATE/PAUSE" ] && [ -f "$STATE/unattended_installed" ] || die "no initial PAUSE: run the state step first"
   before=$(head -1 "$STATE/$CURF")
-  trap '[ -e "$STATE/PAUSE" ] || printf "reason=rehearsal-safety at=%s\n" "$(date +%s)" >"$STATE/PAUSE"' EXIT
+  trap '[ -e "$STATE/PAUSE" ] || [ -L "$STATE/PAUSE" ] || printf "reason=rehearsal-safety at=%s\n" "$(date +%s)" >"$STATE/PAUSE"; cleanup' EXIT
   say "rehearsal: $1 $2 must FAIL its health check and be rolled back (installed now: $before)"
-  rm -f "$STATE/PAUSE" "$STATE/rehearsal_ok"
-  run_deploy "$1" "$2" || rc=$?
+  rm -f "$STATE/rehearsal_ok"
+  # the drill also covers what an unattended run depends on besides the deploy verb: the deploy user may call BOTH rollback verbs without a password, and the poller is the pinned file and runs as that user
   chk() { if [ "$2" = "$3" ]; then printf '  PASS  %s\n' "$1"; else printf '  FAIL  %s (got %s, want %s)\n' "$1" "$3" "$2"; bad=1; fi; }
+  chk "the deploy user may run '$LIBEXEC/deploy rollback' without a password" yes "$(as_deploy_user /usr/bin/sudo -n -l "$LIBEXEC/deploy" rollback >/dev/null 2>&1 && echo yes || echo no)"
+  chk "the deploy user may run '$LIBEXEC/deploy rollback-web' without a password" yes "$(as_deploy_user /usr/bin/sudo -n -l "$LIBEXEC/deploy" rollback-web >/dev/null 2>&1 && echo yes || echo no)"
+  chk "the poller is the pinned file and the deploy user can execute it" yes "$([ "$(sha_of "$LIBEXEC/poll" 2>/dev/null || true)" = "$SHA_POLL" ] && as_deploy_user /bin/test -x "$LIBEXEC/poll" && echo yes || echo no)"
+  [ "$bad" = 0 ] || die "REHEARSAL FAIL before the test release: PAUSE stays set"
+  rm -f "$STATE/PAUSE"
+  run_deploy "$1" "$2" || rc=$?
   [ "$rc" != 0 ] && rc=failed || rc=ok
   chk "the test release failed its health check" failed "$rc"
   chk "the previous version is live again" "$before" "$(head -1 "$STATE/$CURF")"
@@ -150,7 +182,29 @@ cmd_rehearse() {
 cmd_unpause() {
   state_ok
   [ -f "$STATE/rehearsal_ok" ] || die "no rehearsal_ok: the rollback rehearsal has not passed (the owner can still remove $STATE/PAUSE by hand)"
-  rm -f "$STATE/PAUSE"; say "PAUSE removed: unattended deploys are ON (poller must be loaded)"
+  rm -f "$STATE/PAUSE" "$STATE/rehearsal_ok"; say "PAUSE removed: unattended deploys are ON (poller must be loaded; rehearsal_ok is consumed)"
+}
+ver_cmp() { # prints -1, 0, 1 for $1 <,=,> $2 (both valid X.Y.Z)
+  local a b i x y; a=$1; b=$2
+  for i in 1 2 3; do x=${a%%.*}; y=${b%%.*}; a=${a#*.}; b=${b#*.}
+    if [ "$x" -lt "$y" ]; then echo -1; return 0; elif [ "$x" -gt "$y" ]; then echo 1; return 0; fi
+  done; echo 0
+}
+cmd_raise_floor() { # the only manual floor change: upwards only
+  [ $# -eq 2 ] || die "usage: raise-floor KIND X.Y.Z"
+  local VERB CURF fl cur old c; kind_args "$1" "$2"; state_ok
+  fl=floor; [ "$1" = web ] && fl=floor_web
+  cur=$(head -1 "$STATE/$CURF" 2>/dev/null); [[ "$cur" =~ $V_RE ]] || die "the live $1 version is unreadable"
+  c=$(ver_cmp "$2" "$cur"); [ "$c" != 1 ] || die "$2 is above the live $1 version $cur: a floor above what is running is refused"
+  old=$(head -1 "$STATE/$fl" 2>/dev/null || true)
+  if [ -n "$old" ]; then
+    [[ "$old" =~ $V_RE ]] || die "the existing $fl is invalid: remove it by hand ($STATE/$fl) and run raise-floor again"
+    c=$(ver_cmp "$2" "$old")
+    [ "$c" != -1 ] || die "$2 is below the current $fl $old: the floor is never lowered"
+    [ "$c" != 0 ] || { say "$fl is already $old: nothing to do"; return 0; }
+  fi
+  ( umask 077; printf '%s\n' "$2" >"$STATE/$fl.new" ) && mv -f "$STATE/$fl.new" "$STATE/$fl"; chown "$OWNER" "$STATE/$fl" 2>/dev/null || true
+  say "$fl raised to $2 (was ${old:-missing})"
 }
 cmd_load() {
   [ -f "$LAUNCHD_DIR/$LABEL.plist" ] || die "no plist: run the state step first"
@@ -175,9 +229,12 @@ cmd_verify() {
     st=$(statm "$LIBEXEC/$f" 2>/dev/null || echo "none none")
     chk "$LIBEXEC/$f is root-owned and not group/world-writable" "yes" "$({ m=${st% *}; [ "${st#* }" = "$(id -u "${OWNER%:*}" 2>/dev/null || echo 0)" ] && [ "$m" = 755 ] || [ "$m" = 555 ]; } && echo yes || echo no)"
   done
+  chk "installed poller matches its sha256 pin" "$SHA_POLL" "$(sha_of "$LIBEXEC/poll" 2>/dev/null || echo none)"
+  chk "installed plist matches the sha256 recorded at install" "$(head -1 "$STATE/plist_sha256" 2>/dev/null || echo none)" "$(sha_of "$LAUNCHD_DIR/$LABEL.plist" 2>/dev/null || echo missing)"
   chk "poller plist installed" yes "$([ -f "$LAUNCHD_DIR/$LABEL.plist" ] && echo yes || echo no)"
   chk "poller loaded" yes "$("$LAUNCHCTL" print "system/$LABEL" >/dev/null 2>&1 && echo yes || echo no)"
   chk "floor is a valid version" yes "$({ fl=$(head -1 "$STATE/floor" 2>/dev/null); [[ "$fl" =~ $V_RE ]] && echo yes; } || echo no)"
+  if [ -f "$STATE/current_web_version" ]; then chk "floor_web is a valid version" yes "$({ fl=$(head -1 "$STATE/floor_web" 2>/dev/null); [[ "$fl" =~ $V_RE ]] && echo yes; } || echo no)"; fi
   chk "blocklist file exists" yes "$([ -f "$STATE/blocklist" ] && echo yes || echo no)"
   if [ -e "$STATE/PAUSE" ]; then say "  INFO  deploys are PAUSED ($(head -1 "$STATE/PAUSE" 2>/dev/null | cut -c1-60)): expected until the rollback rehearsal passed; see docs/runbooks/unattended-deploy.md"
   else say "  INFO  deploys are NOT paused: unattended deploys are ON"; fi
@@ -185,6 +242,7 @@ cmd_verify() {
 }
 case "$CMD" in
   verify) cmd_verify;;
+  raise-floor) cmd_raise_floor "$@";;
   accounts) cmd_accounts;; state) cmd_state;; deploy) cmd_deploy "$@";; rehearse) cmd_rehearse "$@";; unpause) cmd_unpause;; load) cmd_load;;
   *) die "unknown subcommand: $CMD";;
 esac

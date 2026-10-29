@@ -8,10 +8,11 @@ settings this relies on: [`docs/deploy-signing.md`](../../docs/deploy-signing.md
 ## One-time install (the only thing a person types)
 
 Run this **once**, in a terminal on the Mac, as the user that will deploy (it asks for your sudo password once). It downloads the
-installer from a fixed commit, refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`:
+installer from one commit of `main` (the `MAIN` you set below: the merge commit of the PR; nothing in the repository pins a PR commit), refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`, which gets the same commit as `--src-commit` (it downloads its other files only from that commit and trusts them only by the sha256 inside the installer):
 
 ```
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/adebcf13a945c11ca4e97c8fc965eb98082da3c7/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 9a8afd1c5d28181b2c0575b34bfb15ff45c23f436c260c37669cf59d28997032 ] && printf '%s\n' "$s" | sudo /bin/bash -s
+MAIN=<40-hex commit on main>
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$MAIN/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26 ] && printf '%s\n' "$s" | sudo /bin/bash -s -- --src-commit "$MAIN"
 ```
 
 It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
@@ -30,22 +31,24 @@ Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/e
 
 A poller can pick up new CI-signed releases by itself, behind three root-owned brakes (`PAUSE`, `blocklist`, rollback `floor`). Design, order of the one-shot, the temporary-token conditions, the rollback rehearsal and how to remove the pause:
 [`docs/runbooks/unattended-deploy.md`](../../docs/runbooks/unattended-deploy.md). Review list: [`docs/review/unattended-change-list.md`](../../docs/review/unattended-change-list.md). Try it without changing anything: `bash deploy/nopasswd/eve-oneshot.sh --dry-run`.
-The clone-free command (with the pins) is printed by `bash deploy/nopasswd/pin-unattended.sh --print <merge commit on main>` after the merge; pin order is in the header of `pin-unattended.sh`.
+The clone-free command (it carries the sha256 of `eve-oneshot.sh` and the merge commit as `--merge-commit`) is printed by `bash deploy/nopasswd/pin-unattended.sh --print <merge commit on main>` after the merge. **No PR commit is pinned anywhere**: files are trusted by the sha256 inside the file that fetches them, and the one main commit is an argument; the chain is in the header of `pin-unattended.sh`.
 
 **One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
 (same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys are accepted by the installed entrypoint (`WEB_ENABLED=yes`) only
 after the installer has been re-run with the pins below (an older install refuses them).
 
 ```bash
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/e3ba00e3ced2627bb0bc34e612b3f60f83004fad/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 59c80101eb6e4b508ce0ec8fdedb264074e373a034d4524cbfd8cc6626ac7513 ] && bash -c "$s" mac-oneshot
+MAIN=<40-hex commit on main>
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$MAIN/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = e4746c6b7d82871ef622675aafcd320810599e95024dd7852329edd9c56abc3f ] && bash -c "$s" mac-oneshot --src-commit "$MAIN"
 ```
 
-Run it in a terminal (bash or zsh; it needs the terminal for the browser login and the final `revoked` prompt, hence `bash -c "$s"` and not `| bash`). Add `--dry-run` after `mac-oneshot` to only print what it would do.
-Pins: commit `e3ba00e3ced2627bb0bc34e612b3f60f83004fad`, sha256 `59c80101eb6e4b508ce0ec8fdedb264074e373a034d4524cbfd8cc6626ac7513`. At the end it makes you revoke the GitHub CLI authorization at https://github.com/settings/applications and proves it is dead (`gh auth logout` alone does not revoke it).
+Run it in a terminal (bash or zsh; it needs the terminal for the browser login and the final `revoked` prompt, hence `bash -c "$s"` and not `| bash`). Add `--dry-run` after `mac-oneshot --src-commit "$MAIN"` to only print what it would do.
+Pin: sha256 `e4746c6b7d82871ef622675aafcd320810599e95024dd7852329edd9c56abc3f`. At the end it makes you revoke the GitHub CLI authorization at https://github.com/settings/applications and proves it is dead (`gh auth logout` alone does not revoke it).
 **Repair run (`--only-fix`)**, after a first run whose table has FAIL rows: no sudo, the key files are only read, the environment / rulesets / immutable releases are only read back. It logs in again, registers the existing public key as the write deploy key `eve-web-release-tagger` (**you add it in the browser**: the script copies the public key to the clipboard, opens the page and waits for `added`; a key created through the API with this login's token would be deleted by GitHub when you revoke the token, so the script no longer does that), applies the three Actions settings (every API error is printed with its HTTP status and message; if one still fails the end of the table says what to set by hand), runs `ssh -T`, and ends with the same `revoked` prompt, the 401 proof and the table. It stops if it finds a write deploy key that is not ours (checked before and again right after you added the key; if ours is not registered, `release-tags` is applied without the DeployKey bypass) or a missing / changed key file; it re-applies only the `release-tags` ruleset (its bypass depends on the key).
 
 ```bash
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/e3ba00e3ced2627bb0bc34e612b3f60f83004fad/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 59c80101eb6e4b508ce0ec8fdedb264074e373a034d4524cbfd8cc6626ac7513 ] && bash -c "$s" mac-oneshot --only-fix
+MAIN=<40-hex commit on main>
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$MAIN/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = e4746c6b7d82871ef622675aafcd320810599e95024dd7852329edd9c56abc3f ] && bash -c "$s" mac-oneshot --src-commit "$MAIN" --only-fix
 ```
 
 If the script is killed with SIGKILL, delete `$TMPDIR/eve-oneshot-gh.*` by hand and revoke the authorization at that link.
@@ -73,12 +76,12 @@ tag ref, `push` trigger), manifest shape and kind, `version` equals the one stag
 the database's (a different schema needs the migration deploy script), `ref` is that exact tag, `branch` is exactly `main`, `built_at` is at most 14 days old (and not from the future, 5 minutes of skew allowed; the Mac's clock must be right), the sha256 of the tar and of every file, and the
 machine architecture. The files are first copied into a root-only directory and verified there, so the unprivileged staging dir cannot race it.
 
-## Maintainers: pins inside the installer
+## Maintainers: pins
 
-The installer pins the exact bytes of what it installs. After any change to `eve-deploy`, `eve-fetch`, `trusted_root.json` or
-`uninstall-deploy-nopasswd.sh`: commit it, then `bash deploy/nopasswd/pin-installer.sh <that commit>`, commit the installer, then
-`bash deploy/nopasswd/pin-installer.sh --print <installer commit>` prints the install line for this README. `test/run.sh` fails on stale pins
-and on a README that does not pin the current installer hash. The cosign version and the Sigstore trust root are bumped the same way (new
+The installer pins the exact bytes of what it installs (sha256 of `eve-deploy`, `eve-fetch`, `trusted_root.json`, `uninstall-deploy-nopasswd.sh`, the cosign binary). After any change, from the final tree and **without committing in between**:
+`bash deploy/nopasswd/pin-installer.sh`, `bash deploy/nopasswd/pin-unattended.sh`, `bash deploy/nopasswd/pin-unattended.sh --oneshot`; commit the result. No commit sha is written into any file (a squash or rebase merge
+changes every SHA), so the pins survive the merge. After the merge, `pin-unattended.sh --print <merge commit>` and `pin-installer.sh --print <merge commit>` print the commands with that main commit.
+`test/run.sh` fails on stale pins and on a README that does not carry the current installer and mac-oneshot hashes. The cosign version and the Sigstore trust root are bumped the same way (new
 hashes in `eve-deploy`, `setup-deploy-nopasswd.sh`, `test/run.sh`; a trust-root change needs the one-time install again).
 
 ## Tests

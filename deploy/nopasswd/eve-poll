@@ -11,7 +11,10 @@
 set -Eeuo pipefail
 export PATH=/usr/bin:/bin
 umask 077
-LIBEXEC=${EVE_POLL_LIBEXEC:-/usr/local/libexec/eve}          # EVE_POLL_* exist for the tests; this script never runs as root
+# The EVE_POLL_* knobs exist ONLY for the tests and are ignored unless EVE_POLL_TESTING=1 (the LaunchDaemon plist never sets it): the installed poller always uses the fixed production values.
+if [ "${EVE_POLL_TESTING:-}" != 1 ]; then for _v in $(compgen -e); do case "$_v" in EVE_POLL_*) unset "$_v";; esac; done; fi
+unset _v
+LIBEXEC=${EVE_POLL_LIBEXEC:-/usr/local/libexec/eve}          # this script never runs as root
 WORK=${EVE_POLL_WORK:-/var/evedeploy/poll}                   # owned by the deploy user; NEVER the directory of a tag key (nothing downloaded here is written there)
 BASE=${EVE_POLL_BASE:-https://github.com}
 PROTO=${EVE_POLL_PROTO:-=https}
@@ -29,6 +32,8 @@ die() { echo "eve-poll: $*" >&2; exit 1; }
 [ "$(id -u)" != 0 ] || die "run as the deploy user, not root"
 [ -d "$WORK" ] && [ ! -L "$WORK" ] && [ -w "$WORK" ] || die "work dir $WORK is missing or not yours (run setup-unattended.sh first)"
 
+# the poller's own latch: set when a rollback could not be done or root could not pause deploys; no further deploy until the owner removes this file (rm $WORK/halted)
+if [ -e "$WORK/halted" ] || [ -L "$WORK/halted" ]; then log "halted ($WORK/halted exists): nothing is deployed until the owner removes it"; exit 0; fi
 LOCK=$WORK/lock
 if ! mkdir "$LOCK" 2>/dev/null; then
   if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; mkdir "$LOCK" 2>/dev/null || exit 0   # stale after 30 minutes
@@ -67,7 +72,8 @@ observe() { # $1 kind $2 verb: 3 failed probes in a row -> rollback (root decide
     if health_ok "$1"; then bad=0; else bad=$((bad + 1)); fi
     if [ "$bad" -ge 3 ]; then
       log "$1: 3 failed health probes after the deploy: calling $2"
-      "$SUDO" -n "$LIBEXEC/deploy" "$2" >/dev/null 2>&1 && log "$1: rollback done (root blocklisted the version and set PAUSE)" || log "$1: rollback REFUSED or failed: manual action needed"
+      if "$SUDO" -n "$LIBEXEC/deploy" "$2" >/dev/null 2>&1; then log "$1: rollback done (root blocklisted the version and set PAUSE)"
+      else log "$1: rollback REFUSED or failed: manual action needed; the poller halts itself"; printf 'rollback of %s failed at %s\n' "$1" "$(date +%s)" >"$WORK/halted"; fi
       return 0
     fi
     i=$((i + 1)); [ "$i" -ge "$OBSERVE_N" ] || sleep "$OBSERVE_GAP"
@@ -94,6 +100,7 @@ EOF2
   else
     case "$out" in
       *PAUSED*) log "$kind: v$v waits: deploys are PAUSED (not counted)";;
+      *HOLD-LATCH-FAILED*) log "$kind: v$v failed and root could NOT pause deploys: the poller halts itself"; printf 'hold latch failed at %s\n' "$(date +%s)" >"$WORK/halted";;
       *) note_fail "$kind" "$v"; log "$kind: v$v refused: $(printf '%s' "$out" | tail -1 | cut -c1-200)";;
     esac
   fi

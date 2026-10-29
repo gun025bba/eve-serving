@@ -98,6 +98,7 @@ new_box() { # fresh sandbox: live 9.0.0 binaries and UI, state, staging
   echo "gw-old" >"$B/bin/gateway"; echo "eg-old" >"$B/bin/eve-gw"; chmod 0755 "$B/bin/"*
   echo "old" >"$B/web/index.html"; echo "oldjs" >"$B/web/sw.js"
   echo 9.0.0 >"$B/state/current_version"; echo 8 >"$B/state/schema"; echo 9.0.0 >"$B/state/current_web_version"; echo "$ME" >"$B/state/allowed_user"
+  echo 9.0.0 >"$B/state/floor"; echo 9.0.0 >"$B/state/floor_web"   # the installer creates the floors; a missing floor makes rollback refuse (M-3)
 }
 # the sandbox: every fixed path points into $B, the trust pins point at the fixture's CI identity (the production pins are tested separately)
 sandbox_env() {
@@ -400,6 +401,28 @@ grep -qxF "gateway $FXV" "$B/state/blocklist" && ok || bad "rollback blocklists 
 new_box 77; stage gateway; run_main deploy $FXV; echo 9.0.1 >"$B/state/floor"
 run_main rollback; eq "rollback below the floor refused" "$?" 1
 eq "floor: live untouched" "$(cat "$B/state/current_version")" "$FXV"
+# M-3: the rollback floor fails closed: a missing or invalid floor means refuse (it used to mean "no floor")
+new_box 80; stage gateway; run_main deploy $FXV; rm -f "$B/state/floor"
+run_main rollback; eq "M-3: rollback with a MISSING floor refused" "$?" 1
+grep -q 'floor' "$B/stderr" && ok || bad "M-3: the refusal names the floor"
+eq "M-3: live untouched after the refused rollback" "$(cat "$B/state/current_version")" "$FXV"
+echo notaversion >"$B/state/floor"; run_main rollback; eq "M-3: rollback with an INVALID floor refused" "$?" 1
+new_box 81; stage web; run_main deploy-web $FXV; rm -f "$B/state/floor_web"
+run_main rollback-web; eq "M-3: rollback-web with a missing floor_web refused" "$?" 1
+eq "M-3: live UI untouched" "$(cat "$B/state/current_web_version")" "$FXV"
+new_box 82; stage gateway; rm -f "$B/state/floor"; run_main deploy $FXV; eq "M-3: a healthy deploy still works without a floor file and writes it" "$?/$(cat "$B/state/floor" 2>/dev/null)" "0/9.0.0"
+# M-4: if PAUSE cannot be written after a failed deploy, hold() falls back to a latch that still stops every later deploy, and fails loudly if nothing works
+new_box 83; stage gateway
+( sandbox_env; health_ok() { [ -f "$B/restored" ]; }; svc_restart() { [ "$(cat "$B/bin/gateway")" = gw-old ] && touch "$B/restored"; }; write_state() { return 1; }; main deploy $FXV ) >/dev/null 2>"$B/hold.err"
+eq "M-4: unhealthy deploy with a failing PAUSE write: rc 1" "$?" 1
+[ -L "$B/state/PAUSE" ] && ok || bad "M-4: PAUSE falls back to a symlink latch"
+stage gateway; run_main deploy 9.9.9 2>/dev/null; eq "M-4: the fallback latch refuses the next deploy" "$?" 1
+new_box 84; stage gateway
+( sandbox_env; health_ok() { chmod 0500 "$STATE"; return 1; }; svc_restart() { :; }; main deploy $FXV ) >/dev/null 2>"$B/hold.err"; rc=$?; chmod 0700 "$B/state"
+eq "M-4: nothing can latch: rc non-zero" "$((rc != 0))" 1
+grep -q 'HOLD-LATCH-FAILED' "$B/hold.err" "$B/log" 2>/dev/null && ok || bad "M-4: the output says HOLD-LATCH-FAILED (the poller halts on it)"
+new_box 85; stage gateway; run_main deploy $FXV; echo "reason=t" >"$B/state/PAUSE"; echo ok >"$B/state/rehearsal_ok"; run_main rollback
+[ ! -e "$B/state/rehearsal_ok" ] && ok || bad "low: a rollback (hold) invalidates rehearsal_ok"
 # a failed health check: automatic restore, blocklist, PAUSE
 new_box 78; stage gateway
 ( sandbox_env; health_ok() { [ -f "$B/restored" ]; }; svc_restart() { [ "$(cat "$B/bin/gateway")" = gw-old ] && touch "$B/restored"; echo r >>"$B/svc"; }; main deploy $FXV ) >/dev/null 2>&1
@@ -579,6 +602,28 @@ eq "installed entrypoint == the pinned file" "$(sha256 "$EP")" "$(sha256 "$S/src
 eq "installed trust root == the pinned file" "$(sha256 "$S/libexec/trusted_root.json")" "$(sha256 "$D/trusted_root.json")"
 eq "no private key, no signer list is installed" "$(ls "$S/libexec" | grep -cE 'allowed_signers|\.pem|\.key|id_')" 0
 ok_sh=$(grep -c 'ssh-keygen\|--pubkey\|--expect-key' "$D/setup-deploy-nopasswd.sh" "$D/eve-deploy" "$D/eve-fetch" "$D/make-release.sh" | awk -F: '{s+=$2} END {print s}'); eq "no ssh key material anywhere in the scripts" "$ok_sh" 0
+# M-2: the main commit is an argument; without it (and without the test knob) nothing is downloaded
+no_ "setup: no --src-commit: refused" setup_env env -u EVE_SRC_DIR bash "$S/inst.sh" --current 5.0.0
+no_ "setup: short --src-commit refused" setup_env env -u EVE_SRC_DIR bash "$S/inst.sh" --src-commit abc
+no_ "setup: --src-commit without value refused" setup_env bash "$S/inst.sh" --src-commit
+# M-3 / low: PAUSE exists before the sudoers rule, and a first install creates both floors (and never lowers or overwrites them)
+rm -rf "$S/state" "$S/libexec" "$S/sudoers.d/"*; run_setup --current 5.0.0 --current-web 1.8.0 --pause; eq "setup --pause rc" "$?" 0
+grep -q '^reason=install' "$S/state/PAUSE" 2>/dev/null && ok || bad "setup --pause: PAUSE with reason=install exists"
+eq "setup: floor = the live gateway version at install" "$(cat "$S/state/floor" 2>/dev/null)" 5.0.0; eq "setup: floor_web = the live web version at install" "$(cat "$S/state/floor_web" 2>/dev/null)" 1.8.0
+echo 7.0.0 >"$S/state/floor"; rm -f "$S/state/PAUSE"; run_setup --current 5.0.0 --current-web 1.8.0 --pause
+eq "setup re-run keeps a raised floor" "$(cat "$S/state/floor")" 7.0.0
+[ -e "$S/state/PAUSE" ] && ok || bad "setup --pause re-run puts the PAUSE back"
+# M-1: every installed destination is re-verified against its pin BEFORE anything lets a user in (a copy of the installer that corrupts the installed fetch right after the install loop)
+sed 's|^verify_installed   .*|echo x >>"$LIBEXEC/fetch"; verify_installed|' "$S/inst.sh" >"$S/inst-tamper.sh"
+grep -q 'echo x >>"$LIBEXEC/fetch"; verify_installed' "$S/inst-tamper.sh" && ok || bad "M-1: the tamper mutation applied (verify_installed sits right after the installs)"
+rm -rf "$S/state" "$S/libexec" "$S/sudoers.d/"*; if setup_env bash "$S/inst-tamper.sh" --current 5.0.0 >"$S/out" 2>&1; then bad "M-1: a destination that differs from its pin after the copy must fail the install"; else ok; fi
+grep -q 'does not match its pin after the install' "$S/out" && ok || bad "M-1: the failure names the destination and the pin"
+[ ! -e "$S/sudoers.d/eve-deploy" ] && [ ! -e "$S/state/allowed_user" ] && ok || bad "M-1: nothing that lets a user in exists after the failed verification"
+# a sudoers rule that is not the validated snippet is caught by the final check
+sed 's|^verify_installed$|echo "# x" >>"$SUDOERS_FILE"; verify_installed|' "$S/inst.sh" >"$S/inst-tamper2.sh"
+rm -rf "$S/state" "$S/libexec" "$S/sudoers.d/"*; if setup_env bash "$S/inst-tamper2.sh" --current 5.0.0 >"$S/out" 2>&1; then bad "M-1: a changed sudoers rule must fail the final check"; else ok; fi
+# back to the state the following tests expect (versions detected from the live gateway and UI)
+rm -rf "$S/state" "$S/libexec" "$S/sudoers.d/"* "$S/inst-tamper.sh" "$S/inst-tamper2.sh"; run_setup; eq "setup: plain re-install rc" "$?" 0
 # re-run keeps state; --current/--current-web only matter on first install
 run_setup --current 1.0.0 --current-web 1.0.0; eq "setup re-run rc" "$?" 0
 eq "re-run keeps recorded versions" "$(cat "$S/state/current_version")/$(cat "$S/state/current_web_version")" "5.0.1/1.9.0"
@@ -610,7 +655,7 @@ for p in "SHA_DEPLOY eve-deploy" "SHA_FETCH eve-fetch" "SHA_ROOT trusted_root.js
 done
 grep -q "^SHA_COSIGN=9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4\$" "$D/setup-deploy-nopasswd.sh" && ok || bad "installer pins cosign darwin-arm64 v3.1.4"
 grep -q 'cosign-darwin-arm64$' "$D/setup-deploy-nopasswd.sh" && ok || bad "installer downloads the darwin-arm64 cosign"
-grep -qE '^SRC_COMMIT=[0-9a-f]{40}$' "$D/setup-deploy-nopasswd.sh" && ok || bad "installer SRC_COMMIT is a full sha"
+eq "installer pins no commit (--src-commit is an argument; PR commits do not survive a squash)" "$(grep -cE '^SRC_COMMIT=[0-9a-f]{40}' "$D/setup-deploy-nopasswd.sh")" 0
 eq "installer DEFAULT_SCHEMA is the newest migration" "$(sed -n 's/^DEFAULT_SCHEMA=//p' "$D/setup-deploy-nopasswd.sh")" "$(ls "$REPO_ROOT/internal/store/postgres/migrations" | sed -nE 's/^0*([0-9]+)_.*\.sql$/\1/p' | sort -n | tail -1)"
 # root drops EVE_* knobs (tests cannot run as root: the block is run with a fake `id`)
 for f in setup-deploy-nopasswd.sh uninstall-deploy-nopasswd.sh; do
@@ -778,7 +823,8 @@ if [ -f "$D/README.md" ]; then
   grep -q "$(sha256 "$D/setup-deploy-nopasswd.sh")" "$D/README.md" && ok || bad "README install line pins a stale installer hash (update it)"
   # the line hashes `printf '%s\n' "$s"` of the command-substitution text: that must equal the file's own sha256 (one trailing newline, no NUL)
   eq "install line hash form equals the installer file hash" "$(printf '%s\n' "$(cat "$D/setup-deploy-nopasswd.sh")" | shasum -a 256 | cut -d' ' -f1)" "$(sha256 "$D/setup-deploy-nopasswd.sh")"
-  grep -q "raw.githubusercontent.com/gun025bba/eve-serving/[0-9a-f]\{40\}/deploy/nopasswd/setup-deploy-nopasswd.sh" "$D/README.md" && ok || bad "README install line must fetch the installer by a full commit sha"
+  grep -q 'raw.githubusercontent.com/gun025bba/eve-serving/\$MAIN/deploy/nopasswd/setup-deploy-nopasswd.sh' "$D/README.md" && ok || bad "README install line must fetch the installer from \$MAIN (a main commit given by the person who runs it)"
+  grep -q -- '-s -- --src-commit "\$MAIN"' "$D/README.md" && ok || bad "README install line passes --src-commit to the installer"
   grep -q 'sudo /bin/bash -s' "$D/README.md" && ok || bad "README one-liner pipes the checked text into sudo /bin/bash -s"
   no_ "README one-liner has no bare 'sudo bash'" grep -nE 'sudo bash' "$D/README.md"
   no_ "README does not mention generating keys on the laptop" grep -niE 'ssh-keygen -t|--pubkey|expect-key' "$D/README.md"
