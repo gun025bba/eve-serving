@@ -296,7 +296,7 @@ func main() {
 			os.Exit(1)
 		}
 		srv.Web = wt
-		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "default_mode", cfg.Web.DefaultMode)
+		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "auto_select_off", cfg.Web.AutoSelectOff)
 	}
 	reg := tools.Default() // embedded manifests; invalid manifests abort startup
 	log.Info("tool_registry_loaded", "tools", strings.Join(reg.Reg.Names(), ","))

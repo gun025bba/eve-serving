@@ -212,6 +212,8 @@ func (s *Server) patchThread(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.Settings != nil {
 		ts, ok := s.Store.(store.ThreadSettingsStore)
+		// Legacy field: validated and stored for old UIs, but since 6.0.0 it
+		// has no effect (automatic selection is server-wide).
 		m, valid := tools.ParseMode(b.Settings.WebSearch)
 		switch {
 		case !ok:
@@ -219,9 +221,6 @@ func (s *Server) patchThread(w http.ResponseWriter, r *http.Request) {
 			return
 		case !valid:
 			s.fail(w, r, apierr.BadRequest(`'settings.web_search' must be "off", "auto" or "force"`))
-			return
-		case m != tools.ModeOff && !s.webEnabled():
-			s.fail(w, r, apierr.New(400, "web_search_disabled", "Web search is disabled on this server", "invalid_request_error"))
 			return
 		}
 		if err := ts.SetThreadSettings(r.Context(), user(r), r.PathValue("id"), json.RawMessage(`{"web_search":"`+string(m)+`"}`)); err != nil {

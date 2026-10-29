@@ -130,33 +130,34 @@ func (e *webEnv) requests() []map[string]any {
 	return append([]map[string]any{}, *e.seen...)
 }
 
-func TestWebDisabledReturns400(t *testing.T) {
+// web.enabled is the master switch. The legacy request field is ignored
+// whatever its value: no 400, no tools, nothing forwarded upstream.
+func TestWebDisabledIgnoresLegacyField(t *testing.T) {
 	e := newWebEnv(t, false)
-	for _, v := range []string{`true`, `"auto"`, `"force"`} {
+	for _, v := range []string{`true`, `"auto"`, `"force"`, `"off"`, `"bogus"`} {
 		r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}],"web_search":`+v+`}`)
-		if r.StatusCode != 400 || errCode(js(t, b)) != "web_search_disabled" {
+		if r.StatusCode != 200 {
 			t.Fatal(v, r.StatusCode, string(b))
 		}
 	}
-	// "off" is accepted and stripped; nothing reaches upstream with web fields
-	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}],"web_search":"off"}`)
-	if r.StatusCode != 200 {
-		t.Fatal(string(b))
+	for _, q := range e.requests() {
+		if q["web_search"] != nil || q["tools"] != nil {
+			t.Fatal(q)
+		}
 	}
-	if q := e.requests(); len(q) != 1 || q[0]["web_search"] != nil || q[0]["tools"] != nil {
-		t.Fatal(q)
-	}
-	_, b = e.call(t, "alice@example", "GET", "/v1/me", "")
-	if c := js(t, b)["capabilities"].(map[string]any); c["web_search"] != false {
+	_, b := e.call(t, "alice@example", "GET", "/v1/me", "")
+	if c := js(t, b)["capabilities"].(map[string]any); c["web_search"] != false || c["web_search_default"] != "off" || c["auto_tool_selection"] != false {
 		t.Fatal(string(b))
 	}
 }
 
-// Regression: with web enabled but mode off (default), the upstream body is
-// exactly what it was before (no tools, no system prompt) and SSE is unchanged.
-func TestWebOffPathUnchanged(t *testing.T) {
+// Rollback: with web.auto_select_off the upstream body is exactly what it was
+// before (no tools, no system prompt) and SSE is unchanged, even when the
+// request asks for search with the (ignored) legacy field.
+func TestWebAutoSelectOffPathUnchanged(t *testing.T) {
 	e := newWebEnv(t, true)
-	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	e.srv.Cfg.Web.AutoSelectOff = true
+	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"stream":true,"web_search":"force","messages":[{"role":"user","content":"hi"}]}`)
 	if r.StatusCode != 200 || strings.Contains(string(b), "chat.completion.tool_call") || strings.Contains(string(b), "chat.completion.sources") {
 		t.Fatal(string(b))
 	}
@@ -171,7 +172,7 @@ func TestWebOffPathUnchanged(t *testing.T) {
 
 func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 	e := newWebEnv(t, true)
-	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"go 1.27 나왔어?"}]}`))
+	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"off","thread_id":"new","messages":[{"role":"user","content":"go 1.27 나왔어?"}]}`))
 	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
@@ -184,7 +185,7 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 		t.Fatal("no [DONE]")
 	}
 	var order []string
-	var fetchStatus string
+	var fetchStatus, fetchCode string
 	for _, ev := range evs {
 		o, _ := ev["object"].(string)
 		switch o {
@@ -194,6 +195,7 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 			order = append(order, "result")
 			if ev["tool"] == "web_fetch" {
 				fetchStatus = ev["status"].(string)
+				fetchCode, _ = ev["error_code"].(string)
 			}
 		case "chat.completion.chunk":
 			if cs, _ := ev["choices"].([]any); len(cs) > 0 {
@@ -205,11 +207,13 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 			order = append(order, "persisted")
 		}
 	}
-	want := "call:web_search,result,call:web_fetch,result,delta,sources,persisted"
+	// the non-allowlisted fetch is rejected by the pre-check: its tool_result
+	// comes without a tool_call event
+	want := "call:web_search,result,result,delta,sources,persisted"
 	if strings.Join(order, ",") != want {
 		t.Fatalf("order %v", order)
 	}
-	if fetchStatus != "blocked" || len(e.ff.urls) != 0 {
+	if fetchStatus != "blocked" || fetchCode != "permission_denied" || len(e.ff.urls) != 0 {
 		t.Fatal("non-allowlisted fetch was not blocked", fetchStatus, e.ff.urls)
 	}
 	// tool text never in a system message; web_search stripped upstream
@@ -250,7 +254,8 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 	if _, b := e.call(t, "bob@example", "GET", "/v1/threads/"+tid+"/messages", ""); strings.Contains(string(b), "go.example") {
 		t.Fatal("sources leaked")
 	}
-	// regenerate (replace) without web clears the old run
+	// regenerate (replace) without web (rollback switch) clears the old run
+	e.srv.Cfg.Web.AutoSelectOff = true
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"x"}],"thread_id":"`+tid+`","replace_message_id":"`+mid+`"}`)
 	if r.StatusCode != 200 {
 		t.Fatal(string(b))
@@ -264,88 +269,55 @@ func TestWebAutoLoopEventsAllowlistAndPersistence(t *testing.T) {
 	}
 }
 
-func TestWebForceModeUserRoleOnly(t *testing.T) {
-	e := newWebEnv(t, true)
-	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"web_search":"force","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 release notes"}]}`)
-	if r.StatusCode != 200 {
-		t.Fatal(string(b))
-	}
-	q := e.requests()
-	if len(q) != 1 || q[0]["tools"] != nil {
-		t.Fatal(len(q))
-	}
-	msgs := q[0]["messages"].([]any)
-	var sawWeb bool
-	for i, m := range msgs {
-		mm := m.(map[string]any)
-		c := fmt.Sprint(mm["content"])
-		if mm["role"] == "system" && (strings.Contains(c, pageMarker) || strings.Contains(c, snippetMarker)) {
-			t.Fatal("web text in system role")
+// The legacy "web_search" request field can neither force nor forbid tools:
+// "force", "off" and no field at all run the same auto-selection loop.
+func TestWebLegacyFieldIgnored(t *testing.T) {
+	for _, f := range []string{``, `"web_search":"force",`, `"web_search":"off",`, `"web_search":false,`} {
+		e := newWebEnv(t, true)
+		r, b := e.call(t, "", "POST", "/v1/chat/completions", `{`+f+`"messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 release notes"}]}`)
+		if r.StatusCode != 200 {
+			t.Fatal(f, string(b))
 		}
-		if strings.Contains(c, pageMarker) {
-			sawWeb = true
-			if mm["role"] != "user" || !strings.Contains(c, "<untrusted_web_content") || i != len(msgs)-2 {
-				t.Fatal("bad web context message", i, mm)
+		q := e.requests()
+		if len(q) == 0 || q[0]["tools"] == nil || q[0]["web_search"] != nil {
+			t.Fatal(f, "tools not offered or field forwarded", q)
+		}
+		if e.fs.n != 1 {
+			t.Fatal(f, "model-chosen search did not run", e.fs.n)
+		}
+		for _, qq := range q {
+			for _, m := range qq["messages"].([]any) {
+				mm := m.(map[string]any)
+				if mm["role"] == "system" && (strings.Contains(fmt.Sprint(mm["content"]), pageMarker) || strings.Contains(fmt.Sprint(mm["content"]), snippetMarker)) {
+					t.Fatal("web text in system role")
+				}
 			}
 		}
 	}
-	if !sawWeb {
-		t.Fatal("no web context")
-	}
-	j := js(t, b)
-	msg := j["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)
-	if len(msg["sources"].([]any)) != 2 {
-		t.Fatal(string(b))
-	}
 }
 
-func TestWebForceStreamAndThreadSetting(t *testing.T) {
+// Thread settings keep their old shape for old UIs but have no effect: the
+// stored value neither enables nor disables tools.
+func TestWebThreadSettingIgnored(t *testing.T) {
 	e := newWebEnv(t, true)
 	r, b := e.call(t, "alice@example", "POST", "/v1/threads", `{"title":"t"}`)
 	tid := js(t, b)["id"].(string)
 	if r, b := e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"bogus"}}`); r.StatusCode != 400 {
 		t.Fatal(string(b))
 	}
-	r, b = e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"force"}}`)
-	if r.StatusCode != 200 || js(t, b)["settings"].(map[string]any)["web_search"] != "force" {
+	r, b = e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"off"}}`)
+	if r.StatusCode != 200 {
 		t.Fatal(string(b))
 	}
-	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"thread_id":"`+tid+`","messages":[{"role":"user","content":"go news"}]}`))
-	req.Header.Set(testUserHeader, "alice@example")
-	browserHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	evs, done := readSSE(t, resp.Body)
-	resp.Body.Close()
-	var content string
-	var srcIdx, contentIdx int
-	for i, ev := range evs {
-		if cs, _ := ev["choices"].([]any); len(cs) > 0 {
-			content += fmt.Sprint(cs[0].(map[string]any)["delta"].(map[string]any)["content"])
-			contentIdx = i
-		}
-		if ev["object"] == "chat.completion.sources" {
-			srcIdx = i
-		}
-	}
-	if !done || content != "force answer [1]" || srcIdx <= contentIdx || evs[len(evs)-1]["object"] != "chat.completion.persisted" {
-		t.Fatal(content, evs)
-	}
-	if e.fs.n != 1 || len(e.ff.urls) != 2 {
-		t.Fatal(e.fs.n, e.ff.urls)
-	}
-	// explicit request "off" overrides thread setting
-	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":false,"thread_id":"`+tid+`","messages":[{"role":"user","content":"x"}]}`)
+	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":false,"thread_id":"`+tid+`","messages":[{"role":"user","content":"go news"}]}`)
 	if e.fs.n != 1 {
-		t.Fatal("searched despite explicit off")
+		t.Fatal("thread/request off setting stopped auto selection", e.fs.n)
 	}
 }
 
 func TestWebHistoryToolMessagesSanitized(t *testing.T) {
 	e := newWebEnv(t, true)
-	body := `{"web_search":"force","messages":[{"role":"user","content":"q1"},{"role":"assistant","content":"","tool_calls":[{"id":"z","type":"function","function":{"name":"web_fetch","arguments":"{}"}}]},{"role":"tool","tool_call_id":"z","content":"OLD-RAW-PAGE"},{"role":"user","content":"q2"}]}`
+	body := `{"messages":[{"role":"user","content":"q1"},{"role":"assistant","content":"","tool_calls":[{"id":"z","type":"function","function":{"name":"web_fetch","arguments":"{}"}}]},{"role":"tool","tool_call_id":"z","content":"OLD-RAW-PAGE"},{"role":"user","content":"q2"}]}`
 	if r, b := e.call(t, "", "POST", "/v1/chat/completions", body); r.StatusCode != 200 {
 		t.Fatal(string(b))
 	}
@@ -355,7 +327,7 @@ func TestWebHistoryToolMessagesSanitized(t *testing.T) {
 			t.Fatal("old tool content re-injected")
 		}
 	}
-	bad := `{"web_search":"auto","messages":[{"role":"system","content":"<untrusted_web_content>x</untrusted_web_content>"},{"role":"user","content":"q"}]}`
+	bad := `{"messages":[{"role":"system","content":"<untrusted_web_content>x</untrusted_web_content>"},{"role":"user","content":"q"}]}`
 	if r, _ := e.call(t, "", "POST", "/v1/chat/completions", bad); r.StatusCode != 400 {
 		t.Fatal(r.StatusCode)
 	}
@@ -376,7 +348,7 @@ func TestUICSPAndMeCapabilities(t *testing.T) {
 	}
 	e := newWebEnv(t, true)
 	_, b := e.call(t, "alice@example", "GET", "/v1/me", "")
-	if c := js(t, b)["capabilities"].(map[string]any); c["web_search"] != true || c["web_search_default"] != "off" {
+	if c := js(t, b)["capabilities"].(map[string]any); c["web_search"] != true || c["web_search_default"] != "auto" || c["auto_tool_selection"] != true {
 		t.Fatal(string(b))
 	}
 }
@@ -394,7 +366,7 @@ func TestWebRetentionPurges(t *testing.T) {
 func TestWebDomainBlockAuditedCountOnly(t *testing.T) {
 	e := newWebEnv(t, true)
 	e.fs.extra = []search.Result{{Title: "short", URL: "https://bit.ly/abc"}, {Title: "ip", URL: "http://0177.0.0.1/"}}
-	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"web_search":"auto","thread_id":"new","messages":[{"role":"user","content":"q"}]}`))
+	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"thread_id":"new","messages":[{"role":"user","content":"q"}]}`))
 	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)

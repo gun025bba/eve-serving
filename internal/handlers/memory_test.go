@@ -26,7 +26,6 @@ import (
 	"github.com/gun025bba/eve-serving/internal/queue"
 	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/gun025bba/eve-serving/internal/store/memstore"
-	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 type failLedger struct{ fail bool }
@@ -380,9 +379,9 @@ func TestMemoryInject_BlockIsEndOfSystemPrompt_NonWeb(t *testing.T) {
 
 func TestMemoryInject_BlockIsEndOfSystemPrompt_Web(t *testing.T) {
 	for name, body := range map[string]string{
-		"force/no client system": `{"web_search":"force","messages":[{"role":"user","content":"go 1.27 release notes"}]}`,
-		"force/client system":    `{"web_search":"force","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 release notes"}]}`,
-		"auto/tool rounds":       `{"web_search":"auto","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 나왔어?"}]}`,
+		"field ignored/no client system": `{"web_search":"force","messages":[{"role":"user","content":"go 1.27 release notes"}]}`,
+		"field ignored/client system":    `{"web_search":"off","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 release notes"}]}`,
+		"auto/tool rounds":               `{"messages":[{"role":"system","content":"be brief"},{"role":"user","content":"go 1.27 나왔어?"}]}`,
 	} {
 		e := newWebEnv(t, true)
 		fs, err := memory.Open(filepath.Join(t.TempDir(), "memory"))
@@ -404,7 +403,7 @@ func TestMemoryInject_BlockIsEndOfSystemPrompt_Web(t *testing.T) {
 		for i, req := range reqs {
 			assertBlockLast(t, req, fmt.Sprintf("web/%s/round%d", name, i))
 			msgs := req["messages"].([]any)
-			if c := msgs[0].(map[string]any)["content"]; c != tools.SystemPrompt {
+			if c, _ := msgs[0].(map[string]any)["content"].(string); !strings.HasPrefix(c, "You can use the tools web_search and web_fetch") {
 				t.Fatalf("%s: trusted web system prompt not first", name)
 			}
 		}

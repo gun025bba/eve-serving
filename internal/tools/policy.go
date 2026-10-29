@@ -68,12 +68,15 @@ var secretPatterns = []*regexp.Regexp{
 
 // CheckQuery returns "" if q may be sent to the search provider, otherwise a
 // short reason ("empty", "too_long", "secret_pattern").
-func CheckQuery(q string) string {
+func CheckQuery(q string) string { return CheckQueryMax(q, MaxQueryChars) }
+
+// CheckQueryMax is CheckQuery with an explicit rune cap.
+func CheckQueryMax(q string, max int) string {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return "empty"
 	}
-	if len([]rune(q)) > MaxQueryChars {
+	if len([]rune(q)) > max {
 		return "too_long"
 	}
 	for _, p := range secretPatterns {

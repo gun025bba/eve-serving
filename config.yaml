@@ -41,8 +41,18 @@ database:
   url: ""
   auto_migrate: true   # run embedded goose migrations at startup (GW_DB_AUTO_MIGRATE)
 web:                 # web_search / web_fetch tools (docs/web-search.md). Off by default.
-  enabled: false     # GW_WEB_ENABLED
-  default_mode: off  # off|auto|force (GW_WEB_DEFAULT_MODE); per request: "web_search"
+  enabled: false     # GW_WEB_ENABLED (master switch)
+  # 6.0.0: when enabled the model decides per request whether to search (auto tool selection). There is no
+  # per-request or per-user switch; the request field "web_search" and default_mode are ignored.
+  auto_select_off: false  # GW_WEB_AUTO_SELECT_OFF: rollback, turns auto selection off for everyone (fails closed:
+                          # an unparsable env value also turns it off; the env can never turn it back on over the file)
+  default_mode: auto      # deprecated, ignored (GW_WEB_DEFAULT_MODE); still validated: off|auto|force
+  user_daily_search: 150  # per user per day (Asia/Seoul); GW_WEB_USER_DAILY_SEARCH
+  user_daily_fetch: 100   # GW_WEB_USER_DAILY_FETCH
+  global_search_per_min: 30    # all users; GW_WEB_GLOBAL_SEARCH_PER_MIN
+  global_fetch_per_min: 60     # GW_WEB_GLOBAL_FETCH_PER_MIN
+  global_daily_search: 1500    # all users per day (Asia/Seoul); GW_WEB_GLOBAL_DAILY_SEARCH
+  global_daily_fetch: 800      # GW_WEB_GLOBAL_DAILY_FETCH
   max_rounds: 3
   max_calls: 5
   max_searches: 3

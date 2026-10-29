@@ -151,31 +151,46 @@ type PushConfig struct {
 // §2.10). Disabled by default; requests asking for web search then get 400
 // web_search_disabled.
 type WebConfig struct {
-	Enabled          bool     `yaml:"enabled" json:"enabled"`
-	DefaultMode      string   `yaml:"default_mode" json:"default_mode"` // off|auto|force
-	MaxRounds        int      `yaml:"max_rounds" json:"max_rounds"`
-	MaxCalls         int      `yaml:"max_calls" json:"max_calls"`
-	MaxSearches      int      `yaml:"max_searches" json:"max_searches"`
-	RatePerMin       int      `yaml:"rate_per_min" json:"rate_per_min"`             // searches per user per minute
-	FetchRatePerMin  int      `yaml:"fetch_rate_per_min" json:"fetch_rate_per_min"` // fetches per user per minute
-	RetentionDays    int      `yaml:"retention_days" json:"retention_days"`
-	Providers        []string `yaml:"providers" json:"providers"`
-	SearxngURL       string   `yaml:"searxng_url" json:"searxng_url"`
-	BraveKeyFile     string   `yaml:"brave_api_key_file" json:"-"`
-	SearchTimeoutS   float64  `yaml:"search_timeout_s" json:"search_timeout_s"`
-	SearchMaxResults int      `yaml:"search_max_results" json:"search_max_results"`
-	FetchTimeoutS    float64  `yaml:"fetch_timeout_s" json:"fetch_timeout_s"`
-	FetchMaxBytes    int64    `yaml:"fetch_max_bytes" json:"fetch_max_bytes"`
-	FetchMaxChars    int      `yaml:"fetch_max_chars" json:"fetch_max_chars"`
-	FetchMaxPages    int      `yaml:"fetch_max_pages" json:"fetch_max_pages"`
-	FetchAllowedPort []int    `yaml:"fetch_allowed_ports" json:"fetch_allowed_ports"`
-	FetchDenyCIDRs   []string `yaml:"fetch_deny_cidrs" json:"fetch_deny_cidrs"`
-	FetchGlobalConc  int      `yaml:"fetch_global_conc" json:"fetch_global_conc"`
-	FetchPerHostConc int      `yaml:"fetch_per_host_conc" json:"fetch_per_host_conc"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// DefaultMode is deprecated and ignored: automatic tool selection is the
+	// default for every request (web.enabled is the master switch). Accepted
+	// so existing config files keep loading.
+	DefaultMode string `yaml:"default_mode" json:"default_mode"`
+	// AutoSelectOff is the operator rollback: true turns automatic web tool
+	// selection off for everyone (GW_WEB_AUTO_SELECT_OFF). An unparsable
+	// environment value counts as true (fail closed).
+	AutoSelectOff bool `yaml:"auto_select_off" json:"auto_select_off"`
+	// Auto-selection budgets (0 = default: 150/100 per user per KST day,
+	// 30/60 per minute and 1500/800 per day for everyone).
+	UserDailySearch    int      `yaml:"user_daily_search" json:"user_daily_search"`
+	UserDailyFetch     int      `yaml:"user_daily_fetch" json:"user_daily_fetch"`
+	GlobalSearchPerMin int      `yaml:"global_search_per_min" json:"global_search_per_min"`
+	GlobalFetchPerMin  int      `yaml:"global_fetch_per_min" json:"global_fetch_per_min"`
+	GlobalDailySearch  int      `yaml:"global_daily_search" json:"global_daily_search"`
+	GlobalDailyFetch   int      `yaml:"global_daily_fetch" json:"global_daily_fetch"`
+	MaxRounds          int      `yaml:"max_rounds" json:"max_rounds"`
+	MaxCalls           int      `yaml:"max_calls" json:"max_calls"`
+	MaxSearches        int      `yaml:"max_searches" json:"max_searches"`
+	RatePerMin         int      `yaml:"rate_per_min" json:"rate_per_min"`             // searches per user per minute
+	FetchRatePerMin    int      `yaml:"fetch_rate_per_min" json:"fetch_rate_per_min"` // fetches per user per minute
+	RetentionDays      int      `yaml:"retention_days" json:"retention_days"`
+	Providers          []string `yaml:"providers" json:"providers"`
+	SearxngURL         string   `yaml:"searxng_url" json:"searxng_url"`
+	BraveKeyFile       string   `yaml:"brave_api_key_file" json:"-"`
+	SearchTimeoutS     float64  `yaml:"search_timeout_s" json:"search_timeout_s"`
+	SearchMaxResults   int      `yaml:"search_max_results" json:"search_max_results"`
+	FetchTimeoutS      float64  `yaml:"fetch_timeout_s" json:"fetch_timeout_s"`
+	FetchMaxBytes      int64    `yaml:"fetch_max_bytes" json:"fetch_max_bytes"`
+	FetchMaxChars      int      `yaml:"fetch_max_chars" json:"fetch_max_chars"`
+	FetchMaxPages      int      `yaml:"fetch_max_pages" json:"fetch_max_pages"`
+	FetchAllowedPort   []int    `yaml:"fetch_allowed_ports" json:"fetch_allowed_ports"`
+	FetchDenyCIDRs     []string `yaml:"fetch_deny_cidrs" json:"fetch_deny_cidrs"`
+	FetchGlobalConc    int      `yaml:"fetch_global_conc" json:"fetch_global_conc"`
+	FetchPerHostConc   int      `yaml:"fetch_per_host_conc" json:"fetch_per_host_conc"`
 }
 
 func defaultWeb() WebConfig {
-	return WebConfig{Enabled: false, DefaultMode: "off", MaxRounds: 3, MaxCalls: 5, MaxSearches: 3, RatePerMin: 10, FetchRatePerMin: 20,
+	return WebConfig{Enabled: false, DefaultMode: "auto", MaxRounds: 3, MaxCalls: 5, MaxSearches: 3, RatePerMin: 10, FetchRatePerMin: 20,
 		RetentionDays: 90, Providers: []string{"searxng"}, SearxngURL: "http://127.0.0.1:8888", SearchTimeoutS: 6, SearchMaxResults: 5,
 		FetchTimeoutS: 10, FetchMaxBytes: 2 << 20, FetchMaxChars: 6000, FetchMaxPages: 3, FetchAllowedPort: []int{80, 443},
 		FetchDenyCIDRs: []string{}, FetchGlobalConc: 4, FetchPerHostConc: 2}
@@ -334,9 +349,8 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 		c.AllowedUsers = []string{}
 	}
 	switch c.Web.DefaultMode {
-	case "off", "auto", "force":
-	case "":
-		c.Web.DefaultMode = "off"
+	case "off", "auto", "force", "":
+		// deprecated, ignored (see WebConfig.DefaultMode)
 	default:
 		return c, fmt.Errorf("web.default_mode must be off|auto|force")
 	}
@@ -446,6 +460,14 @@ func applyWebEnv(w *WebConfig, getenv func(string) string) error {
 		}
 		w.Enabled = b
 	}
+	if v := getenv("GW_WEB_AUTO_SELECT_OFF"); v != "" {
+		b, err := strconv.ParseBool(v)
+		// fail closed, and off wins: the env can switch auto selection off
+		// (also with an unreadable value) but never back on over the file
+		if b || err != nil {
+			w.AutoSelectOff = true
+		}
+	}
 	for k, p := range map[string]*string{"WEB_DEFAULT_MODE": &w.DefaultMode, "SEARXNG_URL": &w.SearxngURL, "BRAVE_API_KEY_FILE": &w.BraveKeyFile} {
 		if v := getenv("GW_" + k); v != "" {
 			*p = v
@@ -453,7 +475,9 @@ func applyWebEnv(w *WebConfig, getenv func(string) string) error {
 	}
 	ints := map[string]*int{"WEB_MAX_ROUNDS": &w.MaxRounds, "WEB_MAX_CALLS": &w.MaxCalls, "WEB_MAX_SEARCHES": &w.MaxSearches, "WEB_RATE_PER_MIN": &w.RatePerMin,
 		"WEB_FETCH_RATE_PER_MIN": &w.FetchRatePerMin, "WEB_RETENTION_DAYS": &w.RetentionDays, "SEARCH_MAX_RESULTS": &w.SearchMaxResults,
-		"FETCH_MAX_CHARS": &w.FetchMaxChars, "FETCH_MAX_PAGES": &w.FetchMaxPages, "FETCH_GLOBAL_CONC": &w.FetchGlobalConc, "FETCH_PER_HOST_CONC": &w.FetchPerHostConc}
+		"FETCH_MAX_CHARS": &w.FetchMaxChars, "FETCH_MAX_PAGES": &w.FetchMaxPages, "FETCH_GLOBAL_CONC": &w.FetchGlobalConc, "FETCH_PER_HOST_CONC": &w.FetchPerHostConc,
+		"WEB_USER_DAILY_SEARCH": &w.UserDailySearch, "WEB_USER_DAILY_FETCH": &w.UserDailyFetch, "WEB_GLOBAL_SEARCH_PER_MIN": &w.GlobalSearchPerMin,
+		"WEB_GLOBAL_FETCH_PER_MIN": &w.GlobalFetchPerMin, "WEB_GLOBAL_DAILY_SEARCH": &w.GlobalDailySearch, "WEB_GLOBAL_DAILY_FETCH": &w.GlobalDailyFetch}
 	for k, p := range ints {
 		if v := getenv("GW_" + k); v != "" {
 			n, err := strconv.Atoi(v)

@@ -68,7 +68,7 @@ func SanitizeHistory(msgs []any) (out []any, ok bool) {
 			out = append(out, map[string]any{"role": "user", "content": "[earlier web tool result omitted; only metadata is kept]"})
 			continue
 		case "system":
-			if c, _ := m["content"].(string); tagRe.MatchString(c) {
+			if c, _ := m["content"].(string); delimRe.MatchString(SanitizeUntrusted(c)) {
 				return nil, false
 			}
 		case "assistant":

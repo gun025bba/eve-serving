@@ -77,7 +77,7 @@ func TestWebDefaultsOffAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Web.Enabled || c.Web.DefaultMode != "off" || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
+	if c.Web.Enabled || c.Web.DefaultMode != "auto" || c.Web.AutoSelectOff || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
 		t.Fatalf("%+v", c.Web)
 	}
 	env := map[string]string{"GW_WEB_ENABLED": "true", "GW_WEB_DEFAULT_MODE": "auto", "GW_SEARXNG_URL": "http://127.0.0.1:9999", "GW_FETCH_ALLOWED_PORTS": "80,443,8443", "GW_SEARCH_TIMEOUT": "4s"}
@@ -87,6 +87,51 @@ func TestWebDefaultsOffAndEnv(t *testing.T) {
 	}
 	if _, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_DEFAULT_MODE": "always"}[k] }); err == nil {
 		t.Fatal("bad mode accepted")
+	}
+}
+
+// auto_select_off is the 6.0.0 rollback switch: it fails closed (an unreadable
+// env value turns auto selection off) and off wins over the file.
+func TestWebAutoSelectOff(t *testing.T) {
+	cases := []struct {
+		name, env, yaml string
+		want            bool
+	}{
+		{"unset", "", "", false},
+		{"env true", "true", "", true},
+		{"env 1", "1", "", true},
+		{"env false", "false", "", false},
+		{"env garbage fails closed", "maybe", "", true},
+		{"yaml true, env false: off wins", "false", "web:\n  auto_select_off: true\n", true},
+		{"yaml true", "", "web:\n  auto_select_off: true\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := "/nonexistent.yaml"
+			if c.yaml != "" {
+				path = filepath.Join(t.TempDir(), "c.yaml")
+				if err := os.WriteFile(path, []byte(c.yaml), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load(path, func(k string) string {
+				if k == "GW_WEB_AUTO_SELECT_OFF" {
+					return c.env
+				}
+				return ""
+			})
+			if err != nil || cfg.Web.AutoSelectOff != c.want {
+				t.Fatalf("%v %+v", err, cfg.Web)
+			}
+		})
+	}
+}
+
+func TestWebBudgetEnv(t *testing.T) {
+	env := map[string]string{"GW_WEB_USER_DAILY_SEARCH": "7", "GW_WEB_GLOBAL_DAILY_FETCH": "9"}
+	c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] })
+	if err != nil || c.Web.UserDailySearch != 7 || c.Web.GlobalDailyFetch != 9 {
+		t.Fatalf("%v %+v", err, c.Web)
 	}
 }
 

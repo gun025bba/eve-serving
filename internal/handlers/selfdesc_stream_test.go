@@ -14,7 +14,6 @@ import (
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/proxy"
 	"github.com/gun025bba/eve-serving/internal/store"
-	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 // Scripted/API clients (Bearer key, no interactive scope) get no
@@ -33,7 +32,7 @@ func TestSelfDescription_NotInjectedForAPIClients(t *testing.T) {
 				t.Fatalf("web=%s: gateway text for an API client: %s", web, raw)
 			}
 			for _, m := range q["messages"].([]any) {
-				if c, _ := m.(map[string]any)["content"].(string); m.(map[string]any)["role"] == "system" && c != "S" && c != tools.SystemPrompt && !strings.HasPrefix(c, "The tool budget") {
+				if c, _ := m.(map[string]any)["content"].(string); m.(map[string]any)["role"] == "system" && c != "S" && !strings.HasPrefix(c, "You can use the tools web_search") && !strings.HasPrefix(c, "The tool budget") {
 					t.Fatalf("web=%s: unexpected system message %q", web, c)
 				}
 			}
@@ -63,6 +62,8 @@ func (u *streamUp) requests() []map[string]any {
 func streamEnv(t *testing.T, script func(n int, b map[string]any, w http.ResponseWriter, fl http.Flusher)) (*webEnv, *streamUp) {
 	t.Helper()
 	e := memWebEnv(t, true, true)
+	// these tests exercise the memory loop with web tools off (rollback switch)
+	e.srv.Cfg.Web.AutoSelectOff = true
 	enableUserMemory(t, e.st, "alice@example", "bob@example")
 	u := &streamUp{}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -426,9 +427,9 @@ func TestMemoryLoopWebOff_WebNil(t *testing.T) {
 	if n := pendingCount(t, e); n != 2 {
 		t.Fatalf("want a card per request, got %d", n)
 	}
-	// web modes are rejected, not crashed on
+	// the legacy field is ignored, not crashed on
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":"auto","messages":[{"role":"user","content":"hi"}]}`)
-	if r.StatusCode != 400 || errCode(js(t, b)) != "web_search_disabled" {
+	if r.StatusCode != 200 {
 		t.Fatal(r.StatusCode, string(b))
 	}
 }

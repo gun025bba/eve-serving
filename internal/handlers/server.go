@@ -245,19 +245,16 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// whoami reports the caller identity so the UI can detect identity mode.
-func (s *Server) webDefault() string {
-	if !s.webEnabled() {
-		return "off"
-	}
-	return s.Cfg.Web.DefaultMode
-}
+// webDefault is kept for older UIs: "auto" while the model may pick web
+// tools on its own, "off" otherwise. It is not a per-user setting.
+func (s *Server) webDefault() string { return string(s.webMode()) }
 
+// whoami reports the caller identity so the UI can detect identity mode.
 func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.FromContext(r.Context())
 	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider,
 		"version":      s.version(),
-		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "persistence": s.Store != nil}})
+		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "auto_tool_selection": s.autoSelect(), "persistence": s.Store != nil}})
 }
 
 // version is the build version injected via -ldflags (see Makefile), "dev" when unset.

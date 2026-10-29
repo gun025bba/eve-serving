@@ -17,7 +17,7 @@ import (
 // layer) decides whether the text is injected at all (injectSelfDescription).
 func (s *Server) selfDescState(r *http.Request, mode tools.Mode, memOffer bool) selfdesc.State {
 	var st selfdesc.State
-	webOn := mode == tools.ModeAuto || mode == tools.ModeForce
+	webOn := mode == tools.ModeAuto
 	switch {
 	case !s.memoryOn() || !hasScope(r, auth.ScopeInteractive):
 		st.Memory = selfdesc.MemoryUnavailable

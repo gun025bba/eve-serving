@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -80,26 +81,28 @@ func TestSelfDescription_StateMatrix(t *testing.T) {
 		body       string
 		wantMemory string // "" = no memory line
 		wantWeb    string // "" = no web line
+		autoOff    bool   // web.auto_select_off
 	}
 	on := func(t *testing.T, st store.Store) { enableUserMemory(t, st, "alice@example") }
 	chat := `{"messages":[{"role":"user","content":"hi"}]}`
 	cases := []tc{
-		{"web off-mode, memory on", true, true, on, `{"web_search":"off","messages":[{"role":"user","content":"hi"}]}`, "켜짐. \"기억해줘\"", "꺼짐. 입력창"},
-		{"web default (off), memory on", true, true, on, chat, "켜짐. \"기억해줘\"", "꺼짐. 입력창"},
-		{"web auto, memory on", true, true, on, `{"web_search":"auto","messages":[{"role":"user","content":"hi"}]}`, "켜짐. \"기억해줘\"", "켜짐. 필요하다고"},
-		{"web force, memory server-off", true, false, nil, `{"web_search":"force","messages":[{"role":"user","content":"hi"}]}`, "", "켜짐. 필요하다고"},
-		{"web disabled, memory on", false, true, on, chat, "켜짐. \"기억해줘\"", ""},
-		{"web disabled, memory server-off", false, false, nil, chat, "", ""},
+		{"auto_select_off, memory on", true, true, on, `{"web_search":"force","messages":[{"role":"user","content":"hi"}]}`, "켜짐. \"기억해줘\"", "꺼짐. 입력창", true},
+		{"web default (auto), memory on", true, true, on, chat, "켜짐. \"기억해줘\"", "켜짐. 필요하다고", false},
+		{"legacy field off is ignored", true, true, on, `{"web_search":"off","messages":[{"role":"user","content":"hi"}]}`, "켜짐. \"기억해줘\"", "켜짐. 필요하다고", false},
+		{"web auto, memory server-off", true, false, nil, chat, "", "켜짐. 필요하다고", false},
+		{"web disabled, memory on", false, true, on, chat, "켜짐. \"기억해줘\"", "", false},
+		{"web disabled, memory server-off", false, false, nil, chat, "", "", false},
 		{"user turned memory off", true, true, func(t *testing.T, st store.Store) {
 			setUser(t, st, "alice@example", "memory", `{"enabled":false}`)
-		}, chat, "꺼짐. 장기 저장은 안 해요", "꺼짐. 입력창"},
+		}, chat, "꺼짐. 장기 저장은 안 해요", "켜짐. 필요하다고", false},
 		{"intro not seen", true, true, func(t *testing.T, st store.Store) {
 			setUser(t, st, "alice@example", "memory", `{"enabled":true}`)
-		}, chat, "아직 시작 전이에요", "꺼짐. 입력창"},
+		}, chat, "아직 시작 전이에요", "켜짐. 필요하다고", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			e := memWebEnv(t, c.web, c.mem)
+			e.srv.Cfg.Web.AutoSelectOff = c.autoOff
 			if c.settings != nil {
 				c.settings(t, e.st)
 			}
@@ -165,9 +168,15 @@ func TestSelfDescription_WebBlockedReportsOff(t *testing.T) {
 			if r.StatusCode != 200 {
 				t.Fatal(r.StatusCode, string(b))
 			}
-			// an explicit web mode is refused outright while the web tools are blocked
-			if r, _ := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":"force","messages":[{"role":"user","content":"hi"}]}`); r.StatusCode != 400 {
+			// the legacy field cannot force the blocked tools: plain answer, no tools
+			n := len(e.requests())
+			if r, _ := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":"force","messages":[{"role":"user","content":"hi"}]}`); r.StatusCode != 200 {
 				t.Fatal(r.StatusCode)
+			}
+			for _, q := range e.requests()[n:] {
+				if d, _ := json.Marshal(q["tools"]); strings.Contains(string(d), "web_search") || strings.Contains(string(d), "web_fetch") {
+					t.Fatal("web tools offered while blocked")
+				}
 			}
 			sys := firstSystem(t, e.requests())
 			assertReference(t, sys, "켜짐. \"기억해줘\"", "꺼짐(일시 사용 불가)")
@@ -196,42 +205,48 @@ func TestSelfDescription_NoSavedClaimBeforeApproval(t *testing.T) {
 	}
 }
 
-// API-key (Bearer, no interactive scope) requests take the plain path: no
-// reference block, no tools at all, and the request body reaches the model
-// server as the client sent it, with web off, auto and force, memory
-// configured and enabled for a user.
+// API-key (Bearer, no interactive scope) requests get no reference block and
+// no memory (no gateway text beyond the web prompt), whatever the legacy
+// "web_search" field says. Since 6.0.0 they get automatic web tool selection
+// like everyone else, unless web.auto_select_off is set: then the body reaches
+// the model server exactly as the client sent it.
 func TestSelfDescription_APIKeyRequestUnchanged(t *testing.T) {
-	for _, web := range []string{"off", "auto", "force", ""} {
-		t.Run("web="+web, func(t *testing.T) {
-			e := memWebEnv(t, true, true)
-			enableUserMemory(t, e.st, "alice@example")
-			wf := ""
-			if web != "" {
-				wf = `"web_search":"` + web + `",`
-			}
-			r, b := e.call(t, "", "POST", "/v1/chat/completions", `{`+wf+`"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`)
-			if r.StatusCode != 200 {
-				t.Fatal(r.StatusCode, string(b))
-			}
-			for i, q := range e.requests() {
-				raw, _ := json.Marshal(q["messages"])
-				if strings.Contains(string(raw), "앱 기능 참고자료") || strings.Contains(string(raw), "user_memory") {
-					t.Fatalf("request %d: gateway text for an API client: %s", i, raw)
+	for _, off := range []bool{false, true} {
+		for _, web := range []string{"off", "auto", "force", ""} {
+			t.Run(fmt.Sprintf("off=%v/web=%s", off, web), func(t *testing.T) {
+				e := memWebEnv(t, true, true)
+				e.srv.Cfg.Web.AutoSelectOff = off
+				enableUserMemory(t, e.st, "alice@example")
+				wf := ""
+				if web != "" {
+					wf = `"web_search":"` + web + `",`
 				}
-				if web == "" || web == "off" {
-					if tl, has := q["tools"]; has {
-						t.Fatalf("request %d: tools sent on the plain path: %v", i, tl)
+				r, b := e.call(t, "", "POST", "/v1/chat/completions", `{`+wf+`"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`)
+				if r.StatusCode != 200 {
+					t.Fatal(r.StatusCode, string(b))
+				}
+				for i, q := range e.requests() {
+					raw, _ := json.Marshal(q["messages"])
+					if strings.Contains(string(raw), "앱 기능 참고자료") || strings.Contains(string(raw), "user_memory") {
+						t.Fatalf("request %d: gateway text for an API client: %s", i, raw)
 					}
 					ms := q["messages"].([]any)
-					if len(ms) != 2 || ms[0].(map[string]any)["content"] != "S" {
-						t.Fatalf("request %d: body changed: %s", i, raw)
+					if off {
+						if tl, has := q["tools"]; has {
+							t.Fatalf("request %d: tools sent on the plain path: %v", i, tl)
+						}
+						if len(ms) != 2 || ms[0].(map[string]any)["content"] != "S" {
+							t.Fatalf("request %d: body changed: %s", i, raw)
+						}
+					} else if _, has := q["tools"]; !has || !strings.HasPrefix(fmt.Sprint(ms[0].(map[string]any)["content"]), "You can use the tools web_search and web_fetch") {
+						t.Fatalf("request %d: no auto-selection prompt/tools: %s", i, raw)
+					}
+					if d, _ := json.Marshal(q["tools"]); strings.Contains(string(d), memory.ToolName) {
+						t.Fatalf("request %d: memory tool offered to an API client", i)
 					}
 				}
-				if d, _ := json.Marshal(q["tools"]); strings.Contains(string(d), memory.ToolName) {
-					t.Fatalf("request %d: memory tool offered to an API client", i)
-				}
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -266,6 +281,7 @@ func TestMemoryPropose_WebModeOff_CardThenInjected(t *testing.T) {
 	if !e.srv.webEnabled() {
 		t.Fatal("test needs GW_WEB_ENABLED=true")
 	}
+	e.srv.Cfg.Web.AutoSelectOff = true
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"stream":true,"web_search":"off","messages":[{"role":"user","content":"고양이 키운다고 기억해줘"}]}`)
 	if r.StatusCode != 200 {
 		t.Fatal(r.StatusCode, string(b))
@@ -328,6 +344,7 @@ func TestMemoryPropose_WebModeOff_CardThenInjected(t *testing.T) {
 // A web tool call that arrives while only memory_propose is offered is refused.
 func TestMemoryPropose_WebModeOff_RefusesWebToolCall(t *testing.T) {
 	e := memWebEnv(t, true, true) // webUpstream answers web_search whenever tools are present
+	e.srv.Cfg.Web.AutoSelectOff = true
 	enableUserMemory(t, e.st, "alice@example")
 	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":"off","messages":[{"role":"user","content":"hi"}]}`)
 	if r.StatusCode != 200 {

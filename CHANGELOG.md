@@ -1,5 +1,44 @@
 # Changelog
 
+## 6.0.0 (unreleased)
+
+**Breaking (MAJOR).** Web tool use is now chosen by the model for every request, whenever the server has `web.enabled`.
+
+### Changed
+- **Automatic tool selection is the default and the only mode.** There is no per-user allowlist, opt-in or force path. The request field
+  `web_search` (any value, including `"force"` and `"off"`), the thread setting `web_search` and `web.default_mode` are accepted but ignored; the
+  400 `web_search_disabled` response is gone. This also applies to API-key requests (they get the web tools and the gateway tool prompt, but still no
+  reference block and no memory tool). Frontends must stop relying on `web_search`.
+- **Rollback is server-side only:** `web.auto_select_off` / `GW_WEB_AUTO_SELECT_OFF`. It fails closed: an unparsable env value turns auto selection
+  off, and the env can only turn it off, never back on over the config file. With it set, the request path is byte-identical to 5.x with web off
+  (golden `off_*` cases). `web.enabled=false` still removes the tools completely.
+- The gateway system prompt for tool turns carries today's date in Asia/Seoul and, for time-sensitive questions (cheap local gate), a hint to search.
+- `capabilities.web_search_default` is now `"auto"` (or `"off"` when web is disabled or rolled back); new `capabilities.auto_tool_selection`.
+- Golden fixtures: `force_*` removed; `auto_*` regenerated (new prompt, no `tool_call` event for rejected calls, `error_code`, `count`).
+
+### Added
+- **Echo filter** (model-written queries and URLs may not copy protected text such as memory facts; 3 normalized 4-grams not present in the user's own
+  text, e-mail/phone/4+ digit/URL tokens; queries are capped at 128 runes; URL path/query are percent-decoded and checked without NFKC). Two rejections
+  take the web tools away for the rest of the request. Rejected calls store no arguments.
+- **Budgets** per user per Asia/Seoul day (150 searches / 100 fetches) and global (30/60 per minute, 1500/800 per day), configurable; in memory.
+- **Suspect-result rules R1-R7** (instruction-like text, tool names, fake delimiters, exfiltration URLs, hidden characters with emoji-sequence
+  exclusions, encoded payloads, other languages). The result item/page is dropped (only rule ids are logged); `web_fetch` and the memory tool are
+  withdrawn for the rest of the request.
+- Untrusted text is NFKC-normalized and stripped of control/format/variation/tag characters; delimiter look-alikes (`untrusted_web_content`,
+  `user_memory`, `tool_call`, `tool_response`, `system`) are defanged.
+- **SSE contract:** `chat.completion.tool_result` carries `error_code` on failure (QA contract `TestQA_SSRF_ErrorCodeContract`: every ssrf-class corpus item
+  reports `ssrf`) plus `count`/`blocked_count`; `tool_call` is sent only for calls that passed the pre-checks, with allowlisted arguments only;
+  `chat.completion.persisted` carries `fresh` (`ok`/`unverified`) and a query-free `tools[]`; `cited` is limited to valid source numbers. When the lookup failed the
+  model is told to say it could not verify current information. The first tool round streams.
+- `qa_testhook` build tag: `webfetch.Options.SetDialIPForTest` (test-only dial counter for the SSRF harness).
+
+### Security
+- `.svc` (Kubernetes service names) is denied by the fetch guard (#141 Low). Wildcard-DNS names (nip.io style) report `error_code: ssrf`.
+
+### Not in this change
+- The `tool_calls` columns (`selected_by`, `error_code`, `result_count`, `args_expires_at`), HMAC argument logging, retention changes and persisted message metadata
+  (#137) and the calendar/PIM parts of the echo filter (5.1.0 code) are not included; see the PR description.
+
 ## 5.0.2 (unreleased)
 
 ### Fixed

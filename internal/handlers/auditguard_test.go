@@ -19,7 +19,7 @@ func TestAuditBreaker_WriteFailuresDisableWebTools(t *testing.T) {
 	e.srv.AuditBreaker = audit.NewBreaker()
 	e.audit.Fail = errors.New("db down")
 	// one web chat writes call_started + call_done (+ more) audit rows -> >= 3 failures
-	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"latest go"}],"web_search":"force"}`)
+	r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"latest go"}]}`)
 	if r.StatusCode != 200 {
 		t.Fatal(r.StatusCode, string(b))
 	}
@@ -29,9 +29,17 @@ func TestAuditBreaker_WriteFailuresDisableWebTools(t *testing.T) {
 	if webCap(t, e) != false {
 		t.Fatal("web tools must be reported disabled")
 	}
+	// With the breaker open nothing offers tools any more: the request is a
+	// plain pass-through even if the (ignored) legacy field asks for search.
+	n := len(e.requests())
 	r, b = e.call(t, "", "POST", "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}],"web_search":"force"}`)
-	if r.StatusCode != 400 || errCode(js(t, b)) != "web_search_disabled" {
+	if r.StatusCode != 200 {
 		t.Fatal(r.StatusCode, string(b))
+	}
+	for _, q := range e.requests()[n:] {
+		if _, has := q["tools"]; has {
+			t.Fatal("tools offered while the audit breaker is open")
+		}
 	}
 }
 

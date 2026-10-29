@@ -34,6 +34,8 @@ type WebTools struct {
 	Rate   *tools.RateLimiter
 	// Domains is the §13 policy; nil = not loaded, web tools fail closed.
 	Domains *domains.Policy
+	// Budget is the shared per-user/global call budget of automatic selection.
+	Budget *tools.Budget
 }
 
 func secsDur(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
@@ -52,57 +54,39 @@ func NewWebTools(c config.WebConfig, pol *domains.Policy) (*WebTools, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WebTools{Domains: pol, Search: sp, Fetch: f, Rate: tools.NewRateLimiter(map[string]int{"search": c.RatePerMin, "fetch": c.FetchRatePerMin})}, nil
+	bud := tools.NewBudget(tools.BudgetConfig{UserDailySearch: c.UserDailySearch, UserDailyFetch: c.UserDailyFetch,
+		GlobalSearchPerMin: c.GlobalSearchPerMin, GlobalFetchPerMin: c.GlobalFetchPerMin,
+		GlobalDailySearch: c.GlobalDailySearch, GlobalDailyFetch: c.GlobalDailyFetch})
+	return &WebTools{Domains: pol, Search: sp, Fetch: f, Budget: bud, Rate: tools.NewRateLimiter(map[string]int{"search": c.RatePerMin, "fetch": c.FetchRatePerMin})}, nil
 }
 
 func (s *Server) webEnabled() bool {
 	return s.Cfg.Web.Enabled && s.Web != nil && !s.WebAuditBlocked && !s.AuditBreaker.Open()
 }
 
-// takeWebMode removes "web_search" from body and validates it.
-func (s *Server) takeWebMode(body map[string]any) (tools.Mode, bool, error) {
-	v, has := body["web_search"]
-	delete(body, "web_search")
-	if !has || v == nil {
-		return "", false, nil
-	}
-	m, ok := tools.ParseMode(v)
-	if !ok {
-		return "", false, apierr.BadRequest(`'web_search' must be false, true, "off", "auto" or "force"`)
-	}
-	if m != tools.ModeOff && !s.webEnabled() {
-		return "", false, apierr.New(400, "web_search_disabled", "Web search is disabled on this server", "invalid_request_error")
-	}
-	return m, true, nil
+// autoSelect reports whether the model may choose web tools on its own. It
+// is the default for every request. The only off switch is the server config
+// web.auto_select_off (or GW_WEB_AUTO_SELECT_OFF, which fails closed); there
+// is no per-request, per-thread or per-user override in either direction.
+func (s *Server) autoSelect() bool {
+	return s.webEnabled() && !s.Cfg.Web.AutoSelectOff
 }
 
-// resolveWebMode: request field > thread settings > server default.
-func (s *Server) resolveWebMode(ctx context.Context, explicit tools.Mode, has bool, pr *chatPersist) tools.Mode {
-	if !s.webEnabled() {
-		return tools.ModeOff
+// webMode is the tool mode of this request: auto, or off when web is
+// disabled or auto selection is switched off by the operator.
+func (s *Server) webMode() tools.Mode {
+	if s.autoSelect() {
+		return tools.ModeAuto
 	}
-	if has {
-		return explicit
-	}
-	if pr != nil {
-		if ts, ok := s.Store.(store.ThreadSettingsStore); ok {
-			if raw, err := ts.ThreadSettings(ctx, pr.user, pr.threadID); err == nil {
-				var v struct {
-					Web any `json:"web_search"`
-				}
-				if json.Unmarshal(raw, &v) == nil && v.Web != nil {
-					if m, ok := tools.ParseMode(v.Web); ok {
-						return m
-					}
-				}
-			}
-		}
-	}
-	m, _ := tools.ParseMode(s.Cfg.Web.DefaultMode)
-	return m
+	return tools.ModeOff
 }
 
-func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools.Session {
+// dropWebField removes the legacy request field "web_search". It is ignored
+// whatever its value: the client can neither force, nor forbid, nor allow
+// web tools.
+func dropWebField(body map[string]any) { delete(body, "web_search") }
+
+func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protected []string) *tools.Session {
 	var userTexts []string
 	for _, x := range msgs {
 		if m, ok := x.(map[string]any); ok && m["role"] == "user" {
@@ -116,6 +100,13 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist) *tools
 	}
 	return tools.NewSession(tools.Deps{
 		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
+		Auto: true, Protected: protected, Budget: wt.Budget, StepBudget: 15 * time.Second,
+		OnEcho: func(tc tools.Call, rule string) {
+			s.Log.Warn("web_echo_rejected", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rule", rule)
+		},
+		OnSuspect: func(tc tools.Call, rules []string) {
+			s.Log.Warn("web_result_suspect", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rules", strings.Join(rules, ","))
+		},
 		Limits:   tools.Limits{MaxRounds: c.MaxRounds, MaxCalls: c.MaxCalls, MaxSearch: c.MaxSearches, MaxFetch: c.FetchMaxPages, MaxChars: c.FetchMaxChars, SearchMax: c.SearchMaxResults},
 		Domains:  wt.Domains,
 		Disabled: func() bool { return s.WebAuditBlocked || s.AuditBreaker.Open() },
@@ -220,10 +211,19 @@ func containsInt(a []int, x int) bool {
 	return false
 }
 
+// publicArgs is the default-deny view of a call's arguments for the
+// tool_call event: only allowlisted keys per tool, and nothing at all for a
+// call that was not accepted (its Args are empty).
 func publicArgs(c tools.Call) map[string]any {
+	keys := map[string][]string{
+		"web_search": {"query", "lang", "time_range", "max_results"},
+		"web_fetch":  {"url"},
+	}[c.Tool]
 	out := map[string]any{}
-	for k, v := range c.Args {
-		out[k] = v
+	for _, k := range keys {
+		if v, ok := c.Args[k]; ok {
+			out[k] = v
+		}
 	}
 	return out
 }
@@ -325,7 +325,7 @@ func clipRunes(s string, n int) string {
 // the only tool (web calls are refused). With web off and a streaming client
 // every round is streamed: text reaches the client as it is generated and the
 // loop only buffers once the model starts a tool call.
-func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string]any, mode tools.Mode, pr *chatPersist, memOffer bool) {
+func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string]any, mode tools.Mode, pr *chatPersist, memOffer bool, protected []string) {
 	t0 := time.Now()
 	ctx := r.Context()
 	stream, _ := body["stream"].(bool)
@@ -340,15 +340,17 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			return
 		}
 	}
-	sess := s.newSession(r, clean, pr)
+	sess := s.newSession(r, clean, pr, protected)
 	lim := sess.Limits()
 	if !webTools && lim.MaxRounds > 3 {
 		lim.MaxRounds = 3 // memory_propose only: propose, answer
 	}
 	// Trusted, fixed system text goes first; web content never enters a system message.
 	conv := append([]any{}, clean...)
+	freshHint := false
 	if webTools {
-		conv = append([]any{map[string]any{"role": "system", "content": tools.SystemPrompt}}, clean...)
+		freshHint = tools.Gate(lastUserText(clean))
+		conv = append([]any{map[string]any{"role": "system", "content": tools.Prompt(time.Now(), freshHint)}}, clean...)
 	}
 	out := &sseOut{w: w, on: stream, created: time.Now().Unix()}
 	if pr != nil {
@@ -361,9 +363,20 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		v["id"], v["object"], v["model"], v["choices"] = "persist-"+rid(r), "chat.completion.chunk", pr.model, []any{}
 		out.event(v)
 	}
-	emitCall := func(c tools.Call) {
+	// tool_call is sent only for calls that passed the pre-checks (the
+	// session announces them right before the network request); a rejected
+	// call produces just its tool_result with an error_code.
+	sess.OnAccepted(func(c tools.Call) {
 		out.event(map[string]any{"object": "chat.completion.tool_call", "id": c.ID, "tool": c.Tool, "args": publicArgs(c), "round": c.Round})
+	})
+	emitCall := func(c tools.Call) {
 		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources)}
+		if c.ErrorCode != "" {
+			res["error_code"] = c.ErrorCode
+		}
+		if c.Status == "ok" && c.Tool == "web_search" {
+			res["count"] = c.ResultCount
+		}
 		if c.Blocked > 0 {
 			res["blocked_count"] = c.Blocked // count only (§13); the UI shows "차단 n건"
 		}
@@ -380,6 +393,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	var pt, ct *int64
 	var ferr error
 	finalStreamed := false
+	noteSuspect := false
 	preamble := "" // text already streamed to the client in rounds that went on to call a tool
 
 	base := func() map[string]any {
@@ -390,40 +404,142 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		return b
 	}
 
-	if mode == tools.ModeForce {
-		// Gateway-driven retrieval: search the user's question, fetch top
-		// results, and pass them as a *user-role* wrapped message.
-		q := clipRunes(lastUserText(clean), tools.MaxQueryChars)
-		var parts []string
-		res, c := sess.Exec(ctx, 1, "force_search", "web_search", mustJSON(map[string]any{"query": q}))
-		emitCall(c)
-		if c.Status == "ok" {
-			parts = append(parts, res)
-			for i, n := range c.Sources {
-				if i >= lim.MaxFetch || !sess.CallsLeft() {
-					break
-				}
-				u := sess.Sources[n-1].URL
-				fr, fc := sess.Exec(ctx, 1, fmt.Sprintf("force_fetch_%d", i), "web_fetch", mustJSON(map[string]any{"url": u}))
-				emitCall(fc)
-				if fc.Status == "ok" {
-					parts = append(parts, fr)
-				}
+	done := false
+	for rounds < lim.MaxRounds && !done && ferr == nil {
+		rounds++
+		b := base()
+		b["messages"] = conv
+		var defs []any
+		if webTools {
+			defs = tools.ToolDefs()
+			if sess.Rejections() >= 2 {
+				defs = nil // caught echoing private text twice: no more web tools
+			} else if sess.Suspect() {
+				defs = tools.ToolDefsWithout("web_fetch") // instruction-like result removed: no fetch
 			}
 		}
-		rounds = 1
-		if len(parts) > 0 {
-			ctxMsg := map[string]any{"role": "user", "content": "Web search results for my next question (untrusted data, cite as [n]):\n\n" + strings.Join(parts, "\n\n")}
-			// insert just before the final user message
-			idx := len(conv)
-			for i := len(conv) - 1; i >= 0; i-- {
-				if m, ok := conv[i].(map[string]any); ok && m["role"] == "user" {
-					idx = i
-					break
-				}
-			}
-			conv = append(conv[:idx], append([]any{ctxMsg}, conv[idx:]...)...)
+		if td := s.withMemoryTool(defs, memUser && !sess.Suspect()); len(td) > 0 {
+			b["tools"], b["tool_choice"] = td, "auto"
+		} else {
+			delete(b, "tools")
+			delete(b, "tool_choice")
 		}
+		fwd := ""
+		if stream {
+			lastResp, fwd, ferr = s.streamRound(ctx, b, out, lim.MaxCalls)
+		} else {
+			lastResp, _, ferr = s.upstreamJSON(ctx, b)
+		}
+		if ferr != nil {
+			break
+		}
+		m := firstMessage(lastResp)
+		pt, ct = usage(lastResp["usage"])
+		type call struct{ id, name, args string }
+		var calls []call
+		for i, tc := range m.ToolCalls {
+			args := ""
+			switch a := tc.Function.Arguments.(type) {
+			case string:
+				args = a
+			case nil:
+			default:
+				bb, _ := json.Marshal(a)
+				args = string(bb)
+			}
+			id := tc.ID
+			if id == "" {
+				id = fmt.Sprintf("call_%d_%d", rounds, i)
+			}
+			calls = append(calls, call{id, tc.Function.Name, args})
+		}
+		content := m.Content
+		if len(calls) == 0 {
+			pc, rest, fails := tools.ParseTextToolCalls(m.Content, lim.MaxCalls)
+			if fails > 0 {
+				s.M.ToolParseFail.Add(float64(fails))
+			}
+			for i, c := range pc {
+				calls = append(calls, call{fmt.Sprintf("call_%d_%d", rounds, i), c.Name, c.Args})
+			}
+			content = rest
+		}
+		if len(calls) == 0 {
+			final, done = m, true
+			finalStreamed = fwd != ""
+			break
+		}
+		preamble += fwd
+		var tcs []any
+		for _, c := range calls {
+			tcs = append(tcs, map[string]any{"id": c.id, "type": "function", "function": map[string]any{"name": c.name, "arguments": c.args}})
+		}
+		conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
+		for _, c := range calls {
+			if c.name == memory.ToolName && s.memoryOn() && !memUser {
+				// user memory off: tool is hidden, but a call that arrives
+				// anyway gets a kill_switch tool error; nothing is saved.
+				code := "kill_switch"
+				if s.memoryActive(r) {
+					code = "tainted" // memory is on but proposals are not offered for this request's history
+				}
+				res := toolResult(map[string]any{"status": "denied", "error_code": code})
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
+			if c.name == memory.ToolName && memUser && sess.Suspect() {
+				res := toolResult(map[string]any{"status": "denied", "error_code": "tainted"})
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
+			if c.name == memory.ToolName && memUser {
+				// Any web result already in this request taints the proposal.
+				reasons := append([]string(nil), memTaint...)
+				for _, wc := range sess.Calls {
+					reasons = append(reasons, "request:call:"+wc.Tool)
+				}
+				for _, src := range sess.Sources {
+					reasons = append(reasons, "request:source:"+src.URL)
+				}
+				res := s.runMemoryPropose(r, pr, c.args, reasons, out.event)
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
+			if !webTools {
+				// web tools were not offered on this request: refuse, never execute.
+				res := toolResult(map[string]any{"status": "denied", "error_code": "tool_unavailable"})
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
+			res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
+			emitCall(rc)
+			conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+			if ctx.Err() != nil {
+				ferr = ctx.Err()
+				break
+			}
+		}
+		if webTools && ferr == nil {
+			// Gateway-owned notes for the next round (never web text).
+			if sess.Suspect() && !noteSuspect {
+				noteSuspect = true
+				conv = append(conv, map[string]any{"role": "system", "content": tools.SuspectNotice})
+			}
+			if len(sess.Calls) > 0 && !sess.Verified() {
+				conv = append(conv, map[string]any{"role": "system", "content": tools.UnverifiedNotice})
+			}
+		}
+	}
+	if !done && ferr == nil {
+		// Round cap: final answer without tools.
+		notice := tools.FinalNotice
+		if webTools && len(sess.Calls) > 0 && !sess.Verified() {
+			notice += " " + tools.UnverifiedNotice
+		}
+		if !webTools {
+			notice = "The tool budget for this answer is used up. Answer now."
+		}
+		conv = append(conv, map[string]any{"role": "system", "content": notice})
 		b := base()
 		b["messages"] = conv
 		if stream {
@@ -436,130 +552,8 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				pt, ct = usage(lastResp["usage"])
 			}
 		}
-	} else {
-		done := false
-		for rounds < lim.MaxRounds && !done && ferr == nil {
-			rounds++
-			b := base()
-			b["messages"] = conv
-			var defs []any
-			if webTools {
-				defs = tools.ToolDefs()
-			}
-			b["tools"] = s.withMemoryTool(defs, memUser)
-			b["tool_choice"] = "auto"
-			fwd := ""
-			if stream && !webTools {
-				lastResp, fwd, ferr = s.streamRound(ctx, b, out, lim.MaxCalls)
-			} else {
-				lastResp, _, ferr = s.upstreamJSON(ctx, b)
-			}
-			if ferr != nil {
-				break
-			}
-			m := firstMessage(lastResp)
-			pt, ct = usage(lastResp["usage"])
-			type call struct{ id, name, args string }
-			var calls []call
-			for i, tc := range m.ToolCalls {
-				args := ""
-				switch a := tc.Function.Arguments.(type) {
-				case string:
-					args = a
-				case nil:
-				default:
-					bb, _ := json.Marshal(a)
-					args = string(bb)
-				}
-				id := tc.ID
-				if id == "" {
-					id = fmt.Sprintf("call_%d_%d", rounds, i)
-				}
-				calls = append(calls, call{id, tc.Function.Name, args})
-			}
-			content := m.Content
-			if len(calls) == 0 {
-				pc, rest, fails := tools.ParseTextToolCalls(m.Content, lim.MaxCalls)
-				if fails > 0 {
-					s.M.ToolParseFail.Add(float64(fails))
-				}
-				for i, c := range pc {
-					calls = append(calls, call{fmt.Sprintf("call_%d_%d", rounds, i), c.Name, c.Args})
-				}
-				content = rest
-			}
-			if len(calls) == 0 {
-				final, done = m, true
-				finalStreamed = fwd != ""
-				break
-			}
-			preamble += fwd
-			var tcs []any
-			for _, c := range calls {
-				tcs = append(tcs, map[string]any{"id": c.id, "type": "function", "function": map[string]any{"name": c.name, "arguments": c.args}})
-			}
-			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
-			for _, c := range calls {
-				if c.name == memory.ToolName && s.memoryOn() && !memUser {
-					// user memory off: tool is hidden, but a call that arrives
-					// anyway gets a kill_switch tool error; nothing is saved.
-					code := "kill_switch"
-					if s.memoryActive(r) {
-						code = "tainted" // memory is on but proposals are not offered for this request's history
-					}
-					res := toolResult(map[string]any{"status": "denied", "error_code": code})
-					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
-					continue
-				}
-				if c.name == memory.ToolName && memUser {
-					// Any web result already in this request taints the proposal.
-					reasons := append([]string(nil), memTaint...)
-					for _, wc := range sess.Calls {
-						reasons = append(reasons, "request:call:"+wc.Tool)
-					}
-					for _, src := range sess.Sources {
-						reasons = append(reasons, "request:source:"+src.URL)
-					}
-					res := s.runMemoryPropose(r, pr, c.args, reasons, out.event)
-					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
-					continue
-				}
-				if !webTools {
-					// web tools were not offered on this request: refuse, never execute.
-					res := toolResult(map[string]any{"status": "denied", "error_code": "tool_unavailable"})
-					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
-					continue
-				}
-				res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
-				emitCall(rc)
-				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
-				if ctx.Err() != nil {
-					ferr = ctx.Err()
-					break
-				}
-			}
-		}
-		if !done && ferr == nil {
-			// Round cap: final answer without tools.
-			notice := tools.FinalNotice
-			if !webTools {
-				notice = "The tool budget for this answer is used up. Answer now."
-			}
-			conv = append(conv, map[string]any{"role": "system", "content": notice})
-			b := base()
-			b["messages"] = conv
-			if stream {
-				final, pt, ct, ferr = s.streamFinal(ctx, b, out)
-				finalStreamed = true
-			} else {
-				lastResp, _, ferr = s.upstreamJSON(ctx, b)
-				if ferr == nil {
-					final = firstMessage(lastResp)
-					pt, ct = usage(lastResp["usage"])
-				}
-			}
-		}
 	}
+
 	s.M.ToolRounds.Observe(float64(rounds))
 
 	status, reason := "complete", ""
@@ -572,8 +566,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		}
 	}
 	saved := preamble + final.Content
-	cites := cited(saved)
+	cites := validCites(cited(saved), len(sess.Sources))
 	srcs := sourcesView(sess.Sources, nil)
+	fresh, toolSummary := "", []map[string]any(nil)
+	if webTools {
+		fresh, toolSummary = freshStatus(sess), toolsView(sess)
+	}
 	if pr != nil {
 		pr.finish(r, saved, final.Reasoning, "", pt, ct, status, reason)
 		s.saveWebRun(r, pr, sess, cites)
@@ -595,6 +593,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			"message": map[string]any{"role": "assistant", "content": final.Content, "reasoning": nilIfEmpty(final.Reasoning)}}}
 		if webTools {
 			lastResp["choices"].([]any)[0].(map[string]any)["message"].(map[string]any)["sources"] = srcs
+			if fresh != "" {
+				lastResp["fresh"] = fresh
+			}
+			if len(toolSummary) > 0 {
+				lastResp["tools"] = toolSummary
+			}
 		}
 		if pr != nil {
 			for k, x := range pr.ids() {
@@ -623,11 +627,59 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	if pr != nil {
 		v := pr.ids()
 		v["object"], v["status"] = "chat.completion.persisted", pr.apiStatus(status)
+		if fresh != "" {
+			v["fresh"] = fresh
+		}
+		if len(toolSummary) > 0 {
+			v["tools"] = toolSummary
+		}
 		out.event(v)
 	}
 	out.raw([]byte("data: [DONE]\n\n"))
 	rec.clientGone = out.gone
 	s.record(r, rec)
+}
+
+// validCites keeps only citation numbers that exist in this answer's sources.
+func validCites(c []int, n int) []int {
+	out := []int{}
+	for _, x := range c {
+		if x >= 1 && x <= n {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// freshStatus tells the client whether the answer rests on a verified web
+// result: "ok" when at least one call returned usable sources, "unverified"
+// when web calls were made (or locked out) and none did, "" when no web tool
+// was used.
+func freshStatus(sess *tools.Session) string {
+	switch {
+	case sess.Verified():
+		return "ok"
+	case len(sess.Calls) > 0 || sess.Rejections() > 0:
+		return "unverified"
+	}
+	return ""
+}
+
+// toolsView is the per-turn tool summary of the persisted event. It has no
+// queries or URLs: only tool, who selected it, status, error code, count.
+func toolsView(sess *tools.Session) []map[string]any {
+	var out []map[string]any
+	for _, c := range sess.Calls {
+		v := map[string]any{"tool": c.Tool, "selected_by": "model", "status": c.Status}
+		if c.ErrorCode != "" {
+			v["error_code"] = c.ErrorCode
+		}
+		if c.Status == "ok" && c.Tool == "web_search" {
+			v["count"] = c.ResultCount
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 func nilIfEmpty(s string) any {
@@ -696,7 +748,11 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 	calls := make([]store.ToolCall, len(sess.Calls))
 	for i, c := range sess.Calls {
 		args, _ := json.Marshal(c.Args)
-		tc := store.ToolCall{Round: c.Round, Seq: i, Tool: c.Tool, Args: args, Status: c.Status, LatencyMs: c.LatencyMs, ResultChars: c.ResultChars}
+		st := c.Status
+		if st == "denied" {
+			st = "blocked" // the tool_calls.status CHECK has no "denied"
+		}
+		tc := store.ToolCall{Round: c.Round, Seq: i, Tool: c.Tool, Args: args, Status: st, LatencyMs: c.LatencyMs, ResultChars: c.ResultChars}
 		if tc.Tool != "web_search" && tc.Tool != "web_fetch" {
 			tc.Tool = "web_search" // unknown tool names are recorded as an errored search slot
 			tc.Status = "error"
@@ -705,8 +761,8 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 			p := c.Provider
 			tc.Provider = &p
 		}
-		if c.Error != "" {
-			e := c.Error
+		if c.ErrorCode != "" {
+			e := c.ErrorCode // the code only, never an internal message
 			tc.Error = &e
 		}
 		calls[i] = tc
