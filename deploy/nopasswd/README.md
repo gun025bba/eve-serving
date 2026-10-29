@@ -11,7 +11,7 @@ Run this **once**, in a terminal on the Mac, as the user that will deploy (it as
 installer from a fixed commit, refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`:
 
 ```
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/77ab92731d9ee77d1fda63947a6261bba78b8c04/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = e4e574abffbce0c0f48eff68524c6ccb428b7b5e36cc790f0bc6b30da29edaf7 ] && printf '%s\n' "$s" | sudo /bin/bash -s
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/283ca399d0a3ace5774d326156b8ac04124ab474/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 2e11dab0707e0416f10666e8d8b696120640e36f2885de70bf4ca0b37285e0b5 ] && printf '%s\n' "$s" | sudo /bin/bash -s
 ```
 
 It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
