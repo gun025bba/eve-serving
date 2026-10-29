@@ -34,8 +34,8 @@ TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 
 # ---------- pins and constants (setup-pins.sh --oneshot rewrites the three sha256 lines; the tests check them against the files) ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-PIN_INSTALLER_SHA256=978d8215ec8652e0339ceb2191cab2cd6e99e7826877b289850c31e4f08328d4   # deploy/nopasswd/setup-deploy-nopasswd.sh
-PIN_UNATTENDED_SHA256=8aa5f948ad25cf68ee34ca795cbb602311a6c33a48973f82223e62732e8a549e  # deploy/nopasswd/setup-unattended.sh
+PIN_INSTALLER_SHA256=9cd1cc24b5d78c2bca9b589c4b120156463172224fdc1597d64b69d4c091242e   # deploy/nopasswd/setup-deploy-nopasswd.sh
+PIN_UNATTENDED_SHA256=b6458d1aa81dd974c936beced1761669bffc14a79295f0f8d6defc273a0996e4  # deploy/nopasswd/setup-unattended.sh
 PIN_SETTINGS_SHA256=fcbd9902bffe9b5e2265b0722d91a915bd98d92be3e393c19bd2a3a60b848161    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
