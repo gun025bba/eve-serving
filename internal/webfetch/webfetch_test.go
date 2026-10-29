@@ -92,7 +92,7 @@ func TestSSRFBlockedURLs(t *testing.T) {
 		"http://169.254.169.254/latest/meta-data/", "http://255.255.255.255/", "http://240.0.0.1/", "http://198.18.0.1/", "http://192.0.0.1/",
 		"http://127.1/", "http://2130706433/", "http://0x7f000001/", "http://0177.0.0.1/", "http://0x7f.1/", "http://1.2.3.04/",
 		"http://localhost/", "http://localhost./", "http://LOCALHOST./", "http://foo.localhost/", "http://myhost/", "http://myhost./",
-		"http://box.tail1234.ts.net/", "http://printer.local/", "http://db.internal/", "http://nas.home.arpa/",
+		"http://box.tail1234.ts.net/", "http://printer.local/", "http://db.internal/", "http://nas.home.arpa/", "http://kubernetes.default.svc/", "http://api.ns.svc./", "http://svc/",
 		"http://user:pw@example.com/", "ftp://example.com/", "file:///etc/passwd", "gopher://example.com/", "javascript:alert(1)",
 		"http://example.com:22/",
 		// internal ports stay denied even when allowed_ports includes them

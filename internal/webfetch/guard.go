@@ -180,7 +180,7 @@ func (g *Guard) Control(network, address string, c syscall.RawConn) error {
 	return nil
 }
 
-var deniedSuffixes = []string{".ts.net", ".local", ".localhost", ".internal", ".home.arpa", ".localdomain", ".lan", ".intranet", ".corp"}
+var deniedSuffixes = []string{".ts.net", ".local", ".localhost", ".internal", ".home.arpa", ".localdomain", ".lan", ".intranet", ".corp", ".svc"}
 
 const (
 	MaxQueryLen = 256
