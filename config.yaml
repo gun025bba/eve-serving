@@ -43,10 +43,10 @@ database:
 web:                 # web_search / web_fetch tools (docs/web-search.md). On by default since 6.0.0.
   enabled: true      # GW_WEB_ENABLED (master switch; false removes the web tools)
   # 6.0.0: when enabled the model decides per request whether to search (auto tool selection). There is no
-  # per-request or per-user switch; the request field "web_search" and default_mode are ignored.
+  # per-request or per-user switch; the request field "web_search" is ignored.
   auto_select_off: false  # GW_WEB_AUTO_SELECT_OFF: rollback, turns auto selection off for everyone (fails closed:
                           # an unparsable env value also turns it off; the env can never turn it back on over the file)
-  default_mode: auto      # deprecated, ignored (GW_WEB_DEFAULT_MODE); still validated: off|auto ("force" was removed in 6.0.0)
+  default_mode: auto      # deprecated (GW_WEB_DEFAULT_MODE): auto = no-op, off = auto_select_off, "force" refuses to load (removed in 6.0.0)
   user_daily_search: 150  # per user per day (Asia/Seoul); GW_WEB_USER_DAILY_SEARCH
   user_daily_fetch: 100   # GW_WEB_USER_DAILY_FETCH
   global_search_per_min: 30    # all users; GW_WEB_GLOBAL_SEARCH_PER_MIN

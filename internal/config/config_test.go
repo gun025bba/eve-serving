@@ -324,3 +324,55 @@ func TestToolsConfig_PIMWindow(t *testing.T) {
 		t.Fatal("a window time that does not parse was accepted")
 	}
 }
+
+// N-3: web.default_mode "off" is honoured as auto_select_off (an old deployment
+// that had the web tools off keeps them off), "force" and unknown values are
+// load errors, "auto" and absent change nothing. Same through the env.
+func TestWebDefaultMode_OffHonouredForceRefused(t *testing.T) {
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	noEnv := func(string) string { return "" }
+	c, err := Load(write("web:\n  default_mode: off\n"), noEnv)
+	if err != nil || !c.Web.AutoSelectOff || !c.Web.DefaultModeOff {
+		t.Fatalf("default_mode off ignored: %v %+v", err, c.Web)
+	}
+	c, err = Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_DEFAULT_MODE": "off"}[k] })
+	if err != nil || !c.Web.AutoSelectOff {
+		t.Fatalf("GW_WEB_DEFAULT_MODE=off ignored: %v %+v", err, c.Web)
+	}
+	for _, mode := range []string{"force", "always", "ON"} {
+		if _, err := Load(write("web:\n  default_mode: "+mode+"\n"), noEnv); err == nil {
+			t.Errorf("default_mode %q accepted", mode)
+		}
+	}
+	for _, body := range []string{"web:\n  default_mode: auto\n", "web:\n  enabled: true\n"} {
+		c, err := Load(write(body), noEnv)
+		if err != nil || c.Web.AutoSelectOff || c.Web.DefaultModeOff {
+			t.Errorf("%q: %v %+v", body, err, c.Web)
+		}
+	}
+}
+
+// N-2: web enabled and no kill switch file configured: automatic selection is
+// switched off at start-up; with a file it stays as configured.
+func TestRequireKillswitch(t *testing.T) {
+	c := Default()
+	if !c.RequireKillswitch() || !c.Web.AutoSelectOff {
+		t.Fatal("web on without kill switch file must turn automatic selection off")
+	}
+	c = Default()
+	c.ToolsKillswitchFile = "/etc/eve/tools-killswitch.yaml"
+	if c.RequireKillswitch() || c.Web.AutoSelectOff {
+		t.Fatal("a configured file must not change the setting")
+	}
+	c = Default()
+	c.Web.Enabled = false
+	if c.RequireKillswitch() {
+		t.Fatal("web disabled: nothing to require")
+	}
+}

@@ -23,7 +23,9 @@ import (
 // rename over it); an in-place rewrite can be read half-written, and a
 // half-written file is a parse error, i.e. everything off.
 //
-//   - no file at startup  -> nothing disabled (current behaviour)
+//   - no file at startup  -> no tool is disabled (5.x behaviour), but automatic
+//     web tool selection stays OFF until a valid file exists (N-2: the 5 s
+//     off switch must be there before the web is on by default)
 //   - bad perms / owner / symlink / parse error / unknown key -> everything off
 //   - file removed on reload -> previous state kept (never re-enables by deletion)
 type Killswitch struct {
@@ -38,6 +40,8 @@ type Killswitch struct {
 	// runtime form of web.auto_select_off / GW_WEB_AUTO_SELECT_OFF).
 	autoOff bool
 	loaded  bool
+	// noFile: the file did not exist at startup and no valid one was read since.
+	noFile bool
 	// sig is the file signature of the last poll.
 	sig    fileSig
 	sigSet bool
@@ -67,11 +71,13 @@ func (k *Killswitch) Reload() string {
 	k.mu.Lock()
 	switch res {
 	case "missing":
-		if !k.loaded { // startup without file: nothing disabled
+		if !k.loaded { // startup without file: no tool disabled, automatic selection off
 			k.allOff, k.off, k.proactiveOff, k.autoOff = false, map[string]bool{}, false, false
+			k.noFile = true
 		} // on reload: keep previous state
 	case "ok":
 		k.allOff, k.off, k.proactiveOff, k.autoOff = allOff, off, pOff, aOff
+		k.noFile = false
 	default: // any error: fail closed
 		k.allOff, k.off, k.proactiveOff, k.autoOff = true, map[string]bool{}, true, true
 	}
@@ -196,15 +202,18 @@ func (k *Killswitch) WatchTicks(ctx context.Context, ticks <-chan time.Time) {
 }
 
 // AutoSelectOff reports whether automatic web tool selection is switched off
-// by the file. Everything-off (all_off, any read or parse error) counts too.
-// A nil switch never turns it off.
+// by the file. Everything-off (all_off, any read or parse error) counts too,
+// and so does a file that did not exist at startup and has not appeared since
+// (fail closed, N-2). A nil switch never turns it off (the gateway start-up
+// code turns it off itself when no file is configured, see
+// config.Config.RequireKillswitch).
 func (k *Killswitch) AutoSelectOff() bool {
 	if k == nil {
 		return false
 	}
 	k.mu.RLock()
 	defer k.mu.RUnlock()
-	return k.allOff || k.autoOff
+	return k.allOff || k.autoOff || k.noFile
 }
 
 // Disabled reports whether tool name is switched off.

@@ -176,9 +176,9 @@ func TestKillSwitch_FileCreatedAfterStartupIsPickedUp(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "tools-killswitch.yaml")
 	k := NewKillswitch(p, os.Getuid())
-	k.Reload() // missing at startup: nothing off
-	if k.AutoSelectOff() {
-		t.Fatal()
+	k.Reload() // missing at startup: no tool disabled, automatic selection off (N-2)
+	if !k.AutoSelectOff() || k.Disabled("web_search") {
+		t.Fatal("a missing file must keep automatic selection off and disable no tool")
 	}
 	atomicWrite(t, p, "auto_select_off: true\n")
 	if !k.Poll() || !k.AutoSelectOff() {
@@ -212,5 +212,33 @@ func TestKillswitchCheck_RollbackSequence(t *testing.T) {
 	r = chk("disabled: [web_search\n")
 	if r.Result == "ok" || !r.AllOff || !r.WebToolsOff {
 		t.Fatalf("broken file: %+v", r)
+	}
+}
+
+// N-2: no file at startup keeps the web tools off until a valid file exists; a
+// valid empty file turns them on; removing the file later keeps the last state.
+func TestKillSwitch_MissingFileFailsClosed(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "tools-killswitch.yaml")
+	k := NewKillswitch(p, os.Getuid())
+	k.Reload()
+	if !k.AutoSelectOff() {
+		t.Fatal("web tools on without a kill switch file")
+	}
+	atomicWrite(t, p, "disabled: []\n")
+	if !k.Poll() || k.AutoSelectOff() {
+		t.Fatal("a valid file must enable automatic selection")
+	}
+	os.Remove(p)
+	k.Poll()
+	if k.AutoSelectOff() {
+		t.Fatal("deleting the file must keep the previous state")
+	}
+	// a file that was never valid and then disappears stays off
+	k2 := NewKillswitch(filepath.Join(dir, "other.yaml"), os.Getuid())
+	k2.Reload()
+	k2.Poll()
+	if !k2.AutoSelectOff() {
+		t.Fatal("still no file: off")
 	}
 }

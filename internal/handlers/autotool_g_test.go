@@ -896,6 +896,24 @@ func TestAPIKey_BudgetAndKillSwitchSame(t *testing.T) {
 	}
 }
 
+// N-2: a kill switch configured but with no file keeps the web tools out of the
+// request; the first valid file brings them back. The e2e check of the config
+// side is config.TestRequireKillswitch.
+func TestKillSwitch_MissingFileNoWebTools(t *testing.T) {
+	write, ks := useKillswitch(t)
+	ks.Reload() // missing at startup
+	e, up := autoEnv(t, callStep{text: "ok"}, callStep{text: "ok"})
+	post(t, e, "go 1.27 release")
+	if n := toolNames(up.requests()[0]); has(n, "web_search") || has(n, "web_fetch") {
+		t.Fatalf("web tools offered without a kill switch file: %v", n)
+	}
+	write("disabled: []\n")
+	post(t, e, "go 1.27 release")
+	if n := toolNames(lastReq(up)); !has(n, "web_search") {
+		t.Fatalf("web tools missing after a valid file: %v", n)
+	}
+}
+
 // ---- deploy-order guards --------------------------------------------------
 
 // No HMAC key: automatic selection is off and an explicit web call is denied

@@ -193,10 +193,14 @@ const (
 // default behaviour); web.enabled false removes the web tools entirely.
 type WebConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// DefaultMode is deprecated and ignored: automatic tool selection is the
-	// default for every request (web.enabled is the master switch). Accepted
-	// so existing config files keep loading.
+	// DefaultMode is deprecated: automatic tool selection is the default for
+	// every request (web.enabled is the master switch). "auto" or empty change
+	// nothing; "off" is honoured as auto_select_off (an old deployment that had
+	// the web tools off keeps them off); "force" is a load error.
 	DefaultMode string `yaml:"default_mode" json:"default_mode"`
+	// DefaultModeOff is set by validation when default_mode was "off" (for the
+	// start-up warning); it is not a config key.
+	DefaultModeOff bool `yaml:"-" json:"-"`
 	// AutoSelectOff is the operator rollback: true turns automatic web tool
 	// selection off for everyone (GW_WEB_AUTO_SELECT_OFF). An unparsable
 	// environment value counts as true (fail closed).
@@ -395,8 +399,14 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 		c.AllowedUsers = []string{}
 	}
 	switch c.Web.DefaultMode {
-	case "off", "auto", "":
-		// deprecated, ignored (see WebConfig.DefaultMode)
+	case "auto", "":
+		// the default and the only mode: nothing to do
+	case "off":
+		// 5.x deployments that switched the web tools off with default_mode: off
+		// keep them off (N-3): it is read as web.auto_select_off. To turn the
+		// tools on, delete the key.
+		c.Web.AutoSelectOff = true
+		c.Web.DefaultModeOff = true
 	default:
 		return c, fmt.Errorf("web.default_mode must be off|auto (\"force\" was removed in 6.0.0: delete the key)")
 	}
@@ -658,4 +668,17 @@ func strictBool(s string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("invalid value (want exactly true or false)")
+}
+
+// RequireKillswitch is the fail-closed rule for the kill switch (N-2): with the
+// web tools enabled but no tools_killswitch_file configured there is no
+// 5-second off switch, so automatic tool selection is switched off for this
+// process (web.auto_select_off). It reports whether it had to. The gateway
+// calls it at start-up, after the config is loaded.
+func (c *Config) RequireKillswitch() bool {
+	if c.Web.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
+		c.Web.AutoSelectOff = true
+		return true
+	}
+	return false
 }

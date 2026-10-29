@@ -84,6 +84,7 @@ func main() {
 	if err != nil {
 		fatal("config: %v", err)
 	}
+	noKillswitch := cfg.RequireKillswitch() // N-2: no kill switch file configured -> automatic web tools off
 	if *migrateOnly {
 		if cfg.Database.URL == "" {
 			fatal("migrate: GW_DATABASE_URL / database.url is empty")
@@ -112,6 +113,12 @@ func main() {
 		fatal("log_level: %v", err)
 	}
 	log := logging.New(lf, lv)
+	if noKillswitch {
+		log.Error("web_auto_select_off", "reason", "no_killswitch_file", "hint", "set tools_killswitch_file (GW_TOOLS_KILLSWITCH_FILE) and check it with eve-gw killswitch-check")
+	}
+	if cfg.Web.DefaultModeOff {
+		log.Warn("web_default_mode_off", "effect", "web.default_mode: off is read as auto_select_off; delete the key to turn automatic tools on")
+	}
 	log.SetRedactor(memory.RedactLog) // always: secrets and memory text never reach logs
 
 	m := metrics.New(cfg.StatsWindow)
