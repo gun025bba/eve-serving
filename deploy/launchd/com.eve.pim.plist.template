@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- eve-pim (Jarvis M1, #68): user LaunchAgent in the owner's login session
-     (EventKit needs TCC). Writes stay off: the writes-enabled flag is not passed. -->
+     (EventKit needs TCC). Writes stay off: the writes-enabled flag is not passed.
+     __PIM_DIR__ is the fixed root-owned adapter directory (/opt/eve-pim/bin). The installer carries an identical
+     copy of this file (minus this comment); a test keeps them equal. -->
 <plist version="1.0"><dict>
 <key>Label</key><string>com.eve.pim</string>
 <key>ProgramArguments</key><array>
-  <string>/usr/bin/sandbox-exec</string><string>-f</string><string>__HOME__/eve-pim/eve-pim.sb</string>
-  <string>__HOME__/eve-pim/eve-pim</string>
+  <string>/usr/bin/sandbox-exec</string><string>-f</string><string>__PIM_DIR__/eve-pim.sb</string>
+  <string>__PIM_DIR__/eve-pim</string>
   <string>--socket-dir</string><string>__SOCKET_DIR__</string>
   <string>--peer-user</string><string>_evegw</string>
   <string>--group</string><string>_evepim</string>

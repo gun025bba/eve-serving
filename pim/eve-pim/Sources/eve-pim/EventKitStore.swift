@@ -15,10 +15,14 @@ final class EventKitStore: PimStore {
         return st == .authorized
     }
 
-    /// requestAccess asks once per entity type (TCC prompt in the user's
-    /// login session). It blocks until the user answers or the timeout.
+    /// requestAccess asks once for Calendar (TCC prompt in the user's login
+    /// session). It blocks until the user answers or the timeout. The helper
+    /// is calendar-only: the signed Info.plist and entitlements carry no
+    /// Reminders usage string, and asking for Reminders access without one
+    /// would make macOS terminate the process, so Reminders is never requested
+    /// (its methods answer permission_denied).
     func requestAccess() {
-        for type in [EKEntityType.event, .reminder] where !Self.authorized(type) {
+        for type in [EKEntityType.event] where !Self.authorized(type) {
             let sem = DispatchSemaphore(value: 0)
             let done: (Bool, Error?) -> Void = { _, _ in sem.signal() }
             if #available(macOS 14.0, *) {

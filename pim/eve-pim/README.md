@@ -54,13 +54,18 @@ directory; CI runs it on a GitHub-hosted macOS runner (job `pim-helper`).
 
 ## Install (owner's hands; not done by any bot)
 
-1. `sudo dscl . -create /Groups/_evepim` (+ `PrimaryGroupID`, a free id) and
-   `sudo dseditgroup -o edit -a _evegw -t user _evepim` — only `_evegw` is a member.
-2. Socket dir: `sudo install -d -m 0750 -o "$USER" -g _evepim <socket-dir>`.
-3. Copy the binary and `eve-pim.sb` to `~/eve-pim/`, render
-   `deploy/launchd/com.eve.pim.plist.template` (`__HOME__`, `__SOCKET_DIR__`)
-   into `~/Library/LaunchAgents/`, `launchctl bootstrap gui/$(id -u) …`.
-4. Approve the Calendar and Reminders TCC prompts once.
+The adapter is **not built on the Mac**. CI builds it with `build-release.sh` (hardened runtime, `codesign -s - -o runtime`,
+calendar-only entitlements and Info.plist from `Support/`), a signed manifest is made with `deploy/nopasswd/sign-pim-manifest.sh`,
+and the owner runs the installer, which verifies and installs it (see `docs/runbooks/5.1.0-calendar-briefing.md`):
+
+```
+sudo bash deploy/install-calendar-adapter.sh --manifest <abs>/eve-pim.MANIFEST --sig <abs>/eve-pim.MANIFEST.sig --adapter <abs>/eve-pim
+sudo bash deploy/install-calendar-adapter.sh --rollback     # back to the one previous adapter
+```
+
+It creates the `_evepim` group and the socket dir, installs the binary and `eve-pim.sb` into the root-owned `/opt/eve-pim/bin`, renders
+`deploy/launchd/com.eve.pim.plist.template` and loads the LaunchAgent. Then approve the **Calendar** TCC prompt once. The helper asks for
+Calendar only (no Reminders, no Contacts, no full disk access): the `reminders_*` verbs answer `permission_denied`.
 
 ## Gateway write verbs (#70) — both switches off by default
 
