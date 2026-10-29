@@ -6,13 +6,21 @@
 #      commit (installer, setup-unattended.sh, settings/SHA256SUMS) = B
 #   3. bash pin-unattended.sh --oneshot <B> writes the sha256 of the installer, setup-unattended.sh and settings/SHA256SUMS into eve-oneshot.sh, and the installer pins (commit B, sha256,
 #                                            entrypoint sha256) into mac-oneshot.sh and the README install line   (commit = C)
-#   4. bash pin-unattended.sh --print <M>    prints the clone-free one-shot command for the commit M that is on main after the merge (squash/rebase: M = the merge commit)
+#   4. bash pin-unattended.sh --readme <C>  the README mac-oneshot lines pin commit C and the sha256 of mac-oneshot.sh   (commit = D, last)
+#   5. bash pin-unattended.sh --print <M>    prints the clone-free one-shot command for the commit M that is on main after the merge (squash/rebase: M = the merge commit)
 set -Eeuo pipefail
 D=$(cd "$(dirname "$0")" && pwd)
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 FILES="release-tags.json release-tags.nokey.json release-tags-lock.json main-protect.eve-serving.json main-protect.eve-web.json env-deploy.json env-deploy-major.json security-and-analysis.json actions-workflow.json actions-fork-approval.json"
 case "${1:-}" in
+  --readme)
+    c=${2:-}; [[ "$c" =~ ^[0-9a-f]{40}$ ]] || { echo "usage: $0 --readme <commit C that contains the final mac-oneshot.sh>" >&2; exit 1; }
+    r=$D/README.md; oc=$(grep -o 'eve-serving/[0-9a-f]\{40\}/deploy/nopasswd/mac-oneshot.sh' "$r" | head -1 | cut -d/ -f2)
+    oh=$(grep -o 'mac-oneshot.sh) && .*= [0-9a-f]\{64\}' "$r" | head -1 | grep -o '[0-9a-f]\{64\}$'); nh=$(sha256 "$D/mac-oneshot.sh")
+    [ -n "$oc" ] && [ -n "$oh" ] || { echo "README mac-oneshot pins not found" >&2; exit 1; }
+    sed -i.bak -e "s#/$oc/deploy/nopasswd/mac-oneshot.sh#/$c/deploy/nopasswd/mac-oneshot.sh#g" -e "s/$oh/$nh/g" -e "s/$oc/$c/g" "$r" && rm -f "$r.bak"
+    echo "README mac-oneshot pins -> $c $nh"; exit 0;;
   --oneshot)
     b=${2:-}; [[ "$b" =~ ^[0-9a-f]{40}$ ]] || { echo "usage: $0 --oneshot <commit B that contains the installer and setup-unattended.sh>" >&2; exit 1; }
     m=$D/mac-oneshot.sh; r=$D/README.md
