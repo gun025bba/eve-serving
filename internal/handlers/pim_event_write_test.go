@@ -220,14 +220,14 @@ func TestScrubPimCards(t *testing.T) {
 		t.Fatal(evs)
 	}
 	// the card is live: even far in the future of its creation, "now" = just after it was made
-	if n, err := e.srv.ScrubPimCards(t.Context(), time.Now()); err != nil || n != 0 {
+	if n, err := e.srv.ScrubPimCards(t.Context(), evNow); err != nil || n != 0 {
 		t.Fatalf("live card scrubbed: %d %v", n, err)
 	}
 	// 3 days later it has expired and is past the retention
-	if n, err := e.srv.ScrubPimCards(t.Context(), time.Now().Add(72*time.Hour)); err != nil || n != 1 {
+	if n, err := e.srv.ScrubPimCards(t.Context(), evNow.Add(72*time.Hour)); err != nil || n != 1 {
 		t.Fatalf("expired card: scrubbed %d %v, want 1", n, err)
 	}
-	if n, _ := e.srv.ScrubPimCards(t.Context(), time.Now().Add(72*time.Hour)); n != 0 {
+	if n, _ := e.srv.ScrubPimCards(t.Context(), evNow.Add(72*time.Hour)); n != 0 {
 		t.Fatal("not idempotent")
 	}
 }
