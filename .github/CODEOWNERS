@@ -1,3 +1,13 @@
-# Code owner for the whole repository. With the main ruleset's "Require review from Code Owners" (docs/deploy-signing.md, pre-install
-# checklist) every change needs the owner's approval, so no path that decides what the Mac installs as root can be missed by a pattern.
-* @gun025bba
+# Code owners for the paths that decide what the Mac installs and runs as root, and what is exposed.
+# NOT ENFORCED TODAY: the main ruleset has require_code_owner_review=false and 0 required approvals (deploy/nopasswd/settings/main-protect.eve-serving.json, same as the live ruleset).
+# This file marks the trust-root paths and requests a review; it does not block a merge. The merge gate is CI (required checks from the Actions app, integration 15368: test and
+# deploy-nopasswd-macos) plus the security review of the PR (docs/runbooks/unattended-deploy.md, "Review gate").
+# Turning enforcement on later is a SEPARATE proposal: 1 required approval + require_code_owner_review=true + PRs authored by the gallix-grok account (the owner approves; an author cannot approve their own PR).
+# If a path that matters is missing here, add it BEFORE the first unattended release.
+/.github/ @gun025bba
+/deploy/ @gun025bba
+/internal/store/postgres/migrations/ @gun025bba
+/go.mod @gun025bba
+/go.sum @gun025bba
+/config.yaml @gun025bba
+/scripts/check-serve.sh @gun025bba
