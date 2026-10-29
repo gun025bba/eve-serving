@@ -95,6 +95,31 @@ func (s *Store) Sources(ctx context.Context, user string, ids []string) (map[str
 	return out, rows.Err()
 }
 
+func (s *Store) ToolCallsByMessage(ctx context.Context, user string, ids []string) (map[string][]store.ToolCall, error) {
+	out := map[string][]store.ToolCall{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT message_id, round, seq, tool, status FROM tool_calls
+		WHERE user_id=$1 AND message_id = ANY($2) ORDER BY message_id, round, seq`, u, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c store.ToolCall
+		if err := rows.Scan(&c.MessageID, &c.Round, &c.Seq, &c.Tool, &c.Status); err != nil {
+			return nil, err
+		}
+		out[c.MessageID] = append(out[c.MessageID], c)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) PurgeWebHistory(ctx context.Context, cutoff time.Time) (int64, error) {
 	a, err := s.pool.Exec(ctx, `DELETE FROM web_sources WHERE created_at < $1`, cutoff)
 	if err != nil {

@@ -51,6 +51,9 @@ type WebStore interface {
 	SaveWebRun(ctx context.Context, user, messageID string, calls []ToolCall, sources []WebSource) error
 	// Sources returns citations per message id (only the caller's messages).
 	Sources(ctx context.Context, user string, messageIDs []string) (map[string][]WebSource, error)
+	// ToolCallsByMessage returns the stored tool calls (tool, status; args are
+	// not needed) per message id, only for the caller's messages.
+	ToolCallsByMessage(ctx context.Context, user string, messageIDs []string) (map[string][]ToolCall, error)
 	// PurgeWebHistory deletes tool_calls and web_sources created before cutoff.
 	PurgeWebHistory(ctx context.Context, cutoff time.Time) (int64, error)
 	// ClearExpiredArgs sets args to {} on every tool_calls row whose

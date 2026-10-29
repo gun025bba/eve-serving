@@ -66,6 +66,18 @@ func (s *Store) ClearExpiredArgs(_ context.Context, now time.Time) (int64, error
 	return n, nil
 }
 
+func (s *Store) ToolCallsByMessage(_ context.Context, user string, ids []string) (map[string][]store.ToolCall, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]store.ToolCall{}
+	for _, id := range ids {
+		if m, ok := s.msgs[id]; ok && m.user == user && len(s.calls[id]) > 0 {
+			out[id] = append([]store.ToolCall{}, s.calls[id]...)
+		}
+	}
+	return out, nil
+}
+
 // ToolCalls is a test helper.
 func (s *Store) ToolCalls(id string) []store.ToolCall {
 	s.mu.Lock()
