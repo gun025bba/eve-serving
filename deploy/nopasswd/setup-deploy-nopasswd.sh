@@ -31,7 +31,7 @@ SHA_DEPLOY=fff9f36eecbb2452b4f6f419faa48edf86960822d8da2287769fcad76f0cc4a8
 SHA_FETCH=fb90fc5252c7adba3263c1795a7353ada2ed29efe69001df914ab16482845c83
 SHA_ROOT=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 SHA_UNINSTALL=2bde36730633cfe8624bcc3f5eec1924985a30563baa90e9290c56a9e9586d00
-DEFAULT_SCHEMA=8
+DEFAULT_SCHEMA=9
 
 LIBEXEC=${EVE_LIBEXEC:-/usr/local/libexec/eve}            # EVE_* overrides exist for tests only; real runs use the defaults
 STATE=${EVE_STATE:-/var/db/eve-deploy}

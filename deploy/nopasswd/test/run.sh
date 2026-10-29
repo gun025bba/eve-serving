@@ -529,7 +529,7 @@ eq "sudoers mode 0440" "$(modeof "$F")" 440
 eq "entrypoint mode 0755" "$(modeof "$EP")" 755; eq "fetch mode 0755" "$(modeof "$S/libexec/fetch")" 755; eq "cosign mode 0755" "$(modeof "$S/libexec/cosign")" 755
 eq "trust root mode 0644" "$(modeof "$S/libexec/trusted_root.json")" 644
 eq "state dir 0700" "$(modeof "$S/state")" 700; eq "staging dir 0700" "$(modeof "$S/libexec/staging")" 700
-eq "state seeded: versions detected from the live gateway and UI" "$(cat "$S/state/current_version")/$(cat "$S/state/current_web_version")/$(cat "$S/state/schema")/$(cat "$S/state/allowed_user")" "5.0.1/1.9.0/8/$ME"
+eq "state seeded: versions detected from the live gateway and UI" "$(cat "$S/state/current_version")/$(cat "$S/state/current_web_version")/$(cat "$S/state/schema")/$(cat "$S/state/allowed_user")" "5.0.1/1.9.0/9/$ME"
 eq "installed entrypoint == the pinned file" "$(sha256 "$EP")" "$(sha256 "$S/src/eve-deploy")"
 eq "installed trust root == the pinned file" "$(sha256 "$S/libexec/trusted_root.json")" "$(sha256 "$D/trusted_root.json")"
 eq "no private key, no signer list is installed" "$(ls "$S/libexec" | grep -cE 'allowed_signers|\.pem|\.key|id_')" 0
