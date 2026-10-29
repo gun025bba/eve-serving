@@ -220,7 +220,9 @@ func stripShellComments(s string) string {
 func TestCalendarAdapterTrustAndFixedPaths(t *testing.T) {
 	s := read(t)
 	mustContain(t, "installer", s,
-		`( . "$DEPLOY_ENTRY" && eve_deploy_overrides && verify_sig "$1" "$2" )`,
+		`( . "$DEPLOY_ENTRY" && verify_sig "$1" "$2" )`,
+		`dir_chain_ok "$(/usr/bin/dirname "$DEPLOY_ENTRY")"`,
+		`TRUST_ROOT=/ `,
 		`DEPLOY_ENTRY=/usr/local/libexec/eve/deploy`,
 		`SOCK_BASE=/opt/eve-pim`,
 		`PIM_DIR=$SOCK_BASE/bin`,
@@ -228,7 +230,9 @@ func TestCalendarAdapterTrustAndFixedPaths(t *testing.T) {
 		`OWNER_ARGS="-o root -g wheel"`,
 		`INSTALL=/usr/bin/install; MV=/bin/mv; CODESIGN=/usr/bin/codesign`,
 	)
-	for _, name := range []string{"DEPLOY_ENTRY", "PIM_DIR", "PIM_BIN", "PIM_SB", "PIM_MF", "PIM_PREV", "OWNER_ARGS", "ROOT_UID", "ROOT_GID", "PIM_SHA", "ALLOWED_USAGE_KEYS", "ALLOWED_ENTITLEMENTS"} {
+	// review L-1: no test hook (a place to re-point the trust root) in the production file; tests replace nothing but fixed paths
+	mustNotContain(t, "installer", s, "eve_deploy_overrides")
+	for _, name := range []string{"TRUST_ROOT", "PIM_PIN_READY", "DEPLOY_ENTRY", "PIM_DIR", "PIM_BIN", "PIM_SB", "PIM_MF", "PIM_PREV", "OWNER_ARGS", "ROOT_UID", "ROOT_GID", "PIM_SHA", "ALLOWED_USAGE_KEYS", "ALLOWED_ENTITLEMENTS"} {
 		if regexp.MustCompile(`(?m)^` + name + `="?\$\{`).MatchString(s) {
 			t.Errorf("%s is environment-overridable", name)
 		}
@@ -239,6 +243,7 @@ func TestCalendarAdapterTrustAndFixedPaths(t *testing.T) {
 		}
 	}
 	mustNotContain(t, "installer", stripShellComments(s), "sudoers", "visudo")
+	mustNotContain(t, "behaviour test", readFile(t, behaviour), "eve_deploy_overrides() {")
 	if !strings.HasPrefix(s, "#!/bin/bash\n") {
 		t.Error("shebang")
 	}
@@ -400,4 +405,88 @@ func TestCalendarAdapterBehaviour(t *testing.T) {
 		t.Fatalf("behaviour test failed: %v\n%s", err, out)
 	}
 	t.Logf("%s", strings.TrimSpace(string(out)))
+}
+
+// Security M-1: the pin PIM_SHA predates the source this installer ships with and is deliberately NOT changed in this PR.
+// While PIM_PIN_READY=0 the installer refuses every install and the sign helper refuses without --test-only. The change that moves the
+// pin (deploy-major) sets PIM_PIN_READY=1, and then PIM_SHA must really contain the adapter source and be an ancestor of HEAD.
+func TestCalendarAdapterPinGate(t *testing.T) {
+	s := read(t)
+	ready := assign(t, s, "PIM_PIN_READY")
+	if ready != "0" && ready != "1" {
+		t.Fatalf("PIM_PIN_READY=%q must be 0 or 1", ready)
+	}
+	mustContain(t, "installer", s,
+		`pin_gate || die "adapter pin not ready: refusing to install"`,
+		`if [ "$MODE" = install ] && ! pin_gate >&2; then exit 1; fi`,
+		`[ "$PIM_PIN_READY" = 1 ] || {`,
+	)
+	mustContain(t, "sign helper", readFile(t, signScript), "--test-only", "PIM_PIN_READY=1", "NEVER run in CI")
+	if ready == "0" {
+		// the pin must still be the pre-source commit (the PR does not touch it)
+		if sha := assign(t, s, "PIM_SHA"); sha != "6ce19939245e021f7dff5830d3a4273a85c9c949" {
+			t.Errorf("PIM_SHA changed to %s while PIM_PIN_READY=0: the pin moves only in the separate deploy-major change", sha)
+		}
+		return
+	}
+	// PIM_PIN_READY=1: the pin must cover the shipped source. Needs full history (actions/checkout fetch-depth: 0 in the job that runs this).
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal("PIM_PIN_READY=1 but git is not available to verify the pin")
+	}
+	sha := assign(t, s, "PIM_SHA")
+	for _, f := range []string{"pim/eve-pim/build-release.sh", "pim/eve-pim/Support/eve-pim.entitlements", "pim/eve-pim/Support/eve-pim-Info.plist"} {
+		if out, err := exec.Command(git, "cat-file", "-e", sha+":"+f).CombinedOutput(); err != nil {
+			t.Errorf("PIM_PIN_READY=1 but PIM_SHA %s does not contain %s: %v %s", sha, f, err, out)
+		}
+	}
+	if out, err := exec.Command(git, "merge-base", "--is-ancestor", sha, "HEAD").CombinedOutput(); err != nil {
+		t.Errorf("PIM_SHA %s is not an ancestor of HEAD: %v %s", sha, err, out)
+	}
+}
+
+// Security L-5/L-3/L-4/L-7c and the rollback hash: the shapes of the fixes (the behaviour test exercises them).
+func TestCalendarAdapterHardeningShapes(t *testing.T) {
+	s := read(t)
+	// exact hardened-runtime check: the flags line only, name list exact, runtime bit set; never `*runtime*` on the whole output
+	mustContain(t, "installer", s,
+		`case ",$fl," in *,runtime,*) ;;`,
+		`0x10000`,
+		`grep -c '^CodeDirectory .*flags=0x'`,
+	)
+	if strings.Contains(s, "*runtime*)") {
+		t.Error("substring match on the whole codesign output is back")
+	}
+	// the expected hashes are passed on install and on rollback
+	mustContain(t, "installer", s,
+		`put_current "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG" "$p" "$pmh" "$psh"`,
+		`put_current "$WORK/in.eve-pim" "$WORK/in.MANIFEST" "$WORK/in.MANIFEST.sig" "$MF_SHA256"`,
+		`atomic_put "$1" "$PIM_BIN" 755 "$wb"`,
+	)
+	// fail closed without a verified rollback
+	mustContain(t, "installer", s, `rotate_prev "$cur" || die "refusing to replace the installed adapter without a verified rollback`)
+	mustContain(t, "installer", s, "  return 1\n}\nput_current()")
+	// parent directories and work dir cleanup
+	mustContain(t, "installer", s, `bin_dir_ok() { dir_chain_ok "$PIM_DIR"; }`, `cleanup_work`, `-name 'install-*.log'`)
+	if !regexp.MustCompile(`(?s)on_exit\(\).*cleanup_work; \}`).MatchString(s) {
+		t.Error("on_exit must clean the work dir")
+	}
+	// TCC prompt handling in the installer text: deny, pause, check path and sha256; no Reminders wording
+	mustContain(t, "installer", s, "예상 밖 팝업", "허용 안 함", "PAUSE", "shasum -a 256 /opt/eve-pim/bin/eve-pim")
+	mustNotContain(t, "installer", s, "Calendar/Reminders (TCC)", "미리 알림 권한")
+}
+
+// Security M-1/M-2/L-6/L-7: what the runbook and CHANGELOG must say.
+func TestCalendarAdapterDocs(t *testing.T) {
+	rb := readFile(t, "../../docs/runbooks/5.1.0-calendar-briefing.md")
+	cl := readFile(t, "../../CHANGELOG.md")
+	mustContain(t, "runbook", rb,
+		"separate deploy-major change", "must not be signed or installed", "PIM_PIN_READY",
+		"The build job holds no secrets", "cosign", "local use and tests only",
+		"unexpected TCC prompt", "PAUSE", "sha256", "Classify rule", "namespace",
+		"Constraints for the cosign switch", "--certificate-github-workflow-sha", "--insecure-ignore-tlog",
+	)
+	mustNotContain(t, "runbook", rb, "--key <release key>", "Calendar/Reminders (TCC)")
+	mustContain(t, "CHANGELOG", cl, "PIM_PIN_READY", "separate deploy-major change", "must not be signed or installed")
+	mustNotContain(t, "CHANGELOG", cl, "creates and signs the manifest;")
 }

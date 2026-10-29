@@ -27,11 +27,22 @@
   afterwards; an already-installed binary with the same sha256 is not replaced (no new TCC prompt); one previous adapter is kept with its
   signed manifest and `--rollback` follows the same rules. The LaunchAgent now runs the binary from that directory instead of `~/eve-pim`
   (one new TCC prompt on the first install). The hex checks list the digits instead of a range: macOS bash 3.2 in a UTF-8 locale let `[a-f]` match upper case, so the old `is_hex_len` accepted an upper-case `PIM_SHA` there. Logs and copies stay in a private `mktemp -d` (0700); the pin stays on `keep/pim-adapter-6ce1993`.
+- **PIN NOT MOVED IN THIS CHANGE (security review M-1):** `PIM_SHA` stays `6ce1993`, which predates the adapter source this change adds. The installer therefore
+  refuses every install while `PIM_PIN_READY=0`, and `sign-pim-manifest.sh` refuses without `--test-only`. The pin moves in a **separate deploy-major change**
+  after this source is merged (`PIM_SHA` to the merged commit, `PIM_PIN_READY=1`; a test then requires `PIM_SHA` to contain `pim/eve-pim/build-release.sh`).
+  The adapter **must not be signed or installed** until that change is deployed.
+- **Installer hardening (security review Lows):** the `eve_deploy_overrides` test hook is gone from the production script (tests run the real verifier against a
+  copy of the entrypoint); every parent directory of the adapter and verifier directories must be root-owned and closed to group/other writes; the work directory's
+  input copies and backups are deleted on exit; the hardened-runtime check parses the `CodeDirectory flags=` line exactly (name list and the 0x10000 bit) instead
+  of matching `runtime` anywhere in the output; install and rollback pass the expected sha256 down to the atomic swap; an upgrade without a verified signed
+  record of the installed adapter (so without a rollback) is refused instead of continuing; a refused signature logs a short reason. Runbook: unexpected TCC
+  prompt = deny, PAUSE, check path and sha256; Reminders wording removed; classify rule and the cosign constraints are documented. Deferred: same key/namespace for
+  the manifest and the deploy bundle (until the cosign switch).
 - **Adapter is calendar-only and hardened.** `pim/eve-pim/build-release.sh` builds it and signs with `codesign -s - -o runtime`;
   `Support/eve-pim.entitlements` carries only `com.apple.security.personal-information.calendars` and `Support/eve-pim-Info.plist` only the
   Calendar usage strings (tests, the build script and the installer reject any other key: no contacts, no full disk access).
   **Behaviour change:** the helper no longer requests Reminders access at start-up, so the `reminders_*` tools answer `permission_denied`.
-  `deploy/nopasswd/sign-pim-manifest.sh` creates and signs the manifest; `deploy/test-calendar-adapter.sh` (also run from `go test` and
+  `deploy/nopasswd/sign-pim-manifest.sh` makes a manifest signed with a local key (**local use and tests only**; production signing is a separate protected CI job with cosign keyless, no secrets in the build job); `deploy/test-calendar-adapter.sh` (also run from `go test` and
   `deploy/nopasswd/test/run.sh`) tests refusal, atomic install, no-op and rollback.
 - `calendar_add_event` now **requires `calendar_id`** (from `calendar_list_events`); the confirmation card always
   names the target calendar. There is no implicit default calendar. (L-1)

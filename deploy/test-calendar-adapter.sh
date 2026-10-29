@@ -2,6 +2,8 @@
 # Behaviour tests of deploy/install-calendar-adapter.sh (verify + atomic install + rollback of the signed calendar adapter).
 # Runs unprivileged on Linux and macOS (bash 3.2): the installer is SOURCED (it only defines functions then), its fixed paths are re-pointed at a
 # temp dir, the real `ssh-keygen -Y sign/verify` and the real eve-deploy verifier (verify_sig) do the signature work, only `codesign` is a stub.
+# The PRODUCTION verify_manifest_sig runs unchanged (no test hook in the installer): the test entrypoint is a copy of eve-deploy whose two
+# trust-root assignments (SIGNERS, ROOT_UID) are rewritten to the temp dir.
 #   bash deploy/test-calendar-adapter.sh
 # Needs: bash, ssh-keygen, install, sha256sum or shasum, python3 not needed.
 # shellcheck disable=all
@@ -24,6 +26,8 @@ ME=$(id -un); MYUID=$(id -u); MYGID=$(id -g)
 # shellcheck source=install-calendar-adapter.sh
 . "$INS" || { echo "cannot source the installer"; exit 1; }
 SHA_PIN=$PIM_SHA
+PIN_DEFAULT=$PIM_PIN_READY
+PIM_PIN_READY=1        # the shipped installer refuses everything while 0 (tested in section 8); the behaviour tests run as if the pin had moved
 OTHER_SHA=$(printf 'b%.0s' $(seq 1 40))
 
 # ---------------- trust root: temp key, signers file, copy of the real entrypoint (its verify_sig) ----------------
@@ -32,18 +36,27 @@ chmod 755 "$T/libexec"
 ssh-keygen -q -t ed25519 -N '' -f "$T/key" >/dev/null || { echo "ssh-keygen failed"; exit 1; }
 ssh-keygen -q -t ed25519 -N '' -f "$T/key2/key" >/dev/null
 printf 'eve-release namespaces="eve-deploy" %s\n' "$(cut -d' ' -f1,2 "$T/key.pub")" >"$T/libexec/allowed_signers"
-cp "$HERE/nopasswd/eve-deploy" "$T/libexec/deploy"; chmod 755 "$T/libexec/deploy"
+sed -e "s|^SIGNERS=.*|SIGNERS=$T/libexec/allowed_signers|" -e "s|^ROOT_UID=.*|ROOT_UID=$MYUID|" "$HERE/nopasswd/eve-deploy" >"$T/libexec/deploy"; chmod 755 "$T/libexec/deploy"
+grep -q "^SIGNERS=$T/libexec/allowed_signers" "$T/libexec/deploy" && grep -q "^ROOT_UID=$MYUID" "$T/libexec/deploy" || { echo "cannot point the test entrypoint at the temp trust root"; exit 1; }
 DEPLOY_ENTRY=$T/libexec/deploy
-ROOT_UID=$MYUID; ROOT_GID=$MYGID; STAGE_UID=$MYUID; OWNER_ARGS=""
-eve_deploy_overrides() { SIGNERS=$T/libexec/allowed_signers; ROOT_UID=$MYUID; }
+TRUST_ROOT=$T; ROOT_UID=$MYUID; ROOT_GID=$MYGID; STAGE_UID=$MYUID; OWNER_ARGS=""
 
 # ---------------- codesign stub: reads markers from the fake binary ----------------
 cat >"$T/bin/codesign" <<'STUB'
 #!/bin/bash
 for f; do :; done
 case "$1" in
-  --verify) grep -aq BADSIG "$f" && exit 1; exit 0;;
-  -dv) if grep -aq NORUNTIME "$f"; then echo "CodeDirectory v=20500 flags=0x2(adhoc) hashes=1" >&2; else echo "CodeDirectory v=20500 flags=0x10002(adhoc,runtime) hashes=1" >&2; fi; exit 0;;
+  --verify) grep -aq BADSIG "$f" && exit 1
+            # simulates a swap of the kept previous adapter AFTER its checks and BEFORE the swap (one-shot, set by the test)
+            if [ -e "${TAMPER_FLAG:-/nonexistent}" ]; then case "$f" in *.prev) rm -f "$TAMPER_FLAG"; echo x >>"$f";; esac; fi
+            exit 0;;
+  -dv) echo "Executable=/Users/x/runtime/eve-pim" >&2   # a line that contains the word "runtime" (a path) must never count
+       if grep -aq NORUNTIME "$f"; then echo "CodeDirectory v=20500 flags=0x2(adhoc) hashes=1" >&2
+       elif grep -aq RTWORDONLY "$f"; then echo "CodeDirectory v=20500 flags=0x2(adhoc,runtimeish) hashes=1" >&2
+       elif grep -aq RTNOBIT "$f"; then echo "CodeDirectory v=20500 flags=0x2(adhoc,runtime) hashes=1" >&2
+       elif grep -aq RTTWOLINES "$f"; then echo "CodeDirectory v=20500 flags=0x10002(adhoc,runtime) hashes=1" >&2; echo "CodeDirectory v=20500 flags=0x2(adhoc) hashes=1" >&2
+       elif grep -aq RTLISTED "$f"; then echo "CodeDirectory v=20500 flags=0x30002(adhoc,runtime,library-validation) hashes=1" >&2
+       else echo "CodeDirectory v=20500 flags=0x10002(adhoc,runtime) hashes=1" >&2; fi; exit 0;;
   -d) echo '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
       grep -a -o 'ENT=[^ ]*' "$f" | sed 's/^ENT=//; s/.*/<key>&<\/key><true\/>/'
       echo '</dict></plist>'; exit 0;;
@@ -156,10 +169,29 @@ no_ "garbage signature" do_verify sig5
 ( DEPLOY_ENTRY=$T/libexec/missing; newwork; verify_inputs "$T/in/good.MANIFEST" "$T/in/good.MANIFEST.sig" "$T/in/good" ) >/dev/null 2>&1; eq "no verifier: refused" "$?" 1
 chmod 777 "$T/libexec/deploy"; do_verify good; eq "verifier entrypoint world-writable: refused" "$?" 1; chmod 755 "$T/libexec/deploy"
 ( ROOT_UID=$((MYUID + 1)); STAGE_UID=$MYUID; do_verify good ); do_verify good; eq "(control) verifies again" "$?" 0
+# L-3: every parent directory up to the trust root must be root-owned and closed
+mkdir -p "$T/up/mid/leaf"; chmod 755 "$T/up" "$T/up/mid" "$T/up/mid/leaf"
+( dir_chain_ok "$T/up/mid/leaf" ); eq "chain: all parents closed and owned: ok" "$?" 0
+chmod 775 "$T/up/mid"; ( dir_chain_ok "$T/up/mid/leaf" ); eq "chain: group-writable parent refused" "$?" 1; chmod 755 "$T/up/mid"
+chmod 777 "$T/up"; ( dir_chain_ok "$T/up/mid/leaf" ); eq "chain: world-writable grandparent refused" "$?" 1; chmod 755 "$T/up"
+( ROOT_UID=$((MYUID + 1)); dir_chain_ok "$T/up/mid/leaf" ); eq "chain: wrong owner refused" "$?" 1
+rm -rf "$T/up/real"; mkdir "$T/up/real"; chmod 755 "$T/up/real"; ln -s "$T/up/real" "$T/up/linkdir"; ( dir_chain_ok "$T/up/linkdir" ); eq "chain: symlinked directory refused" "$?" 1
+ln -s "$T/up/mid" "$T/up/linkparent"; ( dir_chain_ok "$T/up/linkparent/leaf" ); eq "chain: symlinked parent refused" "$?" 1
+( TRUST_ROOT=/nonexistent-root; dir_chain_ok "$T/up/mid/leaf" ); eq "chain: trust root that is not an ancestor: refused (fail closed)" "$?" 1
+( dir_chain_ok "relative/dir" ); eq "chain: relative path refused" "$?" 1
+chmod 775 "$T"; do_verify good; eq "verifier's parent group-writable: refused" "$?" 1; chmod 700 "$T"
+do_verify good; eq "(control) verifies after restoring the parent mode" "$?" 0
+# L-1: no test hook in production, and a refused signature logs a short reason (not silence)
+! grep -q 'eve_deploy_overrides' "$INS" && ok || bad "test hook eve_deploy_overrides still in the installer"
+do_verify sig2; grep -q 'manifest signature check failed' "$T/out" && ok || bad "signature failure is not logged with a reason"
 # code-signature / entitlement / usage-key checks of the adapter itself
 chk() { shift; build cs p "$@"; do_verify cs; }   # bash 3.2 + set -u: only "$@" (never "${@:2}")
 chk p BADSIG; eq "invalid code signature refused" "$?" 1
-chk p NORUNTIME; eq "no hardened runtime refused" "$?" 1
+chk p NORUNTIME; eq "no hardened runtime refused (a path with the word runtime does not help)" "$?" 1
+chk p RTWORDONLY; eq "flag named runtimeish (substring only) refused" "$?" 1
+chk p RTNOBIT; eq "runtime named but numeric runtime bit 0x10000 missing: refused" "$?" 1
+chk p RTTWOLINES; eq "two CodeDirectory flags lines: refused" "$?" 1
+chk p RTLISTED; eq "runtime among other flags with the bit set: accepted" "$?" 0
 chk p "ENT=com.apple.security.personal-information.addressbook"; eq "contacts entitlement refused" "$?" 1
 chk p "ENT=com.apple.security.personal-information.photos-library"; eq "photos entitlement refused" "$?" 1
 chk p "ENT=com.apple.security.files.all"; eq "full-disk-style entitlement refused" "$?" 1
@@ -274,12 +306,25 @@ eq "record write fails: install fails" "$rc" 1
 eq "record write fails: old adapter back" "$(installed_sha)" "$before"
 eq "record write fails: old record intact" "$(cksum <"$PIM_MF")" "$recb"
 # rollback record rules during an upgrade
-point_at "$T/o8"; do_install A; rm -f "$PIM_MF_SIG"; do_install B
-eq "installed adapter without a signed record: no rollback kept" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
-point_at "$T/o9"; do_install A; cp "$T/in/B.MANIFEST" "$PIM_MF"; do_install C
-eq "record that does not match the installed adapter: no rollback kept" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
-point_at "$T/o10"; do_install A; echo x >>"$PIM_MF"; do_install B
-eq "record with a broken signature: no rollback kept" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
+# FAIL CLOSED (review L-7c): without a verified signed record of the installed adapter there is no rollback, so the upgrade is refused and nothing changes
+point_at "$T/o8"; do_install A; rm -f "$PIM_MF_SIG"; before=$(installed_sha); do_install B; eq "installed adapter without a signed record: upgrade refused" "$?" 1
+eq "...installed adapter untouched" "$(installed_sha)" "$before"; eq "...no rollback files created" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
+grep -q 'refusing to replace the installed adapter without a verified rollback' "$T/out" && ok || bad "refusal message (no record)"
+point_at "$T/o9"; do_install A; cp "$T/in/B.MANIFEST" "$PIM_MF"; before=$(installed_sha); do_install C; eq "record that does not match the installed adapter: upgrade refused" "$?" 1
+eq "...installed adapter untouched (mismatching record)" "$(installed_sha)" "$before"; eq "...no rollback files (mismatching record)" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
+point_at "$T/o10"; do_install A; echo x >>"$PIM_MF"; before=$(installed_sha); do_install B; eq "record with a broken signature: upgrade refused" "$?" 1
+eq "...installed adapter untouched (broken record)" "$(installed_sha)" "$before"; eq "...no rollback files (broken record)" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
+# the first install (nothing installed yet) has nothing to roll back to and still works
+point_at "$T/o10b"; do_install A; eq "first install needs no rollback record" "$?" 0
+# a rollback that cannot be kept (previous cannot be written) also refuses the upgrade
+point_at "$T/o10c"; do_install A; before=$(installed_sha); INSTALL=$T/bin/install-failprev
+cat >"$T/bin/install-failprev" <<'STUB'
+#!/bin/bash
+for a; do case "$a" in */.eve-pim.prev.new.*) exit 1;; esac; done
+exec /usr/bin/install "$@"
+STUB
+chmod 755 "$T/bin/install-failprev"; do_install B; rc=$?; INSTALL=/usr/bin/install
+eq "previous cannot be kept: upgrade refused" "$rc" 1; eq "...installed adapter untouched (prev write failed)" "$(installed_sha)" "$before"; eq "...no partial rollback files" "$(ls "$PIM_DIR" | grep -c 'prev')" 0
 # directories: group/world-writable or symlinked target dirs are refused, nothing is written
 point_at "$T/o11"; chmod 775 "$PIM_DIR"; do_install A; eq "group-writable bin dir refused" "$?" 1
 [ ! -e "$PIM_BIN" ] && ok || bad "installed into a writable dir"
@@ -334,6 +379,36 @@ point_at "$T/r14"; do_install A; do_install B; touch "$CORRUPT_FLAG"; MV=$T/bin/
 eq "post-rollback corruption: fails" "$rc" 1; eq "post-rollback corruption: B restored" "$(installed_sha)" "$(sha256 "$T/in/B")"
 yes_ "post-rollback corruption: record restored" cmp -s "$PIM_MF" "$T/in/B.MANIFEST"
 point_at "$T/r15"; do_install A; do_install B; chmod 775 "$PIM_DIR"; do_rollback; eq "rollback into a writable directory: refused" "$?" 1
+# the expected hash is passed down: a previous adapter changed after its checks and before the swap is NOT installed (L-5)
+point_at "$T/r16"; do_install A; do_install B; export TAMPER_FLAG=$T/tamper.flag; touch "$TAMPER_FLAG"; do_rollback; rc=$?; rm -f "$TAMPER_FLAG"
+eq "previous changed between check and swap: rollback refused" "$rc" 1; eq "...installed adapter untouched (still B)" "$(installed_sha)" "$(sha256 "$T/in/B")"
+eq "...no temp files" "$(leftovers)" 0
+
+# ================= 4b. work dir cleanup (L-4) =================
+CW=$(mktemp -d /tmp/eve-install-calendar-adapter.XXXXXXXXXX); chmod 700 "$CW"
+echo log >"$CW/install-20260101-000000.log"; echo a >"$CW/in.eve-pim"; echo b >"$CW/in.MANIFEST"; echo c >"$CW/bak.bin"; mkdir "$CW/sub"; echo d >"$CW/sub/x"; echo e >"$CW/.hidden"
+( WORK=$CW; cleanup_work ); eq "cleanup keeps only the log" "$(ls -A "$CW" | tr '\n' ' ')" "install-20260101-000000.log "
+mkdir -p "$T/notwork"; echo keep >"$T/notwork/f"; ( WORK=$T/notwork; cleanup_work ); eq "cleanup refuses a dir that is not the installer's mktemp dir" "$(cat "$T/notwork/f")" keep
+( WORK=""; cleanup_work ); eq "cleanup with empty WORK is a no-op" "$?" 0
+rm -rf "$CW"
+
+# ================= 4c. pin gate (M-1) =================
+PIM_PIN_READY=$PIN_DEFAULT; point_at "$T/pg"
+if [ "$PIN_DEFAULT" = 0 ]; then
+  do_install good; eq "shipped installer (PIM_PIN_READY=0) refuses a perfectly signed, matching manifest" "$?" 1
+  grep -q 'PIM_PIN_READY=0' "$T/out" && ok || bad "pin gate message"
+  eq "pin gate: nothing installed" "$(ls -A "$PIM_DIR" | wc -l | tr -d ' ')" 0
+  do_verify good; eq "pin gate also stops verification" "$?" 1
+  out=$(bash "$INS" --manifest /a --sig /b --adapter /c 2>&1); rc=$?
+  eq "running the script in install mode exits before touching anything" "$rc" 1
+  case "$out" in *"PIM_PIN_READY=0"*) ok;; *) bad "script run: no pin gate message: $out";; esac
+  no_ "sign helper refuses without --test-only while the pin is not ready" bash "$HERE/nopasswd/sign-pim-manifest.sh" --key "$T/key" --git-sha "$SHA_PIN" --adapter "$T/in/good" --out "$T/sgn0"
+  [ ! -e "$T/sgn0/eve-pim.MANIFEST" ] && ok || bad "sign helper wrote a manifest despite the gate"
+else
+  is_hex_len "$PIM_SHA" 40 && ok || bad "PIM_PIN_READY=1 needs a 40-hex PIM_SHA"
+fi
+PIM_PIN_READY=1
+yes_ "with the pin ready the same inputs verify" do_verify good
 
 # ================= 5. arguments =================
 yes_ "args install" parse_args --manifest /m --sig /s --adapter /a; eq "args parsed" "$MODE $A_MF $A_SIG $A_BIN" "install /m /s /a"
@@ -362,11 +437,11 @@ grep -q '__PIM_DIR__/eve-pim' "$T/emb/com.eve.pim.plist.template" && ! grep -q '
 
 # ================= 7. the signing helper produces what the installer accepts =================
 mkdir -p "$T/sgn"; fake sg z
-yes_ "sign-pim-manifest.sh" bash "$HERE/nopasswd/sign-pim-manifest.sh" --key "$T/key" --git-sha "$SHA_PIN" --adapter "$T/in/sg" --out "$T/sgn"
+yes_ "sign-pim-manifest.sh" bash "$HERE/nopasswd/sign-pim-manifest.sh" --test-only --key "$T/key" --git-sha "$SHA_PIN" --adapter "$T/in/sg" --out "$T/sgn"
 cp "$T/in/sg" "$T/sgn/eve-pim"; ( newwork; verify_inputs "$T/sgn/eve-pim.MANIFEST" "$T/sgn/eve-pim.MANIFEST.sig" "$T/sgn/eve-pim" ) >/dev/null 2>&1; eq "installer accepts the helper's output" "$?" 0
 eq "helper manifest has exactly 3 lines" "$(wc -l <"$T/sgn/eve-pim.MANIFEST" | tr -d ' ')" 3
-no_ "sign helper refuses a short git sha" bash "$HERE/nopasswd/sign-pim-manifest.sh" --key "$T/key" --git-sha "${SHA_PIN:0:7}" --adapter "$T/in/sg" --out "$T/sgn2"
-no_ "sign helper refuses uppercase git sha" bash "$HERE/nopasswd/sign-pim-manifest.sh" --key "$T/key" --git-sha "$(echo $SHA_PIN | tr a-f A-F)" --adapter "$T/in/sg" --out "$T/sgn2"
+no_ "sign helper refuses a short git sha" bash "$HERE/nopasswd/sign-pim-manifest.sh" --test-only --key "$T/key" --git-sha "${SHA_PIN:0:7}" --adapter "$T/in/sg" --out "$T/sgn2"
+no_ "sign helper refuses uppercase git sha" bash "$HERE/nopasswd/sign-pim-manifest.sh" --test-only --key "$T/key" --git-sha "$(echo $SHA_PIN | tr a-f A-F)" --adapter "$T/in/sg" --out "$T/sgn2"
 
 echo "calendar adapter installer tests: $PASS passed, $FAILN failed"
 [ "$FAILN" = 0 ]

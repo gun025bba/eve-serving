@@ -10,8 +10,15 @@
 # All three files are inputs (absolute paths; staged by the login user, e.g. in /usr/local/libexec/eve/staging).
 # Run right AFTER deploy-5.0.0.sh (or use deploy-5.0.0-with-calendar.sh).
 #
+# PIN GATE (security review M-1): PIM_PIN_READY=0 below means this script REFUSES every install. PIM_SHA still points at the commit
+# BEFORE the source this script is shipped with (pim/eve-pim/build-release.sh, the calendar-only Info.plist/entitlements, the launchd
+# template), so a binary built from that commit is not what the reviewed code expects, and a manifest naming it would certify the wrong
+# source. The pin moves in a SEPARATE deploy-major change AFTER this source is merged; that change sets PIM_SHA to the merged commit and
+# PIM_PIN_READY=1. Until then the adapter must not be signed (sign-pim-manifest.sh refuses without --test-only) and must not be installed.
+#
 # Trust: the MANIFEST (3 lines: eve-pim-manifest=1, pim_sha=<40 lowercase hex>, pim_sha256=<64 lowercase hex>) must carry a valid signature
-# of the pinned release key. That is the verifier of the passwordless-deploy entrypoint (/usr/local/libexec/eve/deploy, verify_sig:
+# of the pinned release key. (Today: ssh-keygen -Y verify via the entrypoint below. Production signing moves to a protected CI job with
+# Sigstore keyless / cosign in a separate change owned by DevOps; sign-pim-manifest.sh is for local use and tests only.) That is the verifier of the passwordless-deploy entrypoint (/usr/local/libexec/eve/deploy, verify_sig:
 # ssh-keygen -Y verify against its root-owned allowed_signers): it is sourced in a subshell, no second trust root and no new sudoers verb.
 # The adapter is installed only if pim_sha == PIM_SHA below (the security-reviewed source commit) AND sha256(adapter) == pim_sha256.
 # Install target: a fixed root-owned directory, atomic rename, hash re-verified afterwards. A binary that is already installed with the same
@@ -23,7 +30,8 @@
 # Written for macOS /bin/bash 3.2. When SOURCED (tests) it only defines functions and constants.
 
 # ===================== pinned inputs (edit only here) =====================
-PIM_SHA=6ce19939245e021f7dff5830d3a4273a85c9c949   # source commit of the adapter that CI builds (last change to pim/eve-pim and the launchd template on release/5.1.0). Update it only to a commit security approved. Must be the full 40-hex SHA.
+PIM_SHA=6ce19939245e021f7dff5830d3a4273a85c9c949   # source commit of the adapter that CI builds. DELIBERATELY UNCHANGED in the PR that adds build-release.sh and the calendar-only plist/entitlements (it predates them; see PIN GATE above). Moves only in a separate deploy-major change, to a commit security approved. Must be the full 40-hex SHA.
+PIM_PIN_READY=0                  # 0 = the pin does not yet cover the shipped source: every install is refused. Set to 1 ONLY together with the PIM_SHA move (deploy-major; a Go test then requires PIM_SHA to contain pim/eve-pim/build-release.sh).
 # shellcheck disable=SC2034  # KEEP_REF / EVE_REPO are documentation + tests (CI and audits find the pinned source through them)
 KEEP_REF=keep/pim-adapter-6ce1993  # branch kept on EVE_REPO at PIM_SHA so the pinned source stays reachable for CI rebuilds and audits after release/5.1.0 is squashed into main and deleted. Never delete it; move it (fast-forward only) together with PIM_SHA.
 # shellcheck disable=SC2034
@@ -46,6 +54,7 @@ PIM_PREV=$PIM_BIN.prev                       # the one previous adapter, with it
 PIM_PREV_MF=$PIM_PREV.manifest
 PIM_PREV_SIG=$PIM_PREV_MF.sig
 OWNER_ARGS="-o root -g wheel"                # tests clear this
+TRUST_ROOT=/                                 # directory chains are checked up to here (tests change this)
 ROOT_UID=0                                   # uid/gid every installed file must have (tests change these)
 ROOT_GID=0
 STAGE_UID=""                                 # uid (besides root) that may own the input files: the login user, set at run time
@@ -86,7 +95,20 @@ dir_ok() { # $1 dir: a real directory, root-owned, not writable by group/other
   local m; m=$(stat_mode "$1") || return 1
   [ $(( 0$m & 0022 )) = 0 ]
 }
-bin_dir_ok() { dir_ok "$SOCK_BASE" && dir_ok "$PIM_DIR"; }
+# $1 dir and EVERY parent up to and including $TRUST_ROOT must be real directories, root-owned and closed to group/other writes
+# (otherwise whoever owns /opt or /usr/local could swap the directory that holds the adapter or the verifier). Fails closed if
+# $TRUST_ROOT is not an ancestor. Tests point TRUST_ROOT at their temp dir.
+dir_chain_ok() {
+  local d=$1
+  case "$d" in /*) ;; *) return 1;; esac
+  while :; do
+    dir_ok "$d" || return 1
+    [ "$d" = "$TRUST_ROOT" ] && return 0
+    [ "$d" = / ] && return 1
+    d=$(/usr/bin/dirname "$d")
+  done
+}
+bin_dir_ok() { dir_chain_ok "$PIM_DIR"; }   # PIM_DIR is below SOCK_BASE: the chain covers both
 
 # ----- the signed manifest -----
 # strict: exactly the 3 lines, in any order, no duplicates, no NUL bytes, nothing else. Sets P_SHA / P_SHA256.
@@ -111,14 +133,18 @@ parse_manifest() { # $1 file
   done <"$f"
   [ "$n" = 3 ] && [ -n "$P_SHA" ] && [ -n "$P_SHA256" ] && case "$seen" in *" eve-pim-manifest "*) true;; *) false;; esac
 }
-# Test hook: runs inside the verifier's subshell right after the entrypoint is sourced (tests point the trust root at a temp dir).
-eve_deploy_overrides() { :; }
+# No test hook here (review L-1): tests REPLACE verify_manifest_sig after sourcing this file; production has exactly one trust root.
 verify_manifest_sig() { # $1 manifest $2 signature: 0 only if the pinned release key signed exactly these bytes
   [ -f "$DEPLOY_ENTRY" ] && [ ! -L "$DEPLOY_ENTRY" ] && [ "$(stat_uid "$DEPLOY_ENTRY")" = "$ROOT_UID" ] || { log "verifier $DEPLOY_ENTRY is missing or not root-owned"; return 1; }
   [ $(( 0$(stat_mode "$DEPLOY_ENTRY") & 0022 )) = 0 ] || { log "verifier $DEPLOY_ENTRY is group/world writable"; return 1; }
-  dir_ok "$(/usr/bin/dirname "$DEPLOY_ENTRY")" || { log "verifier directory is not root-owned and closed"; return 1; }
+  dir_chain_ok "$(/usr/bin/dirname "$DEPLOY_ENTRY")" || { log "verifier directory (or one of its parents) is not root-owned and closed"; return 1; }
+  local vo
   # shellcheck source=/dev/null
-  ( . "$DEPLOY_ENTRY" && eve_deploy_overrides && verify_sig "$1" "$2" ) >/dev/null 2>&1
+  vo=$( ( . "$DEPLOY_ENTRY" && verify_sig "$1" "$2" ) 2>&1 ) || {
+    # one short line of the verifier's reason (no manifest content, no key material is printed by it)
+    log "manifest signature check failed: $(printf '%s' "$vo" | /usr/bin/tr -d '\000' | /usr/bin/tr '\n' ' ' | /usr/bin/cut -c1-160)"
+    return 1
+  }
 }
 
 # ----- inputs: copied into the root-only work dir, everything below judges the COPY, never the staged original -----
@@ -131,10 +157,18 @@ stage_copy() { # $1 src $2 dst $3 max bytes
 }
 # Calendar-only adapter: valid (ad-hoc) code signature with the hardened runtime, only the calendars entitlement, only calendar usage strings.
 check_signature() { # $1 binary; 0 = ok, otherwise logs why
-  local d e k bad=""
+  local d e k bad="" fl fh nfl
   "$CODESIGN" --verify --strict "$1" >/dev/null 2>&1 || { log "adapter has no valid code signature"; return 1; }
   d=$("$CODESIGN" -dv "$1" 2>&1) || { log "cannot read the adapter's code signature"; return 1; }
-  case "$d" in *runtime*) ;; *) log "adapter is not signed with the hardened runtime (codesign -o runtime)"; return 1;; esac
+  # exact check of the code directory's flags line "CodeDirectory ... flags=0x10002(adhoc,runtime) ..." (never a substring of the whole output:
+  # another line, e.g. a path, may contain the word). Exactly one such line, the name list must contain exactly `runtime`, and the
+  # numeric flag value must carry the runtime bit 0x10000.
+  nfl=$(printf '%s\n' "$d" | /usr/bin/grep -c '^CodeDirectory .*flags=0x') || true
+  [ "$nfl" = 1 ] || { log "adapter's code signature has no single CodeDirectory flags line"; return 1; }
+  fl=$(printf '%s\n' "$d" | /usr/bin/sed -n 's/^CodeDirectory .*flags=0x[0123456789abcdef]*(\([^)]*\)).*$/\1/p')
+  fh=$(printf '%s\n' "$d" | /usr/bin/sed -n 's/^CodeDirectory .*flags=0x\([0123456789abcdef]*\)(.*$/\1/p')
+  case ",$fl," in *,runtime,*) ;; *) log "adapter is not signed with the hardened runtime (codesign -o runtime)"; return 1;; esac
+  [ -n "$fh" ] && [ $(( 0x$fh & 0x10000 )) != 0 ] || { log "adapter's code-signature flags lack the hardened-runtime bit"; return 1; }
   e=$("$CODESIGN" -d --entitlements :- "$1" 2>/dev/null || true)
   for k in $(printf '%s\n' "$e" | /usr/bin/grep -o '<key>[^<]*</key>' | /usr/bin/sed 's/^<key>//;s/<\/key>$//'); do
     case "$ALLOWED_ENTITLEMENTS" in *" $k "*) ;; *) bad="$bad $k";; esac
@@ -148,8 +182,11 @@ check_signature() { # $1 binary; 0 = ok, otherwise logs why
   [ -z "$bad" ] || { log "adapter's Info.plist has usage strings beyond calendars:$bad"; return 1; }
   /usr/bin/grep -a -q 'NSCalendarsUsageDescription' "$1" || { log "adapter has no embedded calendar usage string"; return 1; }
 }
+# M-1: refuse while the pin does not yet cover the shipped source (see PIN GATE in the header).
+pin_gate() { [ "$PIM_PIN_READY" = 1 ] || { log "REFUSED: PIM_SHA does not yet point at the source of this installer (PIM_PIN_READY=0). The pin moves in a separate deploy-major change after the source is merged; do not sign or install the adapter until then."; return 1; }; }
 # Sets MF_SHA / MF_SHA256 and leaves the verified copies in $WORK (in.MANIFEST, in.MANIFEST.sig, in.eve-pim). Changes nothing outside $WORK.
 verify_inputs() { # $1 manifest $2 signature $3 adapter binary
+  pin_gate || die "adapter pin not ready: refusing to install"
   stage_copy "$1" "$WORK/in.MANIFEST" "$MAX_MF"
   stage_copy "$2" "$WORK/in.MANIFEST.sig" "$MAX_SIG"
   stage_copy "$3" "$WORK/in.eve-pim" "$MAX_BIN"
@@ -178,20 +215,22 @@ atomic_put() { # $1 src $2 dst $3 mode [$4 expected sha256, default: that of src
 installed_hash() { if file_ok "$PIM_BIN"; then sha_of "$PIM_BIN"; fi; }   # empty when nothing (or a non-regular file) is installed
 adapter_current() { [ "$(installed_hash)" = "$MF_SHA256" ] && owned_mode_ok "$PIM_BIN" 755; }   # same sha256 AND correct owner/mode
 # Keep the installed adapter as the ONE rollback target, but only when it is what its own signed manifest says it is.
+# FAIL CLOSED (review L-7c): returns 1 when no verified rollback can be kept; the caller then refuses to replace the installed adapter.
 rotate_prev() { # $1 hash of the installed adapter
   /bin/rm -f "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG"
   if file_ok "$PIM_MF" && file_ok "$PIM_MF_SIG" && verify_manifest_sig "$PIM_MF" "$PIM_MF_SIG" && parse_manifest "$PIM_MF" && [ "$P_SHA256" = "$1" ]; then
     atomic_put "$PIM_MF" "$PIM_PREV_MF" 644 && atomic_put "$PIM_MF_SIG" "$PIM_PREV_SIG" 644 && atomic_put "$PIM_BIN" "$PIM_PREV" 755 "$1" \
       && { log "§3 previous adapter kept for rollback (sha256 $(printf '%.12s' "$1")...)"; return 0; }
-    /bin/rm -f "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG"; log "§3 WARN: could not keep the previous adapter: no rollback available"
-  else log "§3 installed adapter has no verified signed record: no rollback kept"; fi
+    /bin/rm -f "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG"; log "§3 could not keep the previous adapter: no rollback available"
+  else log "§3 installed adapter has no verified signed record (manifest + signature of the release key matching its sha256)"; fi
+  return 1
 }
-put_current() { # puts $1 (binary) with its manifest $2 and signature $3 in place; on failure the saved copy of the old state ($WORK/bak.*) goes back
-  local had=0 cur hm="" hs=""
+put_current() { # puts $1 (binary) with its manifest $2 and signature $3 in place; $4/$5/$6 = their expected sha256 (verified earlier); on failure the saved copy of the old state ($WORK/bak.*) goes back
+  local had=0 cur hm="" hs="" wb=${4:-} wm=${5:-} ws=${6:-}
   cur=$(installed_hash)
   if [ -n "$cur" ]; then had=1; /bin/cp -p "$PIM_BIN" "$WORK/bak.bin" || return 1; fi
   if file_ok "$PIM_MF" && file_ok "$PIM_MF_SIG"; then /bin/cp -p "$PIM_MF" "$WORK/bak.mf" && /bin/cp -p "$PIM_MF_SIG" "$WORK/bak.sig" || return 1; hm=$(sha_of "$WORK/bak.mf"); hs=$(sha_of "$WORK/bak.sig"); fi
-  if atomic_put "$1" "$PIM_BIN" 755 && atomic_put "$2" "$PIM_MF" 644 && atomic_put "$3" "$PIM_MF_SIG" 644; then return 0; fi
+  if atomic_put "$1" "$PIM_BIN" 755 "$wb" && atomic_put "$2" "$PIM_MF" 644 "$wm" && atomic_put "$3" "$PIM_MF_SIG" 644 "$ws"; then return 0; fi
   if [ "$had" = 1 ]; then
     atomic_put "$WORK/bak.bin" "$PIM_BIN" 755 "$cur" && log "previous adapter restored" || log "RESTORE FAILED: inspect $PIM_DIR by hand"
   else /bin/rm -f "$PIM_BIN"; log "unverified adapter removed (nothing was installed before)"; fi
@@ -215,8 +254,10 @@ install_adapter() { # needs verify_inputs first. Sets INSTALL_RESULT=same|instal
   bin_dir_ok || die "$SOCK_BASE and $PIM_DIR must be real, root-owned directories closed to group/world writes"
   cur=$(installed_hash)
   # same bytes but wrong owner/mode: replaced in place (same hash, so the code signature and the TCC grant are unchanged); no rotation
-  if [ -n "$cur" ] && [ "$cur" != "$MF_SHA256" ]; then rotate_prev "$cur"; fi
-  put_current "$WORK/in.eve-pim" "$WORK/in.MANIFEST" "$WORK/in.MANIFEST.sig" || die "adapter install failed (see above); the previous state was restored"
+  if [ -n "$cur" ] && [ "$cur" != "$MF_SHA256" ]; then
+    rotate_prev "$cur" || die "refusing to replace the installed adapter without a verified rollback (nothing changed). If you accept having no rollback: stop the helper, remove $PIM_BIN by hand, and install again"
+  fi
+  put_current "$WORK/in.eve-pim" "$WORK/in.MANIFEST" "$WORK/in.MANIFEST.sig" "$MF_SHA256" "$(sha_of "$WORK/in.MANIFEST")" "$(sha_of "$WORK/in.MANIFEST.sig")" || die "adapter install failed (see above); the previous state was restored"
   [ "$(sha_of "$PIM_BIN")" = "$MF_SHA256" ] || die "installed adapter hash changed after install"
   check_signature "$PIM_BIN" || die "installed adapter failed the code-signature checks"
   INSTALL_RESULT=installed
@@ -225,24 +266,32 @@ install_adapter() { # needs verify_inputs first. Sets INSTALL_RESULT=same|instal
 # Rollback follows the same rules as an install: the kept adapter must still match its own SIGNED manifest, the signature checks and the
 # fixed root-owned target must hold, the swap is an atomic rename, the hash is re-verified, and an identical hash is a no-op. One step only.
 rollback_adapter() { # sets INSTALL_RESULT=same|rolled-back
-  local p
+  local p pmh psh
   INSTALL_RESULT=""
   file_ok "$PIM_PREV" && file_ok "$PIM_PREV_MF" && file_ok "$PIM_PREV_SIG" || die "no previous adapter is kept"
   owned_mode_ok "$PIM_PREV" 755 || die "kept previous adapter is not root:wheel 0755"
   verify_manifest_sig "$PIM_PREV_MF" "$PIM_PREV_SIG" || die "kept previous manifest signature verification FAILED"
   parse_manifest "$PIM_PREV_MF" || die "kept previous manifest is malformed"
   p=$P_SHA256
+  pmh=$(sha_of "$PIM_PREV_MF"); psh=$(sha_of "$PIM_PREV_SIG")   # the verified record, hashed once; the swap below must put exactly these bytes
   [ "$(sha_of "$PIM_PREV")" = "$p" ] || die "kept previous adapter fails its recorded sha256: rollback refused"
   check_signature "$PIM_PREV" || die "kept previous adapter failed the code-signature checks"
   MF_SHA256=$p
   if adapter_current; then INSTALL_RESULT=same; log "§3 the installed adapter already has the previous sha256: nothing to roll back"; return 0; fi
   if [ "$DRY_RUN" = 1 ]; then echo "  DRY: roll back $PIM_BIN to the kept previous adapter"; INSTALL_RESULT=rolled-back; return 0; fi
   bin_dir_ok || die "$SOCK_BASE and $PIM_DIR must be real, root-owned directories closed to group/world writes"
-  put_current "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG" || die "rollback failed (see above); the state before the rollback was restored"
+  put_current "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG" "$p" "$pmh" "$psh" || die "rollback failed (see above); the state before the rollback was restored"
   [ "$(sha_of "$PIM_BIN")" = "$p" ] || die "installed adapter hash changed after rollback"
   /bin/rm -f "$PIM_PREV" "$PIM_PREV_MF" "$PIM_PREV_SIG"
   INSTALL_RESULT=rolled-back
   log "§3 rolled back to the previous adapter; sha256 re-verified; no further rollback is kept"
+}
+
+# Removes the input copies and backups from the root-only work dir (review L-4); the log stays so the run can be read afterwards.
+cleanup_work() {
+  case "$WORK" in /tmp/eve-install-calendar-adapter.??????????) ;; *) return 0;; esac
+  [ -d "$WORK" ] && [ ! -L "$WORK" ] || return 0
+  /usr/bin/find "$WORK" -mindepth 1 -maxdepth 1 ! -name 'install-*.log' -exec /bin/rm -rf {} + 2>/dev/null || true
 }
 
 # ----- arguments: ONLY the install triple or --rollback; paths must be absolute (the script runs from /) -----
@@ -304,6 +353,7 @@ if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
 set -Eeuo pipefail
 umask 022
 parse_args "$@" || { usage; exit 2; }
+if [ "$MODE" = install ] && ! pin_gate >&2; then exit 1; fi   # M-1: nothing is touched, not even a work dir
 
 # =============================== main: work dir, root + user context ===============================
 WORK=$(mktemp -d /tmp/eve-install-calendar-adapter.XXXXXXXXXX) || { echo "mktemp failed" >&2; exit 1; }
@@ -351,7 +401,8 @@ on_exit() { local rc=$?
   if [ "$rc" != 0 ] && [ "$AGENT_STOPPED" = 1 ] && [ "$DRY_RUN" != 1 ] && [ -f "$UPLIST" ] && ! agent_loaded; then
     launchctl bootstrap "gui/$U_UID" "$UPLIST" 2>/dev/null && log "agent restarted after the failed run" || log "WARN: could not restart the agent: launchctl bootstrap gui/$U_UID $UPLIST"
   fi
-  [ "$rc" = 0 ] || log "EXIT rc=$rc, log: $LOG"; }
+  [ "$rc" = 0 ] || log "EXIT rc=$rc, log: $LOG"
+  cleanup_work; }
 trap 'on_err $LINENO' ERR
 trap on_exit EXIT
 
@@ -481,6 +532,12 @@ cat <<'TXT' | tee -a "$LOG"
   - 그래도 없으면 권한 초기화 후 재시도 (eve-pim 항목만 초기화됨)
         tccutil reset Calendar com.eve.pim
     (샌드박스가 원인이면 같은 인자에 NO_SANDBOX=1 을 붙여 다시 실행: sudo NO_SANDBOX=1 bash install-calendar-adapter.sh --manifest ... --sig ... --adapter ...)
+ ※ 예상 밖 팝업(캘린더가 아닌 항목, 다른 앱/경로 이름, 갑자기 뜨는 추가 권한 요청)은 [허용]하지 마세요:
+     [허용 안 함]을 누르고 설치를 중단(PAUSE)한 뒤, 경로와 sha256을 확인하세요.
+        ls -l /opt/eve-pim/bin/eve-pim ; shasum -a 256 /opt/eve-pim/bin/eve-pim
+     sha256이 서명된 manifest의 pim_sha256과 다르거나 경로가 /opt/eve-pim/bin/eve-pim이 아니면 헬퍼를 멈추세요
+        launchctl bootout gui/$(id -u)/com.eve.pim
+     그리고 보안 담당에게 알리세요. (확인 전에는 다시 실행하지 마세요.)
  권한은 eve-pim 바이너리의 서명(cdhash)에 묶입니다. 지금 설치된 것과 sha256이 같은 바이너리는 다시 설치해도 교체되지 않아 팝업이 다시 뜨지 않습니다.
  다른 빌드(sha256이 다름)로 바뀌면 팝업이 한 번 다시 뜹니다.
  읽기 전용입니다: 쓰기(--writes-enabled)는 켜지지 않았고, 게이트웨이 플래그도 모두 꺼져 있습니다.
