@@ -1,3 +1,10 @@
-# Code owner for the whole repository. With the main ruleset's "Require review from Code Owners" (docs/deploy-signing.md, pre-install
-# checklist) every change needs the owner's approval, so no path that decides what the Mac installs as root can be missed by a pattern.
-* @gun025bba
+# Code owner only for the paths that decide what the Mac installs and runs as root, and what is exposed. Everything else needs no code-owner approval.
+# With the main ruleset's "Require review from Code Owners" (deploy/nopasswd/settings/main-protect.eve-serving.json) a change under these paths needs the owner's approval;
+# the agent account that opens and merges ordinary PRs cannot approve its own PR. If a path that matters is missing here, add it BEFORE the first unattended release.
+/.github/ @gun025bba
+/deploy/ @gun025bba
+/internal/store/postgres/migrations/ @gun025bba
+/go.mod @gun025bba
+/go.sum @gun025bba
+/config.yaml @gun025bba
+/scripts/check-serve.sh @gun025bba

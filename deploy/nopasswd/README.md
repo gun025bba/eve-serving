@@ -11,7 +11,7 @@ Run this **once**, in a terminal on the Mac, as the user that will deploy (it as
 installer from a fixed commit, refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`:
 
 ```
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/283ca399d0a3ace5774d326156b8ac04124ab474/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 2e11dab0707e0416f10666e8d8b696120640e36f2885de70bf4ca0b37285e0b5 ] && printf '%s\n' "$s" | sudo /bin/bash -s
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/dc59c59ab04e9c5b033159421df225dc18a7f833/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 978d8215ec8652e0339ceb2191cab2cd6e99e7826877b289850c31e4f08328d4 ] && printf '%s\n' "$s" | sudo /bin/bash -s
 ```
 
 It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
@@ -25,6 +25,12 @@ deploy   deploy-web   rollback   rollback-web
 No key is generated, copied or read. The installer refuses if a directory in the chain is user-writable, if `visudo -c` fails, or if the
 live version cannot be determined. Options (append after `-s --`): `--schema N`, `--current X.Y.Z`, `--current-web X.Y.Z`.
 Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/eve-deploy`, which ends the NOPASSWD rule at once).
+
+## Unattended deploy (`eve-oneshot.sh`, `eve-poll`)
+
+A poller can pick up new CI-signed releases by itself, behind three root-owned brakes (`PAUSE`, `blocklist`, rollback `floor`). Design, order of the one-shot, the temporary-token conditions, the rollback rehearsal and how to remove the pause:
+[`docs/runbooks/unattended-deploy.md`](../../docs/runbooks/unattended-deploy.md). Review list: [`docs/review/unattended-change-list.md`](../../docs/review/unattended-change-list.md). Try it without changing anything: `bash deploy/nopasswd/eve-oneshot.sh --dry-run`.
+The clone-free command (with the pins) is printed by `bash deploy/nopasswd/pin-unattended.sh --print <merge commit on main>` after the merge; pin order is in the header of `pin-unattended.sh`.
 
 **One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
 (same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys are accepted by the installed entrypoint (`WEB_ENABLED=yes`) only

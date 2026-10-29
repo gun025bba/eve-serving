@@ -1,0 +1,1 @@
+{"wait_timer":0,"can_admins_bypass":false,"prevent_self_review":false,"reviewers":[{"type":"User","id":"__OWNER_ID__"}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}

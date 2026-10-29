@@ -369,6 +369,51 @@ new_box 27; stage gateway
 eq "unhealthy deploy: rc 1" "$?" 1
 eq "unhealthy deploy: old binaries restored" "$(cat "$B/bin/gateway")/$(cat "$B/bin/eve-gw")/$(cat "$B/state/current_version")" "gw-old/eg-old/9.0.0"
 [ ! -e "$B/state/previous" ] && ok || bad "unhealthy deploy must not create 'previous'"
+
+# 10b. unattended-deploy brakes: PAUSE, blocklist, floor, hold() after a failed deploy / any rollback
+new_box 70; stage gateway; echo "reason=test" >"$B/state/PAUSE"
+run_main deploy $FXV; eq "PAUSE: deploy refused" "$?" 1
+grep -q "PAUSED" "$B/stderr" && ok || bad "PAUSE refusal says PAUSED (the poller greps for it)"
+eq "PAUSE: live gateway untouched" "$(cat "$B/bin/gateway")/$(cat "$B/state/current_version")" "gw-old/9.0.0"
+new_box 71; stage gateway; ln -s /nonexistent "$B/state/PAUSE"
+run_main deploy $FXV; eq "PAUSE as a dangling symlink: deploy refused" "$?" 1
+new_box 72; stage web; echo "reason=test" >"$B/state/PAUSE"
+run_main deploy-web $FXV; eq "PAUSE: deploy-web refused" "$?" 1
+eq "PAUSE: live UI untouched" "$(cat "$B/web/index.html")/$(cat "$B/state/current_web_version")" "old/9.0.0"
+new_box 73; stage gateway; echo "gateway $FXV" >"$B/state/blocklist"
+run_main deploy $FXV; eq "blocklisted version: deploy refused" "$?" 1
+grep -q "blocklist" "$B/stderr" && ok || bad "blocklist refusal says why"
+new_box 74; stage gateway; echo "web $FXV" >"$B/state/blocklist"; echo "gateway 9.9.9" >>"$B/state/blocklist"
+run_main deploy $FXV; eq "blocklist lines of another kind/version do not block" "$?" 0
+# a healthy deploy raises the floor to the previous version (and never lowers it)
+eq "healthy deploy: floor = previous version" "$(cat "$B/state/floor")" 9.0.0
+new_box 75; stage gateway; echo 9.0.5 >"$B/state/floor"; echo 9.0.0 >"$B/state/current_version"
+run_main deploy $FXV; eq "floor above the previous version: deploy still works" "$?" 0
+eq "floor is never lowered" "$(cat "$B/state/floor")" 9.0.5
+# rollback still works under PAUSE, and holds: the rolled-back-from version is blocklisted and PAUSE is (re)created
+new_box 76; stage gateway; run_main deploy $FXV; eq "setup: deploy ok" "$?" 0
+echo "reason=test" >"$B/state/PAUSE"; run_main rollback; eq "rollback works while PAUSED" "$?" 0
+eq "rollback: live is the old gateway" "$(cat "$B/bin/gateway")/$(cat "$B/state/current_version")" "gw-old/9.0.0"
+grep -qxF "gateway $FXV" "$B/state/blocklist" && ok || bad "rollback blocklists the version it rolled back from"
+[ -e "$B/state/PAUSE" ] && ok || bad "rollback sets PAUSE"
+# the floor stops a rollback to anything below it
+new_box 77; stage gateway; run_main deploy $FXV; echo 9.0.1 >"$B/state/floor"
+run_main rollback; eq "rollback below the floor refused" "$?" 1
+eq "floor: live untouched" "$(cat "$B/state/current_version")" "$FXV"
+# a failed health check: automatic restore, blocklist, PAUSE
+new_box 78; stage gateway
+( sandbox_env; health_ok() { [ -f "$B/restored" ]; }; svc_restart() { [ "$(cat "$B/bin/gateway")" = gw-old ] && touch "$B/restored"; echo r >>"$B/svc"; }; main deploy $FXV ) >/dev/null 2>&1
+eq "unhealthy deploy: rc 1" "$?" 1
+grep -qxF "gateway $FXV" "$B/state/blocklist" && ok || bad "failed deploy: version blocklisted"
+[ -e "$B/state/PAUSE" ] && ok || bad "failed deploy: PAUSE set"
+grep -q "automatic rollback OK" "$B/log" && ok || bad "failed deploy: the log shows the automatic restore (the rehearsal greps for it)"
+new_box 79; stage web
+( sandbox_env; ui_ok() { [ "$(cat "$B/web/index.html")" = old ]; }; main deploy-web $FXV ) >/dev/null 2>&1; eq "unhealthy UI: rc 1" "$?" 1
+grep -qxF "web $FXV" "$B/state/blocklist" && ok || bad "failed web deploy: version blocklisted"
+[ -e "$B/state/PAUSE" ] && ok || bad "failed web deploy: PAUSE set"
+grep -q "automatic web rollback OK" "$B/log" && ok || bad "failed web deploy: the log shows the automatic restore"
+new_box 80; stage web; run_main deploy-web $FXV; eq "setup: web deploy ok" "$?" 0
+eq "healthy web deploy: floor_web = previous" "$(cat "$B/state/floor_web")" 9.0.0
 # rollback guards
 new_box 28; stage gateway; run_main deploy $FXV
 echo 9 >"$B/state/previous/schema"; run_main rollback; eq "rollback across schema refused" "$?" 1
@@ -661,7 +706,9 @@ code "$WF" | grep -A1 '^permissions:' | grep -q '^  contents: read$' && ok || ba
 job_block sign "$WF" | grep -q 'EVENT" = push' && job_block sign "$WF" | grep -q 'refs/tags/v' && ok || bad "the sign job must re-check the push event and the tag ref"
 job_block sign "$WF" | grep -q 'git ls-remote --exit-code "https://github.com/\$REPO" refs/heads/main' && job_block sign "$WF" | grep -q 'is not the tip of main' && ok || bad "the sign job must re-check the tip of main with git ls-remote right before signing"
 job_block sign "$WF" | awk '/git ls-remote/&&!a{a=NR} /sign-blob/&&!b{b=NR} END{exit !(a&&b&&a<b)}' && ok || bad "git ls-remote must come before cosign sign-blob"
-awk 'BEGIN{c=0} /^\* @gun025bba[[:space:]]*$/{c++} END{exit !(c==1)}' "$REPO_ROOT/.github/CODEOWNERS" && ok || bad "CODEOWNERS must be exactly one '* @gun025bba' rule"
+# narrowed on purpose: no catch-all rule; the paths that decide what the Mac installs/runs and what is exposed are code-owner paths
+! grep -qE '^\*[[:space:]]' "$REPO_ROOT/.github/CODEOWNERS" && ok || bad "CODEOWNERS must not have a catch-all '*' rule (code-owner review is for the security paths only)"
+for p in /.github/ /deploy/ /internal/store/postgres/migrations/ /go.mod; do grep -qE "^$p[[:space:]]+@gun025bba[[:space:]]*\$" "$REPO_ROOT/.github/CODEOWNERS" && ok || bad "CODEOWNERS must own $p"; done
 job_block sign "$WF" | grep -q 'environment: deploy' && ok || bad "the sign job runs in the deploy environment"
 # the guard itself (the checks are not optional and have no fixture / release-branch mode)
 for needle in 'EVENT" = push' 'refs/tags/v' 'merge-base --is-ancestor' 'SHA" = "$TIP"' 'refs/remotes/origin/main'; do grep -qF -- "$needle" "$GUARD" && ok || bad "release-guard.sh lacks: $needle"; done
@@ -747,6 +794,11 @@ eq "release-tag tests" "$rt_rc" 0
 mo_out=$(bash "$HERE/mac-oneshot-test.sh" 2>&1); mo_rc=$?
 printf '%s\n' "$mo_out" | tail -n 5
 eq "mac-oneshot tests" "$mo_rc" 0
+
+# ---------------- unattended deploy: one-shot, root half, poller (offline) ----------------
+ua_out=$(bash "$HERE/unattended-test.sh" 2>&1); ua_rc=$?
+printf '%s\n' "$ua_out" | tail -n 8
+eq "unattended tests" "$ua_rc" 0
 
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]

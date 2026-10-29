@@ -51,9 +51,9 @@ set -euo pipefail
 
 # ---------- pins and constants (the tests check these against the files in the repository) ----------
 INSTALL_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-INSTALL_COMMIT=283ca399d0a3ace5774d326156b8ac04124ab474
-INSTALL_SHA256=2e11dab0707e0416f10666e8d8b696120640e36f2885de70bf4ca0b37285e0b5
-ENTRY_SHA256=fff9f36eecbb2452b4f6f419faa48edf86960822d8da2287769fcad76f0cc4a8   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
+INSTALL_COMMIT=dc59c59ab04e9c5b033159421df225dc18a7f833
+INSTALL_SHA256=978d8215ec8652e0339ceb2191cab2cd6e99e7826877b289850c31e4f08328d4
+ENTRY_SHA256=26b91a29598e7a3c0cdd14c34620bcf7b12b0d22eae849cf26d5b9b33dcf7039   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
 KNOWN_HOSTS_SHA256=f455f6ec65126db336c18d44d7c73b8066e6c91e9529a92dea2712cd1552bfee
 LIBEXEC=${ONESHOT_LIBEXEC:-/usr/local/libexec/eve}       # only decides whether step 1 can be skipped
 GH_USER=gun025bba

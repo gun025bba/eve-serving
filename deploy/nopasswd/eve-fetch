@@ -21,7 +21,7 @@ case "$KIND" in gateway) REPO=gun025bba/eve-serving;; web) REPO=gun025bba/eve-we
 N=eve-$KIND-$VER
 TMP=$(mktemp -d "$STAGING/.fetch.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
 for f in "$N.MANIFEST" "$N.sigstore.json" "$N.tar"; do
-  curl -fsSL --proto "$PROTO" --tlsv1.2 --retry 3 --max-time 600 --max-filesize 629145600 -o "$TMP/$f" "$BASE/$REPO/releases/download/v$VER/$f" || die "download failed: $f (is v$VER released?)"
+  curl -fsSL --proto "$PROTO" --tlsv1.2 --max-redirs 5 --retry 3 --max-time 600 --max-filesize 629145600 -o "$TMP/$f" "$BASE/$REPO/releases/download/v$VER/$f" || die "download failed: $f (is v$VER released?)"
   [ -s "$TMP/$f" ] || die "empty download: $f"
 done
 rm -f "$STAGING/eve-$KIND-"*.MANIFEST "$STAGING/eve-$KIND-"*.sigstore.json "$STAGING/eve-$KIND-"*.tar    # one staged release per kind: the bare deploy takes it
