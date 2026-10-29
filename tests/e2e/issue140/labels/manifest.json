@@ -1,0 +1,43 @@
+{
+ "asked_at": "2026-10-29T18:30:00+09:00",
+ "design": "docs/architecture/auto-tool-selection.md rev2 §8.1",
+ "dev": {
+  "A": 56,
+  "B": 84,
+  "C": 35,
+  "D_read": 21,
+  "D_write": 14
+ },
+ "dev_sha256": "6a397f7b09b2fff17cf2bb550e66a3d06114ff83aba8debf0211964f2a5af248",
+ "holdout": {
+  "A": 24,
+  "B": 36,
+  "C": 15,
+  "D_read": 9,
+  "D_write": 6
+ },
+ "holdout_sha256": "95b04ba6b2eb4b377e6857216efd3efc042f527c692773d12bae93df67c93d72",
+ "lang": {
+  "en": 7,
+  "ko": 290,
+  "mix": 3
+ },
+ "second_labeler": "pending (labels.l2 is null for every item)",
+ "set": "issue140-features",
+ "split_rule": "per stratum sort by sha256(seed|id); first round(0.3*n) = holdout",
+ "split_seed": "issue140-v1",
+ "strata_total": {
+  "A": 80,
+  "B": 120,
+  "C": 50,
+  "D_read": 30,
+  "D_write": 20
+ },
+ "totals": {
+  "A": 80,
+  "B": 120,
+  "C": 50,
+  "D": 50
+ },
+ "version": 1
+}
