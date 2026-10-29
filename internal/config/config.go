@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -77,6 +77,10 @@ type Config struct {
 	// (`eve-gw pair --user`) and keep using a paired session. Empty = no
 	// browser sessions. Tailscale-User-* headers are never used for identity.
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
+	// AllowedUsersEnvEmpty is set when GW_ALLOWED_USERS is present but empty (or only
+	// separators). That is treated as unset: it never overrides allowed_users from the
+	// YAML file. The gateway logs a startup warning when it is true.
+	AllowedUsersEnvEmpty bool `yaml:"-" json:"-"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
 	Env      string         `yaml:"env" json:"env"`
@@ -324,6 +328,9 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	if v, ok := lookup("GW_ALLOWED_USERS"); ok && len(splitList(v)) == 0 {
+		c.AllowedUsersEnvEmpty = true
+	}
 	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(cfgMemory, envMemory)
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
@@ -368,12 +375,14 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	if c.AllowedUsers == nil {
 		c.AllowedUsers = []string{}
 	}
-	// Fail closed on a malformed allowlist: one entry must be one login. A joined
-	// list ("a@x b@y", or a comma inside a YAML item) would otherwise silently
-	// lock everyone out or name a login nobody has.
+	// Fail closed on a malformed allowlist: one entry must be one login, and
+	// auth.NormalizeLogin (the single decision function, ASCII allowlist) must
+	// accept it. A joined list ("a@x b@y"), a comma inside a YAML item or a
+	// look-alike non-ASCII character would otherwise silently lock everyone out
+	// or name a login nobody has.
 	for _, u := range c.AllowedUsers {
-		if u = strings.TrimSpace(u); u != "" && strings.ContainsFunc(u, func(r rune) bool { return r == ',' || unicode.IsSpace(r) || unicode.IsControl(r) }) {
-			return c, fmt.Errorf("allowed_users: each entry must be exactly one login without commas or whitespace (GW_ALLOWED_USERS is a comma separated list)")
+		if u = strings.TrimSpace(u); u != "" && !auth.ValidLogin(u) {
+			return c, fmt.Errorf("allowed_users: each entry must be exactly one login of ASCII letters, digits and . _ @ + - (max 254 bytes), no commas, whitespace or other characters (GW_ALLOWED_USERS is a comma separated list)")
 		}
 	}
 	switch c.Web.DefaultMode {
@@ -420,8 +429,11 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	if v := getenv("GW_ALLOWED_ORIGINS"); v != "" {
 		c.AllowedOrigins = splitList(v)
 	}
-	if v := getenv("GW_ALLOWED_USERS"); v != "" {
-		c.AllowedUsers = splitList(v)
+	// A GW_ALLOWED_USERS that is empty, or only separators, is treated as unset:
+	// it does not replace allowed_users from the YAML file (LoadEnv flags it so the
+	// gateway can warn). Set a real list to override the file.
+	if l := splitList(getenv("GW_ALLOWED_USERS")); len(l) > 0 {
+		c.AllowedUsers = l
 	}
 	if v := getenv("GW_DATABASE_URL"); v != "" {
 		c.Database.URL = v

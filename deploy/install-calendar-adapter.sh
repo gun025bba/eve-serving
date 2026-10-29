@@ -11,9 +11,12 @@ set -Eeuo pipefail
 umask 022
 
 # ===================== pinned inputs (edit only here, then re-run sha256) =====================
-PIM_SHA=6ce19939245e021f7dff5830d3a4273a85c9c949   # 5.1.0 adapter commit: last change to pim/eve-pim and the launchd template on release/5.1.0 (#97 review Lows; includes #75-#78). Update it only to a commit security approved.
+PIM_SHA=6ce19939245e021f7dff5830d3a4273a85c9c949   # 5.1.0 adapter commit: last change to pim/eve-pim and the launchd template on release/5.1.0 (#97 review Lows; includes #75-#78). Update it only to a commit security approved. Must be the full 40-hex SHA.
+KEEP_REF=keep/pim-adapter-6ce1993  # branch kept on EVE_REPO at PIM_SHA so the pin stays reachable after release/5.1.0 is squashed into main and deleted. Never delete it; move it (fast-forward only) together with PIM_SHA.
 EVE_REPO=https://github.com/gun025bba/eve-serving
-EXP_PIM_SHA256=                  # optional: pin the built eve-pim hash; empty = print only
+# Pin of the built eve-pim binary (64 hex). Empty = the hash is only printed (a WARN is logged): after security has reviewed the first build on the
+# target Mac, record the printed value here (or pass EXP_PIM_SHA256=<hash> in the sudo environment) so every later run must reproduce it.
+EXP_PIM_SHA256="${EXP_PIM_SHA256:-}"
 PIM_GID_WANT=452                 # first-choice gid for _evepim; next free gid in 452..499 is used if taken
 SOCK_BASE=/opt/eve-pim           # root:wheel 0755; the socket dir below it is <login>:_evepim 0750
 RUN_TESTS="${RUN_TESTS:-1}"      # swift test before installing
@@ -28,9 +31,13 @@ GWLABEL=com.llmserving.gateway
 DAEMON=/Library/LaunchDaemons/$GWLABEL.plist
 SOCK_DIR=$SOCK_BASE/run
 SOCK=$SOCK_DIR/pim.sock
-BUILD=/tmp/eve-pim-build
+# Private work area: random name, mode 0700 (owned by the login user below so the unprivileged build can write). The build tree and the
+# logs live inside it, so no predictable /tmp path is created or truncated by root.
+WORK=$(mktemp -d /tmp/eve-install-calendar-adapter.XXXXXXXXXX) || { echo "mktemp failed" >&2; exit 1; }
+chmod 0700 "$WORK"
+BUILD=$WORK/pim-build
 TS_STAMP=$(date +%Y%m%d-%H%M%S)
-LOG=/tmp/eve-install-calendar-adapter-$TS_STAMP.log
+LOG=$WORK/install-$TS_STAMP.log
 STAGE=0        # 0 nothing changed | 2 agent loaded (undo = bootout + disable plist)
 DONE=0
 
@@ -45,7 +52,7 @@ else
   [ "$(id -u)" = 0 ] || { echo "run with: sudo bash $0" >&2; exit 1; }
   [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || { echo "SUDO_USER missing" >&2; exit 1; }
 fi
-chown "$SUDO_USER" "$LOG" 2>/dev/null || true
+chown "$SUDO_USER" "$WORK" "$LOG" 2>/dev/null || true
 U_UID=$(id -u "$SUDO_USER")
 U_HOME=$(dscl . -read "/Users/$SUDO_USER" NFSHomeDirectory | awk '{print $2}')
 PIMHOME="$U_HOME/eve-pim"
@@ -82,7 +89,10 @@ trap on_exit EXIT
 log "install-calendar-adapter start (dry_run=$DRY_RUN, pim sha=$PIM_SHA, sandbox=$([ "$NO_SANDBOX" = 1 ] && echo off || echo on))"
 
 # =============================== PRECHECKS + BUILD (user, no root changes) ===============================
-case "$PIM_SHA" in *[!0-9a-f]*|"") die "PIM_SHA must be lowercase hex";; esac
+is_hex_len() { case "$1" in ""|*[!0-9a-f]*) return 1;; esac; [ "${#1}" -eq "$2" ]; }   # lowercase hex of exactly $2 chars
+is_hex_len "$PIM_SHA" 40 || die "PIM_SHA must be the full 40-character lowercase hex commit SHA"
+[ -z "$EXP_PIM_SHA256" ] || is_hex_len "$EXP_PIM_SHA256" 64 || die "EXP_PIM_SHA256 must be 64 lowercase hex characters (or empty)"
+[ -n "$EXP_PIM_SHA256" ] || log "WARN: EXP_PIM_SHA256 is not pinned: the built eve-pim hash is printed but not checked. Record it after security reviewed this build."
 [ -f /Library/LaunchDaemons/$GWLABEL.plist ] || die "gateway LaunchDaemon missing: run deploy-5.0.0.sh first (or deploy-5.0.0-with-calendar.sh)"
 health_gw || die "gateway not healthy (deploy 5.0.0 first)"
 [ "$(dscl_val /Users/_evegw UniqueID)" = 451 ] || die "_evegw missing / uid != 451"
@@ -93,9 +103,13 @@ SWIFT=$(as_user xcrun --find swift 2>/dev/null || true)
 log "PRE swift: $(as_user swift --version 2>&1 | head -1)"
 run_user rm -rf "$BUILD"
 run_user git clone -q "$EVE_REPO" "$BUILD"
+# The pinned commit must stay reachable: a plain clone has it through $KEEP_REF; fetch it by SHA if a branch no longer reaches it.
+if [ "$DRY_RUN" != 1 ] && ! as_user git -C "$BUILD" cat-file -e "$PIM_SHA^{commit}" 2>/dev/null; then
+  as_user git -C "$BUILD" fetch -q origin "$PIM_SHA" || die "pinned commit $PIM_SHA is not reachable on $EVE_REPO (restore branch $KEEP_REF at that commit)"
+fi
 run_user git -C "$BUILD" checkout -q --detach "$PIM_SHA"
 if [ "$DRY_RUN" != 1 ]; then
-  FULL=$(as_user git -C "$BUILD" rev-parse HEAD); case "$FULL" in "$PIM_SHA"*) ;; *) die "HEAD $FULL != $PIM_SHA";; esac
+  FULL=$(as_user git -C "$BUILD" rev-parse HEAD); [ "$FULL" = "$PIM_SHA" ] || die "HEAD $FULL != $PIM_SHA"
   P="$BUILD/pim/eve-pim"
   [ -f "$P/Package.swift" ] && [ -f "$P/eve-pim.sb" ] && [ -f "$BUILD/deploy/launchd/com.eve.pim.plist.template" ] || die "pim sources missing at $PIM_SHA"
   if grep -rnE 'import (Network|CFNetwork)|URLSession|NWConnection|NWListener|AF_INET|getaddrinfo' "$P/Sources" >/dev/null; then die "network code found in eve-pim sources"; fi
