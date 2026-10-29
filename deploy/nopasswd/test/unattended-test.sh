@@ -62,6 +62,11 @@ eq "release-branches: only the repository admin role may bypass (always, like re
 eq "release-branches: PR required, 0 approvals, squash+rebase, code owner off" "$(jq -r '.rules[]|select(.type=="pull_request")|.parameters|"\(.required_approving_review_count) \(.require_code_owner_review) \(.allowed_merge_methods|sort|join(","))"' "$RBJ")" "0 false rebase,squash"
 eq "release-branches: required checks = those of main-protect (test, deploy-nopasswd-macos @15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|sort|join(",")' "$RBJ")" "deploy-nopasswd-macos@15368,test@15368"
 eq "release-branches: same checks as main-protect serving" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$RBJ")" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$SETT/main-protect.eve-serving.json")"
+for n in main-protect.eve-serving main-protect.eve-ios release-branches.eve-serving; do
+  eq "r2 L-1: $n.json pull_request has require_extra_approval_for_unattributed_changes=true (pull_request parameters only)" "$(jq -r '[.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$SETT/$n.json")/$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))] | length' "$SETT/$n.json")" "true/1"
+done
+eq "r2 L-1: main-protect.eve-web.json has no pull_request rule, so no such parameter" "$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))]|length' "$SETT/main-protect.eve-web.json")" 0
+has "r2 L-1: the read-back (RS_SUM) compares the parameter" "$(cat "$OS")" 'extra=\(.parameters.require_extra_approval_for_unattributed_changes)'
 IOSJ=$SETT/main-protect.eve-ios.json
 eq "main-protect ios: required check is compile from the Actions app (15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|join(",")' "$IOSJ")" "compile@15368"
 eq "main-protect ios: no force-push, no deletion, linear history" "$(jq -r '[.rules[].type]|map(select(.=="non_fast_forward" or .=="deletion" or .=="required_linear_history"))|sort|join(",")' "$IOSJ")" "deletion,non_fast_forward,required_linear_history"
@@ -129,6 +134,9 @@ if not rest:
         done()
 if rest == ["keys"]: out(rp["keys"])
 if rest[0] == "rulesets":
+    if method in ("POST", "PUT") and os.environ.get("FAKE_EXTRA_DROP"):
+        for r in body["rules"]:
+            if r["type"] == "pull_request": r["parameters"].pop("require_extra_approval_for_unattributed_changes", None)
     if len(rest) == 1:
         if method == "GET": out([{"id": r["id"], "name": r["name"], "target": r["target"]} for r in rp["rulesets"]])
         if method == "POST" and os.environ.get("FAKE_RB_NOAPPLY") and body["name"] == "release-branches": done()
@@ -223,7 +231,7 @@ PY
 run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary token)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
   ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="$D" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
-      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
+      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
       ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
@@ -274,6 +282,10 @@ eq "happy: actions settings applied" "$(jq -r '.repos["gun025bba/eve-serving"].a
 eq "release-branches: the ruleset applied is the pinned file (eve-serving only)" "$(jq -S 'del(.id)' <(jq -c '.repos["gun025bba/eve-serving"].rulesets[]|select(.name=="release-branches")' "$T/fk/gh.json"))" "$(jq -S . "$SETT/release-branches.eve-serving.json")"
 eq "release-branches: not created on eve-web or eve-ios" "$(jq -r '[.repos["gun025bba/eve-web"].rulesets[],.repos["gun025bba/eve-ios"].rulesets[]|select(.name=="release-branches")]|length' "$T/fk/gh.json")" 0
 has "release-branches: PASS row" "$(cat "$T/out")" "PASS  gun025bba/eve-serving ruleset release-branches"
+# r2 L-2: the tag lock is the FIRST write of the whole run (before release-tags is rewritten and before any PUT of another setting)
+eq "r2 L-2: the first two writes are the release-tags-lock rulesets (serving, web)" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|.[0:2]|map(.body.name+" "+.ep)|join(",")')" "release-tags-lock repos/gun025bba/eve-serving/rulesets,release-tags-lock repos/gun025bba/eve-web/rulesets"
+eq "r2 L-2: no other write precedes a lock write" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|(map(.body.name=="release-tags-lock")|rindex(true)) < (map(.body.name!="release-tags-lock")|index(true))')" true
+eq "r2 L-1: the applied rulesets carry the parameter" "$(jq -r '[.repos[].rulesets[]|.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$T/fk/gh.json")" "true,true,true"
 # eve-ios: ONLY the main-protect ruleset, required check compile (Actions app), verified in the PASS table
 eq "ios: the ruleset applied is the pinned file" "$(jq -S 'del(.id)' <(jq -c '.repos["gun025bba/eve-ios"].rulesets[0]' "$T/fk/gh.json"))" "$(jq -S . "$SETT/main-protect.eve-ios.json")"
 eq "ios: the only writes on eve-ios are the ruleset" "$(glog '[.[]|select(.cmd=="api" and .method!="GET" and (.ep|startswith("repos/gun025bba/eve-ios")))|.method+" "+.ep]|unique|join(",")')" "POST repos/gun025bba/eve-ios/rulesets"
@@ -346,6 +358,12 @@ new_world ok; run_os --dry-run; has "dry-run: names the release-branches ruleset
 # S8d: release-branches did not stick on eve-serving -> FAIL row, no sudo
 new_world ok; FAKE_RB_NOAPPLY=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "release-branches not applied: rc non-zero" "$((OSRC != 0))" 1; has "release-branches not applied: FAIL row" "$(cat "$T/out")" "FAIL  gun025bba/eve-serving ruleset release-branches"; eq "release-branches not applied: NO sudo" "$(sudo_calls)" 0
+# S8e: GitHub drops the parameter -> the read-back shows it (FAIL row, no sudo)
+new_world ok; FAKE_EXTRA_DROP=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "extra dropped: rc non-zero" "$((OSRC != 0))" 1; has "extra dropped: FAIL row shows extra=" "$(cat "$T/out")" "FAIL  gun025bba/eve-serving ruleset main-protect"; has "extra dropped: the row names the parameter" "$(cat "$T/out")" "extra=true"; eq "extra dropped: NO sudo" "$(sudo_calls)" 0
+# S8f: the lock goes first also when the later settings fail (nothing but the two lock rulesets may be written before the first failure)
+new_world ok; FAKE_ENV_IGNORE=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "env ignored: the tag lock was still written first" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|.[0].body.name')" release-tags-lock
 # S9: a tampered file at the merge commit
 for f in setup-unattended.sh setup-deploy-nopasswd.sh settings/SHA256SUMS settings/release-tags.json settings/main-protect.eve-ios.json settings/release-branches.eve-serving.json; do
   new_world ok; FAKE_TAMPER=$f TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M

@@ -1,6 +1,6 @@
 # Change list for the Major security review (one line per file)
 
-Base: `main` (ae0b03f, #142 squash). Branch: `feat/unattended-deploy-v2`. Everything is under `deploy/nopasswd/` unless a path says otherwise.
+Base: `main`, kept in sync by merge commits (see `git merge-base`; the last sync is 3033eac). Branch: `feat/unattended-deploy-v2`. Everything is under `deploy/nopasswd/` unless a path says otherwise.
 
 | file | change | why it needs a look |
 |---|---|---|
@@ -42,3 +42,12 @@ Assumptions to confirm in the review: code-owner review is NOT enforced (the gat
 | eve-ios `main-protect` | `settings/main-protect.eve-ios.json` (pinned in SHA256SUMS): required check `compile` @15368 (job `compile` of eve-ios `compile.yml`, pull_request to main only), no force-push/deletion, linear history, PR with 0 approvals, squash/rebase. `eve-oneshot.sh` applies ONLY this ruleset to eve-ios (admin + public checks cover it) and reads it back | `unattended-test.sh` "main-protect ios: …", "ios: …", S8b/S8c |
 | eve-serving `release-branches` | `settings/release-branches.eve-serving.json` (pinned): `refs/heads/release/*`, creation + deletion + non_fast_forward blocked, admin role bypass only, PR + `test` and `deploy-nopasswd-macos` | `unattended-test.sh` "release-branches: …", S8d |
 | `GW_ALLOWED_ORIGINS` | checked read-only, no change: the iOS shell's Origin is `https://<EVE_HOST>`, the web app's own origin; see the runbook | - |
+
+## Review r2 (conditional approval at 480c574): the two Lows fixed here
+
+| id | fix | test |
+|---|---|---|
+| L-1 | `require_extra_approval_for_unattributed_changes: true` added to the `pull_request` rule `parameters` (the only valid place, boolean, optional) of `main-protect.eve-serving.json`, `main-protect.eve-ios.json`, `release-branches.eve-serving.json`; the eve-web `main-protect` has no `pull_request` rule, so none there. The read-back (`RS_SUM`) now compares it (`extra=`), so a PUT that loses it shows as a FAIL row | `unattended-test.sh` "r2 L-1: …", S8e |
+| L-2 | `release-tags-lock` is created/updated FIRST of all writes (both repositories), before `release-tags` is rewritten and before any PUT of another setting | `unattended-test.sh` "r2 L-2: …", S8f |
+| L-5 | the PR description's merge condition ("merge commit … pins reference commit SHA") was wrong: squash or rebase only, no commit is pinned (corrected text in the PR hand-off) | - |
+| L-6 | the header no longer names a stale base commit | - |

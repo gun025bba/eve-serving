@@ -36,7 +36,7 @@ TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
 PIN_UNATTENDED_SHA256=6e946c5d18547f629e0eda8340103e32693579c38a33f0d500066d130abe12c1  # deploy/nopasswd/setup-unattended.sh
-PIN_SETTINGS_SHA256=6041ce8a4a90f6572f46830cf4c4343b42e7a2a4c25346f93563b1cac6916bef    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
+PIN_SETTINGS_SHA256=9fc392df1c57b0df2637f5db42010340db389671e3cd10154558b6081a4a102e    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
 IOS_REPO=gun025bba/eve-ios   # only main-protect (required check "compile") is applied here: no release tags, no deploy environments, no deploy keys
@@ -283,7 +283,6 @@ apply_repo() {
   s=$(short_of "$r")
   say "  -- $r"
   if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then upsert_ruleset "$r" release-tags "$(body_of release-tags.json)"; else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
-  upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)"
   upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")"
   if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
   gw PUT "repos/$r/environments/deploy" "$(body_of env-deploy.json)" || say "  warning: environment deploy PUT failed; the table decides"
@@ -309,13 +308,15 @@ step_settings() {
   local r
   step "2. settings of the repositories (idempotent; applied ONLY with the throwaway OAuth login, never with the temporary token)"
   for r in $REPOS; do preflight_keys "$r"; done
+  # FIRST of all writes (before release-tags is rewritten and before any PUT of another setting): the lock on tags v* (no update, delete or force-push), so that a failure later in the run can never leave the tags unprotected
+  for r in $REPOS; do upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)"; done
   for r in $REPOS; do apply_repo "$r"; done
   apply_ios
 }
 
 # ---------- step 3: verify ----------
 chk() { if [ "$2" = "$3" ]; then printf '  PASS  %s: %s\n' "$1" "$3"; else printf '  FAIL  %s: got [%s] want [%s]\n' "$1" "$3" "$2"; FAILS=$((FAILS + 1)); fi; }
-RS_SUM='"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[]|if .type=="pull_request" then "pull_request(\(.parameters.required_approving_review_count),codeowner=\(.parameters.require_code_owner_review),dismiss_stale=\(.parameters.dismiss_stale_reviews_on_push),threads=\(.parameters.required_review_thread_resolution),methods=\([.parameters.allowed_merge_methods[]?]|sort|join("+")))" elif .type=="required_status_checks" then "checks(\(.parameters.strict_required_status_checks_policy):\([.parameters.required_status_checks[]|"\(.context)@\(.integration_id)"]|sort|join("+")))" else .type end]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"'
+RS_SUM='"\(.target) \(.enforcement) \(.conditions.ref_name.include|join(",")) \([.rules[]|if .type=="pull_request" then "pull_request(\(.parameters.required_approving_review_count),codeowner=\(.parameters.require_code_owner_review),dismiss_stale=\(.parameters.dismiss_stale_reviews_on_push),threads=\(.parameters.required_review_thread_resolution),extra=\(.parameters.require_extra_approval_for_unattributed_changes),methods=\([.parameters.allowed_merge_methods[]?]|sort|join("+")))" elif .type=="required_status_checks" then "checks(\(.parameters.strict_required_status_checks_policy):\([.parameters.required_status_checks[]|"\(.context)@\(.integration_id)"]|sort|join("+")))" else .type end]|sort|join(",")) bypass=\([.bypass_actors[]?|"\(.actor_type):\(.actor_id):\(.bypass_mode)"]|sort|join(","))"'
 ENV_SUM='"wait=\(([.protection_rules[]?|select(.type=="wait_timer")|.wait_timer]|.[0]) // 0) admins_bypass=\(.can_admins_bypass) custom=\(.deployment_branch_policy.custom_branch_policies) reviewers=\([.protection_rules[]?|select(.type=="required_reviewers")|.reviewers[]?|"\(.type):\(.reviewer.id)"]|sort|join(","))"'
 rs_check() { # REPO NAME FILE
   local id g want
