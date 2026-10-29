@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -822,6 +824,11 @@ func apiPost(t *testing.T, e *webEnv, body string) *http.Response {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// read the whole stream: the handler must be finished (scripted steps, audit
+	// rows, counters) before the test looks at them or sends the next request
+	data, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(data))
 	return resp
 }
 
