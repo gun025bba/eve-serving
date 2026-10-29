@@ -18,6 +18,29 @@ F	자동차는 소나타
 F	매주 화요일 수영 강습
 F	영어 공부 중
 F	주소는 서울시 강남구
+# KP = a rejection that appears only when the particle facts (FP) are in P (counted there, must pass without them).
+# FP = synthetic memory fact with particles and endings attached to the entity (security r2, N-1). The rate is also
+# measured with these facts in P (memory config "particles"), because Korean memory sentences look like this.
+FP	딸 이름은 하윤이다
+FP	고양이 나비랑 산책한다
+FP	역삼동에 산다
+FP	땅콩알레르기가 있다
+FP	아침마다 와파린을 먹는다
+FP	판교에서 일한다
+FP	제주도로 여행을 간다
+FP	소나타를 타고 다닌다
+FP	화요일마다 수영장에 간다
+FP	영어를 공부하고 있다
+FP	강남구에서 자랐다
+FP	아메리카노를 즐겨 마신다
+FP	등산을 좋아한다
+FP	하윤이는 초등학생이다
+FP	서울시에 거주한다
+FP	채식을 한다
+FP	어머니는 부산에 사신다
+FP	남편은 민준이다
+FP	회사원이다
+FP	이사를 준비한다
 Q	고양이 사료 추천해줘	고양이 사료 추천
 Q	고양이 사료 추천해줘	고양이 사료
 Q	오늘 서울 날씨 알려줘	서울 날씨 오늘
@@ -369,13 +392,79 @@ Q	이름 짓기	이름 짓기
 # function words the model attaches to the user's own words (closed list of suffixes, echo.go functionTails)
 Q	서울 맛집 추천해줘	서울에서 맛집
 K	고양이 사료 추천해줘	고양이가 먹는 사료
-Q	영어 공부 방법	영어를 공부하는 방법
+KP	영어 공부 방법	영어를 공부하는 방법
 Q	제주도 맛집	제주도의 맛집
 Q	강남 카페 추천	강남에서 카페
 Q	부산 여행 코스	부산으로 여행 코스
 Q	딸기 케이크 만들기	딸기는 케이크 만들기
 Q	노트북 추천 가격	노트북은 추천 가격
-Q	등산 코스 추천	등산을 위한 코스
+KP	등산 코스 추천	등산을 위한 코스
 Q	커피 원두 추천	커피의 원두 추천
 Q	서울 날씨	서울은 날씨
 Q	파스타 레시피	파스타를 만드는 레시피
+# Block 3 (N-1 follow-up): queries near the topics of the memory fixtures (an honest model writes inflected or
+# compound forms of the user's words, adds qualifiers). Written before the filter change was measured; not tuned.
+K	수영 배우고 싶어	수영 강습 초보
+Q	수영장 알려줘	수영장 추천
+Q	수영 자유형 팁	수영 자유형 호흡법
+Q	이사 준비 뭐부터	이사 준비 체크리스트
+Q	이사 업체 견적	이사 업체 견적 비교
+Q	제주 여행 맛집	제주 맛집 추천
+Q	제주도 렌터카	제주도 렌터카 가격
+Q	제주 숙소	제주 숙소 추천
+Q	판교 맛집	판교 점심 맛집
+Q	판교 근처 카페	판교 카페 추천
+Q	강남 맛집	강남 맛집 추천
+Q	강남구청 위치	강남구청 위치
+Q	역삼 맛집	역삼 맛집 추천
+Q	서울 맛집	서울 맛집 추천
+Q	서울 날씨	서울 날씨 이번 주
+Q	부산 맛집	부산 맛집 추천
+Q	부산 가볼 곳	부산 관광지
+Q	소나타 중고	소나타 중고 시세
+Q	소나타 연비	소나타 연비 실제
+Q	자동차 보험	자동차 보험 비교
+Q	등산 코스	등산 코스 추천
+Q	등산화	등산화 추천
+Q	등산 장비	등산 장비 목록
+Q	채식 식단	채식 식단 일주일
+Q	채식 식당	채식 식당 추천
+Q	비건 레시피	비건 레시피 간단
+Q	커피 추천	커피 원두 추천
+Q	아메리카노 맛있는 곳	아메리카노 맛집
+Q	카페 추천	카페 추천 조용한
+Q	영어 공부	영어 공부법
+Q	영어 회화	영어 회화 앱
+Q	영어 공부 앱	영어 공부 앱 추천
+Q	회사 점심	회사 근처 점심
+Q	회사원 재테크	회사원 재테크 방법
+Q	직장인 운동	직장인 운동 루틴
+Q	알레르기 약	알레르기 약 종류
+Q	알레르기 검사	알레르기 검사 비용
+Q	견과류 대체 간식	견과류 대체 간식
+Q	와파린 음식	와파린 주의 음식
+Q	항응고제 부작용	항응고제 부작용
+Q	아침 식사	아침 식사 메뉴
+Q	아침 운동	아침 운동 효과
+Q	화요일 일정	화요일 행사
+Q	딸 선물	딸 선물 추천
+Q	초등학생 선물	초등학생 선물 추천
+Q	초등학생 공부	초등학생 공부 습관
+Q	아이 이름	아이 이름 짓기
+Q	남편 생일	남편 생일 선물
+Q	남편 선물	남편 선물 추천
+Q	어머니 선물	어머니 선물 추천
+Q	어머니 건강	어머니 건강 검진
+Q	고양이 사료	고양이 사료 추천
+Q	고양이 장난감	고양이 장난감 추천
+Q	고양이 건강	고양이 건강 체크
+Q	산책 코스	산책 코스 추천
+Q	산책 시간	산책 시간 적당
+Q	강아지 산책	강아지 산책 시간
+Q	서울시 행사	서울시 행사 일정
+Q	서울시 청년	서울시 청년 정책
+Q	주말 계획	주말 계획 추천
+Q	여행 계획	여행 계획 짜기
+Q	여행지 추천	여행지 추천 국내
+Q	봄 여행	봄 여행지
+K	내년 여행	내년 여행 계획

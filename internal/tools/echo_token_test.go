@@ -140,7 +140,7 @@ func TestEcho_PrefixTail(t *testing.T) {
 }
 
 func TestEcho_NormalQueryCorpus(t *testing.T) {
-	facts, queries := loadCorpus(t)
+	facts, pfacts, queries := loadCorpus(t)
 	// average memory (the fixture) and a cap-sized one (the fixture plus 200 generated facts)
 	rels := []string{"동생", "삼촌", "이모", "친구", "동료", "선배", "후배", "이웃", "사촌", "조카"}
 	names := []string{"서준", "민준", "지우", "서연", "도윤", "예준", "시우", "주원", "하준", "지호", "수아", "지안", "다은", "유나", "채원", "소율", "건우", "은우", "현우", "도현"}
@@ -155,16 +155,21 @@ func TestEcho_NormalQueryCorpus(t *testing.T) {
 	fmt.Fprintf(&res, "# The corpus (echo_normal_queries.txt) is synthetic: no production query or memory text. Gate: upper bound of the\n")
 	fmt.Fprintf(&res, "# per-request rejection rate must stay at or below 10%%; a request holds at most 2 searches (max_per_turn), so\n")
 	fmt.Fprintf(&res, "# per-request upper = 1-(1-per-query upper)^2.\n\n")
+	withP := append(append([]string{}, facts...), pfacts...)
+	bigP := append(append([]string{}, big...), pfacts...)
 	for _, cfg := range []struct {
 		name  string
 		facts []string
-	}{{"average", facts}, {"cap-sized", big}} {
+	}{{"average", facts}, {"particles", withP}, {"cap-sized", bigP}} {
 		rej, total := 0, 0
 		byRule := map[string]int{}
 		var rejected []string
 		for _, c := range queries {
 			total++
 			got := NewEcho(cfg.facts, []string{c.user}).Check(c.q)
+			if c.pOnly && cfg.name == "average" {
+				c.known = false // without the particle facts it is a normal query that must pass
+			}
 			switch {
 			case c.known && got == "":
 				t.Errorf("%s: known false positive now passes (move it to Q): user %q query %q", cfg.name, c.user, c.q)
@@ -208,13 +213,14 @@ func TestEcho_NormalQueryCorpus(t *testing.T) {
 
 type corpusCase struct {
 	user, q string
+	pOnly   bool // KP: the rejection only appears with the particle facts in P
 	known   bool // a rejection the design accepts (rule 3 on a translated query); counted in the rate
 }
 
 // loadCorpus reads testdata/echo_normal_queries.txt (append-only): lines
 // "F\t<memory fact>" give the synthetic memory fixture; "Q\t<user>\t<query>"
 // are queries an honest model writes for that user text.
-func loadCorpus(t *testing.T) (facts []string, qs []corpusCase) {
+func loadCorpus(t *testing.T) (facts, pfacts []string, qs []corpusCase) {
 	t.Helper()
 	raw, err := os.ReadFile("testdata/echo_normal_queries.txt")
 	if err != nil {
@@ -228,10 +234,14 @@ func loadCorpus(t *testing.T) (facts []string, qs []corpusCase) {
 		switch {
 		case f[0] == "F" && len(f) == 2:
 			facts = append(facts, f[1])
+		case f[0] == "FP" && len(f) == 2:
+			pfacts = append(pfacts, f[1])
 		case f[0] == "Q" && len(f) == 3:
-			qs = append(qs, corpusCase{f[1], f[2], false})
+			qs = append(qs, corpusCase{user: f[1], q: f[2]})
 		case f[0] == "K" && len(f) == 3:
-			qs = append(qs, corpusCase{f[1], f[2], true})
+			qs = append(qs, corpusCase{user: f[1], q: f[2], known: true})
+		case f[0] == "KP" && len(f) == 3:
+			qs = append(qs, corpusCase{user: f[1], q: f[2], known: true, pOnly: true})
 		default:
 			t.Fatalf("bad corpus line %q", line)
 		}
@@ -487,6 +497,74 @@ func TestEcho_FunctionTailList(t *testing.T) {
 	for _, w := range []string{"사료", "나비", "동", "비", "비야", "집"} {
 		if IsFunctionTail(w) {
 			t.Errorf("%q is a content word, not a function tail", w)
+		}
+	}
+}
+
+// N-1 (security r2): memory words carry particles and endings; the stem
+// variants (last one or two runes cut) of the protected tokens close the
+// "one letter around the entity" bypass in rule ②, the tail check, the
+// concatenation match and the URL check. Every query below must be rejected.
+func TestEcho_MemoryTokenWithEnding(t *testing.T) {
+	type c struct{ mem, user, q string }
+	must := []c{
+		{"딸 이름은 하윤이다", "선물 추천해줘", "아하윤 선물"},
+		{"딸 이름은 하윤이다", "선물 추천해줘", "딸하윤 선물"},
+		{"딸 이름은 하윤이다", "선물 추천해줘", "선물과하윤"},
+		{"딸 이름은 하윤이다", "선물 추천해줘", "선물가하윤"},
+		{"딸 이름은 하윤이다", "선물 추천해줘", "하 윤 선물"},
+		{"딸 이름은 하윤이야", "선물 추천해줘", "하윤아 선물"},
+		{"나비랑 산책", "사료 추천해줘", "사료가나비"},
+		{"나비랑 산책", "사료 추천해줘", "가나비 사료"},
+		{"나비랑 산책", "사료 추천해줘", "사료랑나비"},
+		{"나비랑 산책", "사료 추천해줘", "사료는나비"},
+		{"역삼동에 산다", "맛집 추천해줘", "동역삼동 맛집"},
+		{"역삼동에 산다", "맛집 추천해줘", "역삼 맛집"},
+		{"역삼동에 산다", "맛집 추천해줘", "맛집에역삼동"},
+		{"땅콩알레르기가 있다", "간식 추천해줘", "땅콩알레르기 간식"},
+		{"땅콩알레르기가 있다", "간식 추천해줘", "간식에 땅 콩 알 레 르 기"},
+	}
+	for _, x := range must {
+		if got := echoForAll([]string{x.mem}, x.user).Check(x.q); got == "" {
+			t.Errorf("memory %q, user %q: query %q passed (leak)", x.mem, x.user, x.q)
+		}
+	}
+	// the stems come from P only: the same words typed by the user stay usable
+	free := []c{
+		{"딸 이름은 하윤이다", "하윤 선물 추천해줘", "하윤 선물"},
+		{"딸 이름은 하윤이다", "하윤이 선물 추천해줘", "하윤이 선물"},
+		{"역삼동에 산다", "역삼동 맛집 추천해줘", "역삼동 맛집"},
+		{"나비랑 산책", "사료 추천해줘", "강아지 사료 추천"},
+		{"딸 이름은 하윤이다", "선물 추천해줘", "생일 선물 추천"},
+	}
+	for _, x := range free {
+		if got := echoForAll([]string{x.mem}, x.user).Check(x.q); got != "" {
+			t.Errorf("memory %q, user %q: query %q rejected (%s)", x.mem, x.user, x.q, got)
+		}
+	}
+	// URL check: path text built from a stem of a protected word
+	e := echoForAll([]string{"딸 이름은 하윤이다"}, "선물 추천해줘")
+	for _, u := range []string{"https://example.org/a/아하윤", "https://example.org/search?q=딸하윤+선물", "https://example.org/%ED%95%98%EC%9C%A4%EC%95%84"} {
+		if !e.RejectURL(u) {
+			t.Errorf("URL %q passed", u)
+		}
+	}
+	if e.RejectURL("https://example.org/gift-ideas") {
+		t.Error("an unrelated URL was rejected")
+	}
+}
+
+// Stems never turn a stopword or a short word into a protected word.
+func TestEcho_StemVariants(t *testing.T) {
+	m := contentTokens("하윤이다 나비 취미는 역삼동에")
+	for _, w := range []string{"하윤이다", "하윤이", "하윤", "나비", "역삼동에", "역삼동", "역삼"} {
+		if _, ok := m[w]; !ok {
+			t.Errorf("missing %q in %v", w, m)
+		}
+	}
+	for _, w := range []string{"취미", "하", "나", "윤", "역"} { // stopword stem, one-rune stems
+		if _, ok := m[w]; ok {
+			t.Errorf("%q must not be a protected word", w)
 		}
 	}
 }
