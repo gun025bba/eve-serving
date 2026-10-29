@@ -8,7 +8,7 @@
   "D_read": 21,
   "D_write": 14
  },
- "dev_sha256": "6a397f7b09b2fff17cf2bb550e66a3d06114ff83aba8debf0211964f2a5af248",
+ "dev_sha256": "dcc5fc5d57b3f2ece46f4aae0552abb6df5998415826e5e75b33e67707de3922",
  "holdout": {
   "A": 24,
   "B": 36,
@@ -16,13 +16,16 @@
   "D_read": 9,
   "D_write": 6
  },
- "holdout_sha256": "95b04ba6b2eb4b377e6857216efd3efc042f527c692773d12bae93df67c93d72",
+ "holdout_sha256": "109f2af7b11459a3a59176d0f21aa488c257eb5fd9a6821a9b6b6c76c73f9d2a",
  "lang": {
-  "en": 7,
-  "ko": 290,
-  "mix": 3
+  "en": 23,
+  "ko": 267,
+  "mix": 10
  },
- "second_labeler": "pending (labels.l2 is null for every item)",
+ "second_labeler": {
+  "dev": "pending",
+  "holdout": "security bot (assigned; labels.l2 null until returned)"
+ },
  "set": "issue140-features",
  "split_rule": "per stratum sort by sha256(seed|id); first round(0.3*n) = holdout",
  "split_seed": "issue140-v1",

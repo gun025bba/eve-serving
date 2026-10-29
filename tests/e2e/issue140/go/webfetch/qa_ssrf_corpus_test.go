@@ -1,14 +1,22 @@
-package webfetch
+//go:build qaharness
+
+package webfetch_test
 
 // QA harness for issue #140 (design auto-tool-selection §6.8), path 1: corpus -> Fetcher.
 //
-// Copy this file into internal/webfetch/ (it needs the unexported dialIP hook) and run:
-//   go test -count=1 -v -run 'TestQA_SSRF' ./internal/webfetch/
+// Written against the exported test hook Options.SetDialIPForTest (architect decision: hook compiled only
+// with -tags qa_testhook; proposal in ../testhook/webfetch_testhook.go.txt). Until the backend ships it, run
+// the FALLBACK: copy this file and export_qa_test.go into internal/webfetch/ (export_qa_test.go defines the
+// hook inside the package's own test build):
+//   cp tests/e2e/issue140/go/webfetch/*_test.go internal/webfetch/
+//   go test -tags qaharness -count=1 -v -run TestQA_SSRF ./internal/webfetch/
+// With the hook shipped, no copy is needed:
+//   go test -tags 'qaharness qa_testhook' -count=1 -v ./tests/e2e/issue140/go/webfetch/
 // Nothing here touches the gateway, any real network or any real DNS: names resolve through a stub
-// resolver and every "dial" is intercepted. A dial that reaches dialIP with a non-public IP (or a
+// resolver and every "dial" is intercepted. A dial that reaches the hook with a non-public IP (or a
 // forbidden port) is a violation; a public stub hop is routed to an in-process httptest server.
 //
-// Corpus lookup order: $EVE_QA_SSRF_DIR, ./testdata, ../../tests/e2e/issue140/ssrf.
+// Corpus lookup order: $EVE_QA_SSRF_DIR, ./testdata, ../../ssrf, ../../tests/e2e/issue140/ssrf.
 // Optional private holdout: $EVE_QA_SSRF_HOLDOUT (file in the same format; skipped when unset).
 
 import (
@@ -31,6 +39,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gun025bba/eve-serving/internal/webfetch"
 )
 
 var qaPub = netip.MustParseAddr("93.184.216.34")
@@ -47,7 +57,7 @@ func qaFindFile(t testing.TB, name string, env string) string {
 	if d := os.Getenv("EVE_QA_SSRF_DIR"); d != "" {
 		dirs = append(dirs, d)
 	}
-	dirs = append(dirs, "testdata", filepath.Join("..", "..", "tests", "e2e", "issue140", "ssrf"))
+	dirs = append(dirs, "testdata", filepath.Join("..", "..", "ssrf"), filepath.Join("..", "..", "tests", "e2e", "issue140", "ssrf"))
 	for _, d := range dirs {
 		p := filepath.Join(d, name)
 		if _, err := os.Stat(p); err == nil {
@@ -161,7 +171,7 @@ func (r *qaResolver) LookupNetIP(ctx context.Context, network, host string) ([]n
 }
 
 type qaEnv struct {
-	f        *Fetcher
+	f        *webfetch.Fetcher
 	res      *qaResolver
 	srv      *httptest.Server
 	tlsSrv   *httptest.Server
@@ -190,30 +200,31 @@ func newQAEnv(t testing.TB, ports []int) *qaEnv {
 	e.tlsSrv = httptest.NewTLSServer(h)
 	t.Cleanup(e.srv.Close)
 	t.Cleanup(e.tlsSrv.Close)
-	f, err := New(Options{Resolver: e.res, AllowedPorts: ports, Timeout: 4 * time.Second, ConnectTimeout: time.Second, HeaderTimeout: 2 * time.Second,
-		dialIP: func(ctx context.Context, network, ipport string) (net.Conn, error) {
-			ap, perr := netip.ParseAddrPort(ipport)
-			// Mirror the authoritative net.Dialer.Control (production runs it at connect time). Only dials
-			// that survive Control are counted; the independent oracle below then audits what survived.
-			if cerr := e.f.G.Control(network, ipport, nil); cerr != nil {
-				return nil, cerr
-			}
-			e.mu.Lock()
-			e.dials++
-			bad := perr != nil || !qaIsPublic(ap.Addr()) || !e.allowed[int(ap.Port())] || DeniedPorts[int(ap.Port())]
-			if bad {
-				e.badDials = append(e.badDials, ipport)
-			}
-			e.mu.Unlock()
-			if bad {
-				return nil, errors.New("QA: private/forbidden dial intercepted")
-			}
-			var d net.Dialer
-			if ap.Port() == 443 {
-				return d.DialContext(ctx, "tcp", e.tlsSrv.Listener.Addr().String())
-			}
-			return d.DialContext(ctx, "tcp", e.srv.Listener.Addr().String())
-		}})
+	o := webfetch.Options{Resolver: e.res, AllowedPorts: ports, Timeout: 4 * time.Second, ConnectTimeout: time.Second, HeaderTimeout: 2 * time.Second}
+	o.SetDialIPForTest(func(ctx context.Context, network, ipport string) (net.Conn, error) {
+		ap, perr := netip.ParseAddrPort(ipport)
+		// Mirror the authoritative net.Dialer.Control (production runs it at connect time). Only dials
+		// that survive Control are counted; the independent oracle below then audits what survived.
+		if cerr := e.f.G.Control(network, ipport, nil); cerr != nil {
+			return nil, cerr
+		}
+		e.mu.Lock()
+		e.dials++
+		bad := perr != nil || !qaIsPublic(ap.Addr()) || !e.allowed[int(ap.Port())] || webfetch.DeniedPorts[int(ap.Port())]
+		if bad {
+			e.badDials = append(e.badDials, ipport)
+		}
+		e.mu.Unlock()
+		if bad {
+			return nil, errors.New("QA: private/forbidden dial intercepted")
+		}
+		var d net.Dialer
+		if ap.Port() == 443 {
+			return d.DialContext(ctx, "tcp", e.tlsSrv.Listener.Addr().String())
+		}
+		return d.DialContext(ctx, "tcp", e.srv.Listener.Addr().String())
+	})
+	f, err := webfetch.New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,16 +259,16 @@ func (e *qaEnv) run(raw string) qaOutcome {
 	case err == nil:
 		o.class = "SUCCESS"
 	default:
-		if r, ok := IsBlocked(err); ok {
+		if r, ok := webfetch.IsBlocked(err); ok {
 			o.reason = r
-			if r == ReasonSSRF {
+			if r == webfetch.ReasonSSRF {
 				o.class = "BLOCKED_SSRF"
 			} else {
 				o.class = "BLOCKED_OTHER"
 			}
 		} else {
 			o.class = "ERROR"
-			o.reason = trunc(err.Error(), 80)
+			o.reason = qaTrunc(err.Error(), 80)
 		}
 	}
 	return o
@@ -361,14 +372,14 @@ func TestQA_SSRF_DeniedPortsWithWideConfig(t *testing.T) {
 			return false
 		}
 		p, err := strconv.Atoi(u.Port())
-		return err == nil && DeniedPorts[p]
+		return err == nil && webfetch.DeniedPorts[p]
 	}
 	qaRunCorpus(t, ents, []int{80, 443, 5432, 6379, 8000, 8080, 8888}, only, "wide ports config")
 }
 
 // Over-blocking control: public URLs must pass the URL pre-check (nothing is fetched).
 func TestQA_SSRF_AllowControl(t *testing.T) {
-	g, err := NewGuard(nil, nil)
+	g, err := webfetch.NewGuard(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,4 +405,11 @@ func TestQA_SSRF_PrivateHoldout(t *testing.T) {
 		t.Skip("EVE_QA_SSRF_HOLDOUT not set")
 	}
 	qaRunCorpus(t, qaLoad(t, p), []int{80, 443}, nil, "private holdout")
+}
+
+func qaTrunc(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }

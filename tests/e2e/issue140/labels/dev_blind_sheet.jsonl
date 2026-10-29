@@ -8,24 +8,24 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-011", "question": "최근 한국 증시 관련 소식 요약해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-012", "question": "현대차 이번 달 뉴스 뭐 있어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-013", "question": "이번 주말 서울 집회 소식 있어?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-014", "question": "애플 오늘 뭐 발표했어?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-014", "question": "What did Apple announce today?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-015", "question": "지금 한국 정치권에서 제일 화제인 게 뭐야", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-016", "question": "지금 코스피 몇이야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-017", "question": "오늘 원달러 환율 알려줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-018", "question": "비트코인 지금 얼마야?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-018", "question": "Bitcoin price right now?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-020", "question": "삼성전자 주가 현재가", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-021", "question": "오늘 금 시세 얼마야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-022", "question": "이더리움 시세 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-023", "question": "나스닥 지수 오늘 어떻게 마감했어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-025", "question": "오늘 휘발유 평균 가격", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-026", "question": "테슬라 주가 지금 얼마?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-026", "question": "지금 Tesla stock price 얼마야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-027", "question": "코스닥 오늘 등락률", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-030", "question": "이번 주말 날씨 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-031", "question": "지금 밖에 미세먼지 심해?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-033", "question": "What's the weather in Seoul right now?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-035", "question": "내일 아침 출근길에 우산 필요할까?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-037", "question": "대전 오늘 체감온도", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-041", "question": "프리미어리그 현재 순위", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-041", "question": "Premier League current standings", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-042", "question": "한국시리즈 결과 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-043", "question": "어제 야구 우승팀 어디야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-046", "question": "월드컵 예선 한국 다음 경기 언제야?", "seed_messages": []}
@@ -39,7 +39,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-057", "question": "엔비디아 최신 그래픽카드 출시일", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-060", "question": "PS5 요즘 가격이랑 재고 어때?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-062", "question": "방금 나온 iOS 업데이트 내용이 뭐야?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-063", "question": "크롬 최신 버전 번호가 지금 몇이야?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-063", "question": "What's the current Chrome version number right now?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-064", "question": "이번 주 릴리스된 리눅스 커널 버전 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-065", "question": "Go 새 버전 릴리스 노트 최근 거 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-067", "question": "VS Code 이번 달 릴리스에 뭐 추가됐어?", "seed_messages": []}
@@ -56,7 +56,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "A-080", "question": "지금 서울 지하철 파업 중이야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-001", "question": "안녕! 오늘 기분 어때?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-004", "question": "요즘 잠이 잘 안 와... 위로 좀 해줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-005", "question": "고마워, 아까 설명 도움 많이 됐어", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-005", "question": "Thanks, that explanation from earlier was really helpful", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-006", "question": "넌 이름이 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-007", "question": "어제 친구랑 싸웠는데 마음이 안 좋아", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-011", "question": "잘 자~ 내일 보자", "seed_messages": []}
@@ -69,19 +69,19 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-018", "question": "요즘 뭐 재밌는 일 없었어? 난 별일 없었어", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-019", "question": "아침마다 일어나는 게 힘든데 좋은 방법 있을까?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-020", "question": "지금 기분이 좀 우울한데 그냥 얘기 들어줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-021", "question": "파이썬으로 리스트에서 중복 제거하는 코드 짜줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-021", "question": "Write Python code that removes duplicates from a list.", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-022", "question": "이 정규식 설명해줘: ^\\d{3}-\\d{4}$", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-023", "question": "Go에서 goroutine이랑 channel 차이 설명해줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-023", "question": "Explain the difference between a goroutine and a channel in Go", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-024", "question": "SQL로 부서별 평균 급여 구하는 쿼리 작성해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-026", "question": "자바스크립트 async/await 예제 보여줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-027", "question": "bash로 파일 이름 일괄 변경하는 스크립트 만들어줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-029", "question": "git rebase랑 merge 차이가 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-031", "question": "아래 코드를 리팩터링해줘:\ndef f(a):\n    r=[]\n    for i in a:\n        if i%2==0:\n            r.append(i*2)\n    return r", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-032", "question": "도커 컴포즈 파일 예시 만들어줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-033", "question": "파이썬 데코레이터 쉽게 설명해줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-033", "question": "Python decorator 쉽게 explain 해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-034", "question": "Rust 소유권 개념 설명해줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-035", "question": "React useEffect 의존성 배열이 뭐야?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-036", "question": "시간복잡도 O(n log n)이 뭔지 설명해줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-035", "question": "React useEffect dependency array 가 뭐야?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-036", "question": "time complexity O(n log n) 이 뭔지 simple 하게 explain 해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-038", "question": "CSS flexbox로 가운데 정렬하는 법 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-039", "question": "이 JSON을 파싱하는 Go 코드 줘: {\"name\":\"a\",\"age\":3}", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-040", "question": "유닛 테스트 케이스 잘 작성하는 법 알려줘", "seed_messages": []}
@@ -96,7 +96,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-053", "question": "존댓말을 반말로 바꿔줘: 식사하셨어요?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-054", "question": "이 영어 속담 한국어로 뜻 설명해줘: A rolling stone gathers no moss.", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-055", "question": "번역 톤을 더 공손하게 바꿔서 다시 해줘", "seed_messages": [{"content": "번역 부탁:'다음에 봐'를 영어로", "role": "user", "seq": 1, "ts": "2026-10-29T18:20:01+09:00"}, {"content": "See you next time.", "role": "assistant", "seq": 2, "ts": "2026-10-29T18:20:02+09:00"}]}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-056", "question": "12 곱하기 17은?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-056", "question": "What is 12 times 17?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-059", "question": "1부터 100까지 합은?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-061", "question": "18% 할인된 가격이 41,000원이면 원래 가격은?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-062", "question": "f(x)=3x^2+2x 의 도함수를 구해줘", "seed_messages": []}
@@ -129,7 +129,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-107", "question": "엔트로피가 뭔지 쉽게 설명해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-108", "question": "계절이 생기는 이유가 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-109", "question": "피라미드는 어느 나라에 있어?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-111", "question": "가을을 주제로 짧은 시 하나 써줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-111", "question": "Write a short poem about autumn.", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-112", "question": "고양이가 주인공인 동화를 다섯 문장으로 써줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-114", "question": "카페 이름 아이디어 열 개만 줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-115", "question": "아재 개그 하나 해줘", "seed_messages": []}
@@ -138,7 +138,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-118", "question": "우리 팀 슬로건 후보 다섯 개 만들어줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-119", "question": "감사 편지 초안 써줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "B-120", "question": "짧은 SF 이야기 첫 문단 써줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-001", "question": "파이썬 최신 버전이 뭐야?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-001", "question": "What's the latest Python version?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-003", "question": "리눅스 커널 최신 안정 버전이 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-004", "question": "현재 쓰는 윈도우 최신 버전 이름이 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-005", "question": "맥OS 최신 이름이 뭐야?", "seed_messages": []}
@@ -147,7 +147,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-009", "question": "카카오는 어떤 회사야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-011", "question": "네이버 창업자는 누구야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-013", "question": "엔비디아 주력 제품이 뭐야?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-014", "question": "구글 CEO 누구야?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-014", "question": "Who is the CEO of Google?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-018", "question": "애플 창업자는 누구야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-019", "question": "챗GPT는 누가 만들었어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-021", "question": "현재 UN 사무총장이 누구야?", "seed_messages": []}
@@ -167,7 +167,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-041", "question": "러시아 우크라이나 전쟁의 배경이 뭐야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-042", "question": "코로나 백신 종류에 뭐가 있어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-043", "question": "올림픽은 몇 년마다 열려?", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-044", "question": "아이폰 첫 모델은 언제 나왔어?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-044", "question": "When was the first iPhone released?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-045", "question": "아이폰이 지금까지 몇 세대까지 나왔어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-047", "question": "전기차 시장 점유율 상위 업체가 어디야?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "C-048", "question": "인공지능 규제법 요즘 어떻게 돼 가?", "seed_messages": []}
@@ -179,7 +179,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-008", "question": "이번 달 마감 일정 보여줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-009", "question": "오늘 남은 일정 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-011", "question": "다음 주 출장 일정 확인해줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-012", "question": "모레 오후 3시에 겹치는 일정 있어?", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-012", "question": "Any overlapping events the day after tomorrow at 3pm?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-014", "question": "오늘 미리알림 뭐 있어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-016", "question": "10월 31일에 일정 있어?", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-017", "question": "다음 회의는 언제야?", "seed_messages": []}
@@ -195,7 +195,7 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-029", "question": "오늘 회의 몇 시인지 보고, 회의 끝나는 시간 즈음 지하철 운행 상황도 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-030", "question": "주말 일정 비어 있으면 이번 주말 서울 날씨 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-031", "question": "내일 오후 3시에 치과 예약 잡아줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-034", "question": "오늘 6시에 엄마한테 전화하라고 미리알림 만들어줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-034", "question": "오늘 6pm에 mom 한테 phone call reminder 만들어줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-035", "question": "11월 5일 종일 휴가로 일정 등록해줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-038", "question": "내일 아침 8시에 약 먹으라고 알려줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-039", "question": "장보기 미리알림 완료 처리해줘", "seed_messages": []}
@@ -206,5 +206,5 @@
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-045", "question": "세탁물 찾기 미리알림 오늘 오후 5시로 만들어줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-046", "question": "이번 토요일 오후 1시에 결혼식 일정 넣어줘", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-048", "question": "어제 만든 전화하기 미리알림 완료로 바꿔줘", "seed_messages": []}
-{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-049", "question": "내일 회의 한 시간 뒤로 옮겨줘", "seed_messages": []}
+{"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-049", "question": "Move tomorrow's meeting back by one hour", "seed_messages": []}
 {"asked_at": "2026-10-29T18:30:00+09:00", "id": "D-050", "question": "다음 주 월요일 팀 회의 일정 삭제해줘", "seed_messages": []}
