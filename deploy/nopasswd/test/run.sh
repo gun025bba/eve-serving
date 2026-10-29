@@ -409,5 +409,8 @@ for f in eve-deploy setup-deploy-nopasswd.sh uninstall-deploy-nopasswd.sh; do
   grep -q "$(sha256 "$D/$f")" "$D/README.md" && ok || bad "README hash for $f is stale (update the one-line install command)"
 done
 
+# the calendar adapter installer (sources install-calendar-adapter.sh; runs here too so the macOS job covers bash 3.2)
+if bash "$D/../test-calendar-adapter.sh" >"$T/cal-adapter.out" 2>&1; then ok; else bad "calendar adapter installer tests"; cat "$T/cal-adapter.out"; fi
+
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]
