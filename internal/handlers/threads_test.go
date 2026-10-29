@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gun025bba/eve-serving/internal/config"
 	"github.com/gun025bba/eve-serving/internal/logging"
 	"github.com/gun025bba/eve-serving/internal/metrics"
 	"github.com/gun025bba/eve-serving/internal/proxy"
@@ -62,7 +61,7 @@ func newEnv(t *testing.T, withStore bool) *env {
 	seen, mu := &[]map[string]any{}, &sync.Mutex{}
 	up := reasoningUpstream(t, seen, mu)
 	t.Cleanup(up.Close)
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
@@ -85,7 +84,7 @@ func (e *env) call(t *testing.T, who, method, path, body string) (*http.Response
 	if who == "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	} else {
-		req.Header.Set("Tailscale-User-Login", who)
+		req.Header.Set(testUserHeader, who)
 		browserHeaders(req)
 	}
 	resp, err := http.DefaultClient.Do(req)
@@ -250,7 +249,7 @@ func readSSE(t *testing.T, body io.Reader) (events []map[string]any, done bool) 
 func TestChatStreamPersistsAndRegenerate(t *testing.T) {
 	e := newEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"hi"}],"thread_id":"new"}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -317,7 +316,7 @@ func TestChatStreamPersistsAndRegenerate(t *testing.T) {
 func TestStreamAbortPersistsIncomplete(t *testing.T) {
 	e := newEnv(t, true)
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"abort"}],"thread_id":"new"}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	browserHeaders(req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

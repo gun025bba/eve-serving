@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
 	"net/http"
@@ -37,10 +38,12 @@ func (a APIKey) Authenticate(r *http.Request) (Identity, error) {
 		return Identity{}, ErrInvalidKey
 	}
 	tok = strings.TrimSpace(tok)
-	if a.Key == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(a.Key)) != 1 {
+	// Compare fixed-length hashes so neither content nor length leaks via timing.
+	got, want := sha256.Sum256([]byte(tok)), sha256.Sum256([]byte(a.Key))
+	if a.Key == "" || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 		return Identity{}, ErrInvalidKey
 	}
-	return Identity{User: "api-key", Provider: ProviderAPIKey}, nil
+	return Identity{User: "api-key", Provider: ProviderAPIKey, Scopes: []string{ScopeAdmin}}, nil
 }
 
 // Check reports whether r carries "Authorization: Bearer <key>".

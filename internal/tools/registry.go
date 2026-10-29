@@ -24,6 +24,7 @@ type Manifest struct {
 	Description    string   `yaml:"description"`
 	Scopes         []string `yaml:"scopes"`
 	SideEffect     string   `yaml:"side_effect"`
+	Verbs          []string `yaml:"verbs"` // allowed confirmation-card verbs (Q19), required, static; one per call
 	TaintOutput    bool     `yaml:"taint_output"`
 	Egress         []string `yaml:"egress"`
 	Secrets        []string `yaml:"secrets"`
@@ -76,6 +77,8 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("%s: side_effect trade is forbidden", m.Name)
 	case !sideEff[m.SideEffect]:
 		return fmt.Errorf("%s: invalid side_effect %q", m.Name, m.SideEffect)
+	case ValidateVerbs(m.Verbs) != nil:
+		return fmt.Errorf("%s: %w", m.Name, ValidateVerbs(m.Verbs))
 	case len(m.Scopes) == 0:
 		return fmt.Errorf("%s: at least one scope required", m.Name)
 	case m.Timeout.Duration <= 0 || m.Timeout.Duration > maxTimeout:

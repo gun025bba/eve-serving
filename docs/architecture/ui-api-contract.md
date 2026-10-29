@@ -23,10 +23,10 @@
 | Q8 | 설정 응답에 읽기 전용 `system` 블록: `proactive_available`(=`GW_PROACTIVE_ENABLED` && !`proactive_off`), `tools_available`(킬스위치 `all_off`가 아님), `memory_available`(서버 킬스위치 `GW_MEMORY_ENABLED`). PATCH로 `system`을 보내면 400. | MINOR |
 | Q9 | 만료된 제안의 "다시 요청" = `POST /v1/proposals/{id}/revise`. `item_ids`가 있는 제안(메모리 삭제)은 **원래와 같은 `item_ids`**, `item_ids`가 없는 제안(메모리 add, 툴, `proactive.propose_followup`)은 **빈 본문 = 같은 payload 재발급**. 새 제안·새 `payload_hash`·새 토큰, 원 제안은 `voided`. 새 모델 턴 없음. 규칙은 §3.1. | MINOR |
 | Q10 | `token_expires_at`은 토큰과 함께 **세션 POST 응답**(reissue·revise)에만 포함(`expires_at`과 별개, TP 두 만료 규칙). SSE confirmation에는 토큰 관련 필드 없음(§3.4). | MINOR |
-| Q11 | `memory.propose` `payload_view`: `{op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
+| Q11 | `memory.propose` `payload_view`: `{verb:"add"\|"delete", op:"add"\|"delete", items:[{id?, text, kind, updated_at?}], ambiguous:bool}`. add는 `id` 없음·정규화 후 텍스트, delete(후보)는 저장된 `id`·`text`·`kind`·`updated_at`(최근 수정일 표시용). | MINOR |
 | Q12 | follow-up 생성 툴 이름 `proactive.propose_followup`(TP `<domain>.<verb>` 규칙, 스코프 `proactive.write`, 확인 게이트 필수). `payload_view: {when:{at:"RFC3339"}, thread_id, display:"10/28 (화) 09:00", template_id}`. `display`는 서버가 Asia/Seoul로 만든 표시 문자열. 보안 규칙은 §3.2. | MINOR |
 | Q13 | SSE confirmation에 툴의 선언 `scopes`(예: `["memory.write"]`)를 그대로 포함. **위험 스타일은 스코프 verb `send`와 삭제(`payload_view.op="delete"` 또는 `delete` 스코프)에만**, `write`는 기본(primary) 스타일. | MINOR |
-| Q19 | 확인 카드 `payload_view.verb`: 고정 enum `add`\|`update`\|`send`\|`delete`\|`run`. **서버가 툴 매니페스트의 정적 `verb` 필드(배포 시 정의, TP §1.1)로만 채운다.** 모델 출력·툴 인자·사용자 입력으로는 바꿀 수 없고, 자유 텍스트 label은 없다. UI가 verb → 한국어 버튼 문구를 매핑하고, **모르는 값은 `run`으로 처리**(전방 호환). **위험 스타일은 verb가 아니라 Q13의 scopes 규칙** 그대로. enum 값 추가는 MINOR. 테스트: (1) 모든 매니페스트 툴이 유효한 `verb`를 선언(누락·무효 시 CI 실패), (2) 모델 출력이 `verb`를 바꾸는 경로 없음(모델 args에 `verb`/`payload_view`를 넣어도 카드 verb = 매니페스트 값). | MINOR |
+| Q19 | 확인 카드 `payload_view.verb`: 고정 enum `add`\|`update`\|`send`\|`delete`\|`run`. **"호출(액션)당 동사 하나"**(PM 결정 10/27): 카드마다 verb는 하나이며, **서버가 툴 매니페스트의 정적 허용 목록 `verbs`(배포 시 정의, TP §1.1) 안에서만 채운다.** 한 툴이 여러 동사를 허용할 수 있다(예: `memory.propose` = `add`,`delete`). 모델 출력·툴 인자·사용자 입력으로는 바꿀 수 없고, 자유 텍스트 label은 없다. UI가 verb → 한국어 버튼 문구를 매핑하고, **모르는 값은 `run`으로 처리**(전방 호환). **위험 스타일은 verb가 아니라 Q13의 scopes 규칙** 그대로. enum 값 추가는 MINOR. 테스트: (1) 모든 매니페스트 툴이 유효한 `verbs` 목록을 선언(누락·빈 목록·무효·중복 시 CI 실패), (2) 모델 출력이 `verb`를 바꾸는 경로 없음(모델 args에 `verb`/`payload_view`를 넣어도 카드 verb는 서버가 허용 목록에서 고른 값). 이 필드 도입 전 카드는 verb 없음 → UI가 `run`으로 표시(허용). verb 목록 API는 두지 않는다. | MINOR |
 | Q20 | `template_kind`는 **Message 최상위 필드**(`origin`·`job_id`·`kind`와 같은 레벨)다. `provenance` 안에 넣지 않는다(`provenance`는 `{actor, job_id, job_name}`만). 예: `{"id":"…","origin":"proactive","job_id":"…","kind":null,"template_kind":"briefing","read_at":null,"provenance":{"actor":"scheduler","job_id":"…","job_name":"아침 브리핑"}}` | — |
 | Q14 | 서버 거부는 **카드 error 상태**: SSE confirmation이 `status:"denied"`와 고정 enum `error_code`만 보낸다: `secret_detected` \| `sensitive_category` \| `cap_exceeded` \| `tainted` \| `scope_denied` \| `expired` \| `not_found` \| `item_gone` \| `conflict` \| `payload_mismatch` \| `kill_switch` \| `invalid` \| `filter_limit`(매핑 §3.3). **자유 텍스트 요약 없음**(본문·매칭 내용 노출 방지). UI가 코드별 고정 문구를 쓴다. 값 추가는 MINOR, 모르는 코드는 `invalid` 문구. 모델 답변은 별개로 이어짐. | MINOR |
 | Q15 | `selected_ids` 없음. 부분 해제 = `POST /v1/proposals/{id}/revise {item_ids}`, `item_ids ⊆ 원 제안`(아니면 400 `invalid`). 새 제안·새 `payload_hash`·새 토큰, 원 제안 `voided`. approve 본문은 그대로(TP). 규칙은 §3.1. | MINOR |
@@ -186,7 +186,7 @@ iPhone PWA가 백그라운드로 가면 SSE가 끊긴다. 저장되는 채팅(`t
   ```
   헤더 `X-Message-Id`도 같은 값. 이후 **모든 이벤트에 `id: <seq>`**(1부터 단조 증가)가 붙는다. 그 뒤 순서는 기존과 같다(persist 청크 → 콘텐츠 청크/툴 이벤트 → sources → `chat.completion.persisted` → `[DONE]`). `persisted.status`도 `complete|failed`.
 - **어드미션 전 에러 = HTTP 상태 (3.0.0과 동일)**: 요청 검증(400/404/503), 큐 포화 `429 queue_full`, 큐 대기 초과 `queue_timeout` 등 **큐 슬롯을 얻기 전** 실패는 기존과 같은 HTTP 상태·본문으로 오고 **assistant 행을 만들지 않는다**(`generating` 행은 어드미션 후에만 생성). 웹검색 경로도 동일(3.0.0에서는 스트림 안 에러였음 → 이제 HTTP 429).
-  추가 HTTP 에러: `429 too_many_generations`(사용자당 동시 생성 2개 초과), `429 server_busy`(허브 전체 한도), `409 generation_in_progress`(이미 `generating`인 메시지를 동시에 재생성 — 조건부 UPDATE로 한 요청만 성공). 모든 429에는 `Retry-After` 헤더.
+  추가 HTTP 에러: `429 too_many_generations`(사용자당 동시 생성 2개 초과), `429 server_busy`(허브 전체 한도), `409 generation_in_progress`(이미 `generating`인 메시지를 동시에 재생성 — 조건부 UPDATE로 한 요청만 성공. 같은 스레드에 같은 사용자 메시지를 답변 중에 다시 보내도 동일, #30. Idempotency-Key 헤더 없이 스레드+사용자 message_id로 판정하며, 409 `error`에 `thread_id`·`user_message_id`·`message_id`(생성 중 답변, `/stream`으로 재연결; 행 생성 전 짧은 구간엔 빈 문자열)가 포함). 모든 429에는 `Retry-After` 헤더.
 - **어드미션 후 에러 = 스트림 안**: 업스트림 연결 실패·중간 에러·타임아웃은 HTTP 200 SSE 안에서 에러 이벤트(`{"error":{"code","message",…,"retry_after"?}}`) → persisted(`failed`) → `[DONE]`. 원래 상태·코드는 서버 로그와 `eve_gen_stream_errors_total{code,status}`에 남는다.
 - **취소**: `POST /v1/threads/{thread_id}/messages/{message_id}/cancel` (CSRF 헤더 필요, 본문 없음) → 항상 **204**(멱등: 이미 끝난 메시지도 204, 상태 변화 없음). 진행 중이면 생성을 멈추고 `failed` + `error_code:"cancelled"`. 없는/남의 메시지 → 같은 404.
 - **자동 취소**: 구독자(원 스트림 + 재연결)가 하나도 없는 상태가 5분(`generation.idle_cancel_s`, env `GW_GEN_IDLE_CANCEL_S`) 이어지면 `failed` + `no_subscriber`. 백그라운드 PWA는 5분 안에 재연결해야 이어서 받는다.
@@ -265,7 +265,7 @@ tombstone은 API로 노출하지 않는다.
   "tainted": false, "status": "pending",
   "expires_at": "2026-10-28T05:00:00Z", "created_at": "2026-10-27T05:00:00Z",
   "summary": "메모리에 추가",
-  "payload_view": { "op": "add", "items": [{"text": "아침 브리핑은 짧게", "kind": "preference"}], "ambiguous": false } }
+  "payload_view": { "verb": "add", "op": "add", "items": [{"text": "아침 브리핑은 짧게", "kind": "preference"}], "ambiguous": false } }
 ```
 
 - `payload_view.op`는 `add` 또는 `delete`이다(Q11).

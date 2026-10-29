@@ -2,7 +2,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -69,8 +72,9 @@ type Config struct {
 	// ToolsKillswitchFile is the optional 0600 off-only kill switch file
 	// (docs/tool-platform.md §1.3). Empty = no kill switch (nothing disabled).
 	ToolsKillswitchFile string `yaml:"tools_killswitch_file" json:"tools_killswitch_file"`
-	// AllowedUsers are Tailscale logins accepted via the Tailscale-User-Login
-	// header (loopback only). Empty = identity auth disabled.
+	// AllowedUsers are the users.login values that may pair a browser
+	// (`eve-gw pair --user`) and keep using a paired session. Empty = no
+	// browser sessions. Tailscale-User-* headers are never used for identity.
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
@@ -80,20 +84,43 @@ type Config struct {
 	Web      WebConfig    `yaml:"web" json:"web"`
 	Push     PushConfig   `yaml:"push" json:"push"`
 	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+	// AllowedHosts are extra Host header values (port ignored) accepted besides
+	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
+	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
+	AllowedHosts []string `yaml:"allowed_hosts" json:"allowed_hosts"`
+	// SessionPepperFile holds the HMAC pepper for pairing codes and session
+	// tokens (GW_SESSION_PEPPER_FILE, default <base>/.session_pepper). It must
+	// be 0600; rotating it signs every browser out.
+	SessionPepperFile string `yaml:"session_pepper_file" json:"-"`
+	// Removed in 4.0.0 (unix socket identity). Set = startup refused.
+	LegacyUnixSocket  string `yaml:"unix_socket" json:"-"`
+	LegacyTCPDisabled bool   `yaml:"tcp_disabled" json:"-"`
+	// TestIdentity is e2e-only identity injection (binary built with -tags e2e).
+	TestIdentity TestIdentityConfig `yaml:"test_identity" json:"-"`
+}
+
+// TestIdentityConfig: GW_TEST_IDENTITY_INJECTION / GW_TEST_IDENTITY_USERS.
+// A default (non-e2e) binary refuses to start when Injection is true.
+type TestIdentityConfig struct {
+	Injection bool     `yaml:"injection"`
+	Users     []string `yaml:"users"`
 }
 
 // MemoryConfig enables personalization memory (docs/architecture/memory.md).
-// Off by default: when off, the /v1/memory endpoints answer 404 and no
+// On by default since 5.0.0 (MAJOR); when off, the /v1/memory endpoints answer 404 and no
 // memory block is added to prompts, exactly as before.
 type MemoryConfig struct {
 	// Enabled (GW_MEMORY_ENABLED) is the server-wide kill switch. A later
 	// per-user /v1/settings memory.enabled is ANDed with it; this flag
 	// always wins when false.
-	//
-	// 이 연결 전에는 GW_MEMORY_ENABLED를 켜지 말 것: until the follow-up PR
-	// wires approve and the memory.propose tool, do not turn this on in any
-	// deployed environment.
+	// Default true since 5.0.0. Resolution is "off wins": if either
+	// config.yaml memory.enabled or GW_MEMORY_ENABLED is false, memory is
+	// off; it is on only when neither is false (both unset -> on). Rollback:
+	// set either to false and restart.
 	Enabled bool `yaml:"enabled" json:"enabled"`
+	// EnabledSource records which input decided Enabled (config, env or
+	// default) for the startup log. Not loaded from YAML.
+	EnabledSource string `yaml:"-" json:"-"`
 	// DataDir holds one 0600 JSON file per user, named <users.id>.json
 	// (dir 0700; permissions are verified at startup). It must sit outside
 	// the backup path: it is not part of the pg backup.
@@ -174,27 +201,98 @@ func Default() Config {
 		MaxConc:  2, MaxTokensCap: 16384, MaxQueue: 16, QueueTimeoutS: 120, ConnectTimeoutS: 5, ReadTimeoutS: 300,
 		Retries: 2, RetryBackoffS: 0.5, LogLevel: "INFO", LogFile: "~/llm-serving/gateway.log",
 		StatsWindow: 200, MinFreeMemGB: 4, CORSOrigins: []string{}, StaticDir: "~/llm-serving/web", AllowedUsers: []string{},
-		Auth:       AuthConfig{Providers: []string{"tailscale-identity", "api-key"}},
+		Auth:       AuthConfig{Providers: []string{"session", "api-key"}},
 		Database:   DBConfig{AutoMigrate: true},
 		Web:        defaultWeb(),
 		Generation: DefaultGen(),
-		Memory:     MemoryConfig{Enabled: false, DataDir: "~/llm-serving/data/memory", InjectCapTokens: 1000},
+		Memory:     MemoryConfig{Enabled: true, DataDir: "~/llm-serving/data/memory", AuditKeyFile: "~/llm-serving/etc/memory_audit.key", InjectCapTokens: 1000},
 	}
 }
 
 // Load reads path (if it exists) over the defaults, then applies env overrides via getenv.
+// getenv cannot tell "set but empty" from "unset"; the gateway uses LoadEnv
+// with os.LookupEnv so an empty GW_MEMORY_ENABLED is a startup error.
 func Load(path string, getenv func(string) string) (Config, error) {
+	return LoadEnv(path, func(k string) (string, bool) { v := getenv(k); return v, v != "" })
+}
+
+// decodeStrict decodes YAML rejecting unknown keys (typos such as `enable:`).
+// An empty document leaves c unchanged.
+func decodeStrict(b []byte, c any) error {
+	d := yaml.NewDecoder(bytes.NewReader(b))
+	d.KnownFields(true)
+	if err := d.Decode(c); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+// memoryEnabledFromYAML returns memory.enabled if the key is present. A key
+// that is present but null/empty is an error, never "unset".
+func memoryEnabledFromYAML(b []byte) (*bool, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil || len(root.Content) == 0 {
+		return nil, err
+	}
+	find := func(n *yaml.Node, key string) *yaml.Node {
+		if n == nil || n.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			if n.Content[i].Value == key {
+				return n.Content[i+1]
+			}
+		}
+		return nil
+	}
+	v := find(find(root.Content[0], "memory"), "enabled")
+	if v == nil {
+		return nil, nil
+	}
+	if v.Tag == "!!null" || strings.TrimSpace(v.Value) == "" {
+		return nil, fmt.Errorf("memory.enabled is present but empty/null; set true or false")
+	}
+	if v.Kind != yaml.ScalarNode || v.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle|yaml.LiteralStyle|yaml.FoldedStyle) != 0 || v.Tag != "!!bool" {
+		return nil, fmt.Errorf("memory.enabled must be exactly true or false")
+	}
+	out, err := strictBool(v.Value)
+	if err != nil {
+		return nil, fmt.Errorf("memory.enabled: %w", err)
+	}
+	return &out, nil
+}
+
+// LoadEnv is Load with a lookup that distinguishes unset from empty.
+func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
+	getenv := func(k string) string { v, _ := lookup(k); return v }
 	c := Default()
+	var cfgMemory *bool
 	if b, err := os.ReadFile(path); err == nil {
-		if err := yaml.Unmarshal(b, &c); err != nil {
+		if err := decodeStrict(b, &c); err != nil {
+			return c, fmt.Errorf("parse %s: %w", path, err)
+		}
+		if cfgMemory, err = memoryEnabledFromYAML(b); err != nil {
 			return c, fmt.Errorf("parse %s: %w", path, err)
 		}
 	} else if !os.IsNotExist(err) {
 		return c, err
 	}
+	var envMemory *bool
+	if v, ok := lookup("GW_MEMORY_ENABLED"); ok {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return c, fmt.Errorf("GW_MEMORY_ENABLED is set but empty; set true or false, or unset it")
+		}
+		b, err := strictBool(v)
+		if err != nil {
+			return c, fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
+		}
+		envMemory = &b
+	}
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(cfgMemory, envMemory)
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
 		return c, fmt.Errorf("push.enabled requires tools_killswitch_file")
@@ -209,6 +307,17 @@ func Load(path string, getenv func(string) string) (Config, error) {
 	}
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
+	}
+	if strings.TrimSpace(c.LegacyUnixSocket) != "" || c.LegacyTCPDisabled {
+		return c, fmt.Errorf("unix_socket / tcp_disabled were removed in 4.0.0: the gateway listens on 127.0.0.1 TCP only (docs/architecture/identity-transport.md)")
+	}
+	for _, p := range c.Auth.Providers {
+		if p == "tailscale-identity" {
+			return c, fmt.Errorf("auth provider tailscale-identity was removed in 4.0.0; use [session, api-key] (browsers must pair again)")
+		}
+	}
+	if c.AllowedHosts == nil {
+		c.AllowedHosts = []string{}
 	}
 	if c.MaxConc < 1 {
 		return c, fmt.Errorf("max_conc must be >= 1")
@@ -281,13 +390,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 		}
 		c.Database.AutoMigrate = b
 	}
-	if v := getenv("GW_MEMORY_ENABLED"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return fmt.Errorf("GW_MEMORY_ENABLED: %w", err)
-		}
-		c.Memory.Enabled = b
-	}
+	// GW_MEMORY_ENABLED is validated and resolved ("off wins") in LoadEnv.
 	if v := getenv("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP"); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
@@ -307,6 +410,27 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_PUSH_VAPID_KEY_ID"); v != "" {
 		c.Push.VAPIDKeyID = v
+	}
+	if v := getenv("GW_UNIX_SOCKET"); v != "" {
+		c.LegacyUnixSocket = v
+	}
+	if v := getenv("GW_ALLOWED_HOSTS"); v != "" {
+		c.AllowedHosts = splitList(v)
+	}
+	if v := getenv("GW_SESSION_PEPPER_FILE"); v != "" {
+		c.SessionPepperFile = v
+	}
+	for k, p := range map[string]*bool{"TCP_DISABLED": &c.LegacyTCPDisabled, "TEST_IDENTITY_INJECTION": &c.TestIdentity.Injection} {
+		if v := getenv("GW_" + k); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("GW_%s: %w", k, err)
+			}
+			*p = b
+		}
+	}
+	if v := getenv("GW_TEST_IDENTITY_USERS"); v != "" {
+		c.TestIdentity.Users = splitList(v)
 	}
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)
@@ -392,4 +516,46 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// ResolveMemoryEnabled applies the 5.0.0 "off wins" rule: any explicit false
+// (config or env) turns memory off; otherwise it is on. The returned source
+// names the input that decided the value: "config", "env" or "default"
+// (both false or both true -> "env").
+func ResolveMemoryEnabled(cfg, env *bool) (bool, string) {
+	cfgOff := cfg != nil && !*cfg
+	envOff := env != nil && !*env
+	switch {
+	case cfgOff && envOff:
+		return false, "env"
+	case cfgOff:
+		return false, "config"
+	case envOff:
+		return false, "env"
+	case cfg != nil && env != nil:
+		return true, "env"
+	case cfg != nil:
+		return true, "config"
+	case env != nil:
+		return true, "env"
+	}
+	return true, "default"
+}
+
+// MemoryResolvedLog returns the single startup log line for the memory flag:
+// msg "memory config resolved" with memory_enabled and memory_enabled_source.
+func MemoryResolvedLog(c Config) (string, []any) {
+	return "memory config resolved", []any{"memory_enabled", c.Memory.Enabled, "memory_enabled_source", c.Memory.EnabledSource}
+}
+
+// strictBool accepts only the exact lowercase literals "true" and "false"
+// (no on/yes/1/TRUE), shared by memory.enabled and GW_MEMORY_ENABLED.
+func strictBool(s string) (bool, error) {
+	switch s {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid value (want exactly true or false)")
 }

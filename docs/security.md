@@ -33,3 +33,28 @@ eve-chat-ui v1.0.1은 `X-Eve-Request`를 보내지 않으므로, 이 변경은 �
 
 - `cors_origins` / `GW_CORS_ORIGINS`에 `"*"`가 있으면 게이트웨이는 기동을 거부한다.
 - 라우트 단위 거부: 경로 세그먼트에 `actions`, `revise`, `reissue`, `token`, `tokens`, `confirm`, `confirmations`가 하나라도 있으면(대소문자 무시) CORS 허용 헤더를 절대 내보내지 않는다. preflight는 403. 아직 없는 라우트도 이 규칙으로 덮는다.
+
+
+## Identity boundary (4.0.0)
+
+- `Tailscale-User-*` identity headers are trusted **only** on requests accepted by the unix socket listener
+  (`GW_UNIX_SOCKET`). That socket is what `tailscale serve` proxies to. On TCP (including `127.0.0.1:8000`)
+  every `Tailscale-User-*` header is deleted before auth, so only `Authorization: Bearer <api key>` works there.
+- Socket dir: real directory (no symlink), owned by the gateway uid, mode 0700. Socket: 0660 (created under umask
+  0117). A looser dir/socket, a non-socket file at the path, or a relative path → startup refused.
+- `GW_TCP_DISABLED=true` turns TCP off (requires `GW_UNIX_SOCKET`). Without a socket the tailscale provider is
+  inactive (`tailscale_identity_inactive` warning).
+- CSRF is unchanged: browser writes over the socket still need `X-Eve-Request: 1` and an `Origin` in
+  `GW_ALLOWED_ORIGINS` (the ts.net origin; serve keeps it).
+
+### e2e identity injection (`-tags e2e` only)
+
+- Compiled only with `-tags e2e`. A default binary refuses to start if `GW_TEST_IDENTITY_INJECTION` is true; CI
+  checks with `go tool nm` (and the header string) that the default binary contains none of it.
+- A request is injected as user U only with **both** `Authorization: Bearer <test api key>` and
+  `X-Eve-Test-Identity: U`, and U must be in `GW_TEST_IDENTITY_USERS`. An unlisted U is never injected (a valid
+  key alone still yields only the `api-key` user).
+- Startup refused when: `GW_ENV` unset or `prod`; TCP off or bind host not loopback; `GW_UNIX_SOCKET` set; the
+  `tailscale-identity` provider enabled; the database name does not contain `_test` (no database is allowed);
+  `GW_TEST_IDENTITY_USERS` empty or overlapping `allowed_users`.
+- Logs record only a pseudonym (`t-<12 hex>` = truncated SHA-256) for injected users.

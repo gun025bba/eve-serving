@@ -42,7 +42,7 @@ func newMemEnv(t *testing.T, enabled bool, led audit.Ledger) (*env, *memory.File
 	seen, mu := &[]map[string]any{}, &sync.Mutex{}
 	up := reasoningUpstream(t, seen, mu)
 	t.Cleanup(up.Close)
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.StaticDir = up.URL, "m1", ""
 	cfg.AllowedUsers = []string{"alice@example", "bob@example"}
@@ -85,10 +85,10 @@ func (e *env) lastUpstream() map[string]any {
 	return (*e.seen)[len(*e.seen)-1]
 }
 
-// SemVer condition 3: with memory.enabled=false (the default) nothing changes.
+// Rollback path: with memory.enabled=false nothing changes (5.0.0 default is true).
 func TestMemoryDisabled_NoRoutesNoPromptChange(t *testing.T) {
-	if config.Default().Memory.Enabled {
-		t.Fatal("memory.enabled must default to false")
+	if !config.Default().Memory.Enabled {
+		t.Fatal("memory.enabled must default to true (5.0.0)")
 	}
 	e, fs := newMemEnv(t, false, nil)
 	memory.Add(fs, uidOf(t, e, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
@@ -173,7 +173,7 @@ func TestMemoryAPI_SecretRejectedNotStored(t *testing.T) {
 func TestMemoryAPI_OriginCSRF(t *testing.T) {
 	e, _ := newMemEnv(t, true, &failLedger{})
 	req, _ := http.NewRequest("POST", e.ts.URL+"/v1/memory/items", strings.NewReader(`{"kind":"fact","text":"x"}`))
-	req.Header.Set("Tailscale-User-Login", "alice@example")
+	req.Header.Set(testUserHeader, "alice@example")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://evil.invalid")
 	resp, err := http.DefaultClient.Do(req)
@@ -424,12 +424,16 @@ func TestMemoryAPI_SensitiveRejectedWithReasonCode(t *testing.T) {
 	}
 }
 
-// enableUserMemory sets users.settings memory.enabled=true (default is off).
+// enableUserMemory sets memory.enabled=true and ui.memory_intro_seen=true
+// (5.0.0: injection and proposals are held until the intro is seen).
 func enableUserMemory(t *testing.T, st0 store.Store, logins ...string) {
 	t.Helper()
 	st := st0.(store.UserSettingsStore)
 	for _, l := range logins {
 		if _, err := st.MergeUserSettings(context.Background(), l, "memory", []byte(`{"enabled":true}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.MergeUserSettings(context.Background(), l, "ui", []byte(`{"memory_intro_seen":true}`)); err != nil {
 			t.Fatal(err)
 		}
 	}

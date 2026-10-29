@@ -150,7 +150,7 @@ func (s *Server) observeCall(r *http.Request, c tools.Call) {
 	if c.Tool == "web_fetch" && c.Status == "ok" {
 		s.M.FetchBytes.Observe(float64(c.FetchBytes))
 	}
-	s.Log.Info("web_tool", "request_id", rid(r), "user", user(r), "tool", c.Tool, "provider", prov, "status", c.Status,
+	s.Log.Info("web_tool", "request_id", rid(r), "user", logUser(r), "tool", c.Tool, "provider", prov, "status", c.Status,
 		"round", c.Round, "arg_sha256", c.ArgHash, "arg_len", c.ArgLen, "block_reason", c.BlockReason, "latency_ms", c.LatencyMs, "result_chars", c.ResultChars)
 }
 
@@ -350,7 +350,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(res)
 	}
 	var memTaint []string
-	memUser := s.memoryFor(r) // per-user memory.enabled (fail-closed)
+	memUser := s.memoryActive(r) // per-user memory.enabled + intro seen (fail-closed)
 	if memUser {
 		_, memTaint = s.historyTainted(r, clean, pr)
 	}

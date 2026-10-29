@@ -382,23 +382,22 @@ func memValidateCode(err error) string {
 	return "_internal"
 }
 
-// denyAPIKey: approve/revise/reissue are browser-session only (CSRF-checked
-// by authed); a Bearer API key gets 403 scope_denied. Nothing auto-approves.
+// denyAPIKey: approve/revise/reissue need the interactive scope (CSRF is
+// checked by authed); a principal without it (e.g. an API key) gets 403
+// scope_denied. Nothing auto-approves. Allowlist, not denylist: only the
+// granted scope counts, never the auth provider.
 func (s *Server) denyAPIKey(w http.ResponseWriter, r *http.Request) bool {
-	// allowlist, not denylist: only browser-session providers may confirm.
-	if !isBrowserSession(r) {
-		s.writeCode(w, r, "scope_denied")
-		return true
-	}
-	return false
+	return !s.requireScope(w, r, auth.ScopeInteractive)
 }
 
-// browserSessionProviders is the one allowlist for browser-session-only
-// endpoints: approve/revise/reissue and PATCH /v1/settings (CSRF-checked by
-// authed). API keys (Bearer) are never on it.
-var browserSessionProviders = map[string]bool{auth.ProviderTailscale: true}
-
-func isBrowserSession(r *http.Request) bool {
-	id, _ := auth.FromContext(r.Context())
-	return browserSessionProviders[id.Provider]
+// browserOnly gates a route to browser sessions with the memory/settings
+// error shape ({"error_code":"scope_denied"}), so registration alone keeps
+// Bearer out even if a handler forgets its own denyAPIKey check.
+func (s *Server) browserOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.denyAPIKey(w, r) {
+			return
+		}
+		h(w, r)
+	}
 }

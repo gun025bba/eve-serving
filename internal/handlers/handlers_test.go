@@ -55,7 +55,7 @@ func fakeUpstream(t *testing.T, delay time.Duration, seen *[]map[string]any, mu 
 }
 
 func newServer(t *testing.T, upURL string, mut func(*config.Config)) (*httptest.Server, *strings.Builder) {
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.AllowedOrigins = []string{testOrigin}
 	cfg.Upstream, cfg.Model, cfg.MinFreeMemGB = upURL, "m1", 0
 	cfg.StaticDir = t.TempDir()
@@ -137,9 +137,15 @@ func TestUpstreamUnavailable(t *testing.T) {
 	if r.StatusCode != 503 || errCode(m) != "upstream_unavailable" {
 		t.Fatal(r.StatusCode, m)
 	}
-	r, _ = do(t, "GET", ts.URL+"/ready", "", false)
+	r, _ = do(t, "GET", ts.URL+"/ready", "", true)
 	if r.StatusCode != 503 {
 		t.Fatal(r.StatusCode)
+	}
+	// Only /health and POST /v1/pair are unauthenticated.
+	for _, p := range []string{"/ready", "/stats", "/metrics", "/openapi.json", "/docs"} {
+		if r, _ := do(t, "GET", ts.URL+p, "", false); r.StatusCode != 401 {
+			t.Fatal(p, r.StatusCode)
+		}
 	}
 }
 
@@ -164,11 +170,11 @@ func TestChatDefaultsAndLog(t *testing.T) {
 	if r.StatusCode != 200 || m["object"] != "list" {
 		t.Fatal(m)
 	}
-	r, m = do(t, "GET", ts.URL+"/ready", "", false)
+	r, m = do(t, "GET", ts.URL+"/ready", "", true)
 	if r.StatusCode != 200 || m["ready"] != true {
 		t.Fatal(m)
 	}
-	r, m = do(t, "GET", ts.URL+"/stats", "", false)
+	r, m = do(t, "GET", ts.URL+"/stats", "", true)
 	if m["window_requests"].(float64) != 1 {
 		t.Fatal(m)
 	}
@@ -232,7 +238,9 @@ func TestQueueing(t *testing.T) {
 	if n[200] != 4 || n[429] != 2 {
 		t.Fatal(n)
 	}
-	resp, _ := http.Get(ts.URL + "/metrics")
+	mreq, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	mreq.Header.Set("Authorization", "Bearer "+key)
+	resp, _ := http.DefaultClient.Do(mreq)
 	b, _ := io.ReadAll(resp.Body)
 	for _, name := range []string{"llm_requests_total", "llm_queue_wait_seconds", "llm_errors_total{code=\"queue_full\"} 2", "llm_inflight_requests 0"} {
 		if !strings.Contains(string(b), name) {
@@ -249,7 +257,7 @@ func TestStaticAndDocs(t *testing.T) {
 		t.Fatal(r.StatusCode, r.Header)
 	}
 	for p, ct := range map[string]string{"/ui/": "text/html", "/ui/styles.css?v=8": "text/css", "/ui/app.js": "text/javascript", "/openapi.json": "application/json", "/docs": "text/html"} {
-		r, _ := http.Get(ts.URL + p)
+		r, _ := do(t, "GET", ts.URL+p, "", strings.HasPrefix(p, "/openapi") || p == "/docs")
 		if r.StatusCode != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), ct) {
 			t.Fatal(p, r.StatusCode, r.Header.Get("Content-Type"))
 		}
@@ -304,7 +312,7 @@ func TestIdentityAuth(t *testing.T) {
 	get := func(path, login, bearer string) (int, map[string]any) {
 		req, _ := http.NewRequest("GET", ts.URL+path, nil)
 		if login != "" {
-			req.Header.Set("Tailscale-User-Login", login)
+			req.Header.Set(testUserHeader, login)
 			browserHeaders(req)
 		}
 		if bearer != "" {
@@ -319,8 +327,7 @@ func TestIdentityAuth(t *testing.T) {
 		json.NewDecoder(resp.Body).Decode(&m)
 		return resp.StatusCode, m
 	}
-	// httptest peers are loopback, like `tailscale serve`.
-	if c, m := get("/whoami", "owner@github", ""); c != 200 || m["provider"] != "tailscale-identity" || m["user"] != "owner@github" {
+	if c, m := get("/whoami", "owner@github", ""); c != 200 || m["provider"] != "session" || m["user"] != "owner@github" {
 		t.Fatal(c, m)
 	}
 	if c, _ := get("/v1/models", "owner@github", ""); c != 200 {
@@ -348,47 +355,40 @@ func TestIdentityAuth(t *testing.T) {
 	if c, m := get("/v1/models", "", "wrong"); c != 401 || errCode(m) != "invalid_api_key" {
 		t.Fatal(c, m)
 	}
-	if !strings.Contains(logbuf.String(), `"user":"owner@github"`) || !strings.Contains(logbuf.String(), `"auth_provider":"tailscale-identity"`) || strings.Contains(logbuf.String(), key) {
+	if !strings.Contains(logbuf.String(), `"user":"owner@github"`) || !strings.Contains(logbuf.String(), `"auth_provider":"session"`) || strings.Contains(logbuf.String(), key) {
 		t.Fatal("log missing identity or leaked key:", logbuf.String())
 	}
-	resp, _ := http.Get(ts.URL + "/metrics")
+	mreq, _ := http.NewRequest("GET", ts.URL+"/metrics", nil)
+	mreq.Header.Set("Authorization", "Bearer "+key)
+	resp, _ := http.DefaultClient.Do(mreq)
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(b), `llm_auth_total{auth_method="tailscale-identity",result="ok"}`) {
+	if !strings.Contains(string(b), `llm_auth_total{auth_method="session",result="ok"}`) {
 		t.Fatal("auth metric missing")
 	}
 }
 
-// Non-loopback peers can't use the header, even if allowlisted.
-func TestIdentityHeaderFromNonLoopback(t *testing.T) {
+// Tailscale-User-* headers never authenticate, from any peer, allowlisted or
+// not, and are stripped before handlers run (4.0.0).
+func TestTailscaleHeaderNeverAuthorizes(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.Upstream, cfg.AllowedUsers = up.URL, []string{"owner@github"}
 	s := &Server{Cfg: cfg, Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
 		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
 	h := s.Handler()
-	for _, remote := range []string{"100.64.1.2:4444", "[fd7a::1]:4444", "192.168.0.5:1"} {
+	for _, remote := range []string{"127.0.0.1:4444", "[::1]:4444", "100.64.1.2:4444", "192.168.0.5:1"} {
 		req := httptest.NewRequest("GET", "/whoami", nil)
 		req.RemoteAddr = remote
 		req.Header.Set("Tailscale-User-Login", "owner@github")
+		req.Header.Set("Tailscale-User-Name", "Owner")
 		browserHeaders(req)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != 401 || !strings.Contains(rec.Body.String(), "unauthenticated") {
 			t.Fatal(remote, rec.Code, rec.Body.String())
 		}
-	}
-	// empty allowlist: header from loopback is not enough
-	s2 := &Server{Cfg: config.Default(), Key: key, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second), Up: s.Up}
-	req := httptest.NewRequest("GET", "/whoami", nil)
-	req.RemoteAddr = "127.0.0.1:1"
-	req.Header.Set("Tailscale-User-Login", "owner@github")
-	browserHeaders(req)
-	rec := httptest.NewRecorder()
-	s2.Handler().ServeHTTP(rec, req)
-	if rec.Code != 401 {
-		t.Fatal(rec.Code)
 	}
 }
 
@@ -399,7 +399,7 @@ func (denyAll) Allow(context.Context, auth.Identity) bool { return false }
 func TestRateLimitHook(t *testing.T) {
 	up := fakeUpstream(t, 0, nil, nil)
 	defer up.Close()
-	cfg := config.Default()
+	cfg := testDefault()
 	cfg.Upstream = up.URL
 	s := &Server{Cfg: cfg, Key: key, Limiter: denyAll{}, Log: logging.New(io.Discard, logging.INFO), M: metrics.New(5), Mem: &metrics.MemSampler{}, Q: queue.New(1, 1, time.Second),
 		Up: proxy.New(proxy.Options{BaseURL: up.URL, ConnectTimeout: time.Second, ReadTimeout: time.Second})}
@@ -409,5 +409,157 @@ func TestRateLimitHook(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != 429 || !strings.Contains(rec.Body.String(), "rate_limited") {
 		t.Fatal(rec.Code, rec.Body.String())
+	}
+}
+
+// PM decision: /ui/ is unauthenticated, so it must serve only the static
+// files on disk, byte-for-byte, with nothing from config or secrets injected.
+func TestUIStaticServesNoData(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	want := map[string]string{"/ui/": "<html>ui</html>", "/ui/styles.css": "body{}", "/ui/app.js": "1"}
+	for p, body := range want {
+		resp, err := http.Get(ts.URL + p) // no Authorization, no cookie
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || string(b) != body {
+			t.Fatalf("%s: %d %q", p, resp.StatusCode, b)
+		}
+		if resp.Header.Get("Set-Cookie") != "" {
+			t.Fatalf("%s set a cookie", p)
+		}
+		var hdr strings.Builder
+		resp.Header.Write(&hdr)
+		if strings.Contains(string(b)+hdr.String(), key) {
+			t.Fatalf("%s leaked the API key", p)
+		}
+	}
+	for _, p := range []string{"/ui/../config.yaml", "/ui/%2e%2e/config.yaml", "/ui/nope.json"} {
+		resp, err := http.Get(ts.URL + p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			t.Fatalf("%s served outside static files", p)
+		}
+	}
+}
+
+// GET / (exact path) redirects to the UI without credentials; everything else under / stays 404, the host allowlist still applies.
+func TestRootRedirectsToUI(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	get := func(method, path, host string) *http.Response {
+		req, _ := http.NewRequest(method, ts.URL+path, nil)
+		if host != "" {
+			req.Host = host
+		}
+		resp, err := noFollow.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	for _, m := range []string{"GET", "HEAD"} {
+		resp := get(m, "/", "")
+		if resp.StatusCode != 302 || resp.Header.Get("Location") != "/ui/" {
+			t.Errorf("%s /: %d Location=%q, want 302 /ui/", m, resp.StatusCode, resp.Header.Get("Location"))
+		}
+	}
+	if resp := get("GET", "/", "evil.example"); resp.StatusCode != 421 {
+		t.Errorf("GET / with a foreign Host: %d, want 421 (host allowlist)", resp.StatusCode)
+	}
+	for _, c := range []struct{ m, p string }{{"POST", "/"}, {"GET", "/nope"}, {"GET", "/index.html"}, {"GET", "//"}} {
+		if resp := get(c.m, c.p, ""); resp.StatusCode == 302 || resp.StatusCode == 200 {
+			t.Errorf("%s %s: %d, want not a redirect/200", c.m, c.p, resp.StatusCode)
+		}
+	}
+	// the UI itself is still served at /ui/ (the redirect target)
+	if resp := get("GET", "/ui/", ""); resp.StatusCode != 200 {
+		t.Errorf("GET /ui/: %d, want 200", resp.StatusCode)
+	}
+}
+
+// The redirect target is fixed: nothing in the query string or forwarded headers can steer the
+// path/host (no open redirect); only the raw query is carried over, after "/ui/".
+func TestRootRedirectKeepsQueryOnFixedPath(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for q, want := range map[string]string{
+		"":                                  "/ui/",
+		"?":                                 "/ui/",
+		"?a=b":                              "/ui/?a=b",
+		"?a=1&a=2":                          "/ui/?a=1&a=2",
+		"?next=https://evil.example":        "/ui/?next=https://evil.example",
+		"?next=//evil.example/x&url=/v1/me": "/ui/?next=//evil.example/x&url=/v1/me",
+		"?%2F%2Fevil.example":               "/ui/?%2F%2Fevil.example",
+		"?x=%0d%0aSet-Cookie:a=b":           "/ui/?x=%0d%0aSet-Cookie:a=b", // still percent-encoded: no header injection
+		"?" + strings.Repeat("a", 2049):     "/ui/",                        // too long: dropped
+	} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+"/"+q, nil)
+			req.Header.Set("X-Forwarded-Host", "evil.example")
+			req.Header.Set("X-Forwarded-Proto", "https")
+			req.Header.Set("Origin", "https://evil.example")
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			loc := resp.Header.Get("Location")
+			if resp.StatusCode != 302 || loc != want {
+				t.Errorf("%s /%.40s: %d Location=%.80q, want 302 %.80q", m, q, resp.StatusCode, loc, want)
+			}
+			// whatever the query, the redirect stays on this origin under /ui/
+			if !strings.HasPrefix(loc, "/ui/") || strings.HasPrefix(loc, "//") || strings.ContainsAny(loc, "\r\n") {
+				t.Errorf("%s /%.40s: unsafe Location %.80q", m, q, loc)
+			}
+		}
+	}
+}
+
+// Characters that are not plain printable ASCII are never copied into Location.
+func TestRootRedirectTargetDropsUnsafeQuery(t *testing.T) {
+	for in, want := range map[string]string{
+		"a=b": "/ui/?a=b", "": "/ui/", "a=b c": "/ui/", "a=\r\nX: y": "/ui/", "a=\x00": "/ui/", "a=한": "/ui/", "a=\x7f": "/ui/",
+	} {
+		if got := rootRedirectTarget(in); got != want {
+			t.Errorf("rootRedirectTarget(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The redirect must never be cached (it depends on whether the UI is served).
+func TestRootRedirectNoStore(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", nil)
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, p := range []string{"/", "/?x=1"} {
+		for _, m := range []string{"GET", "HEAD"} {
+			req, _ := http.NewRequest(m, ts.URL+p, nil)
+			resp, err := noFollow.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 302 {
+				t.Fatalf("%s %s: %d, want 302", m, p, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+				t.Errorf("%s %s: Cache-Control=%q, want no-store", m, p, got)
+			}
+		}
+	}
+}
+
+// With the UI disabled (no static dir) there is no target: GET / keeps answering the JSON 404.
+func TestRootNoUI404(t *testing.T) {
+	ts, _ := newServer(t, "http://127.0.0.1:1", func(c *config.Config) { c.StaticDir = "" })
+	resp, m := do(t, "GET", ts.URL+"/", "", false)
+	if resp.StatusCode != 404 || m["detail"] != "Not Found" {
+		t.Fatalf("GET / without UI: %d %v, want 404 Not Found", resp.StatusCode, m)
 	}
 }

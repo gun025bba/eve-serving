@@ -103,7 +103,14 @@ then upstream chunks unchanged, then **right before `data: [DONE]`**:
 Limits (§3.8): 2 concurrent generations per user (429 `too_many_generations` + `Retry-After`); hub-wide (64 runs / 128MB, also when running runs alone fill the byte cap) 429
 `server_busy`; partial reply > 64KB → `failed`/`too_large`; no subscriber for 5 min → `failed`/`no_subscriber`.
 Queue errors (`queue_full` 429 etc.) happen **before** the assistant row is created and keep their 3.0.0 HTTP status.
-Regenerating a message that is already `generating` → 409 `generation_in_progress`. The startup sweep that marks
+Regenerating a message that is already `generating` → 409 `generation_in_progress`.
+Resending the **same user turn** (same thread, identical last user message, no `replace_message_id`) while that turn
+is still being answered → 409 `generation_in_progress` instead of a second answer (#30). Duplicates are judged by
+same thread + same user message (its `user_message_id`); there is no `Idempotency-Key` header. The 409 `error` object adds
+`thread_id`, `user_message_id` and `message_id` (the reply being generated; reattach via
+`GET /v1/threads/{id}/messages/{message_id}/stream`). `message_id` is `""` in the brief window before the reply row
+exists — retry shortly. The in-flight mark is released
+on completion, error and client cancel; a stale `generating` row with no live run does not block. The startup sweep that marks
 leftover `generating` rows `gateway_restart` assumes a **single gateway instance** per database.
 
 Errors: unknown/foreign `thread_id` or `replace_message_id` → 404; `replace_message_id` that is not an assistant

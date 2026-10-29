@@ -61,18 +61,20 @@ func noStore(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) memoryRoutes(mux *http.ServeMux) {
+func (s *Server) memoryRoutes(mux *routeMux) {
 	if !s.memoryOn() {
 		return
 	}
-	mux.HandleFunc("GET /v1/memory", s.authed(noStore(s.getMemory)))
-	mux.HandleFunc("DELETE /v1/memory", s.authed(noStore(s.deleteAllMemory)))
-	mux.HandleFunc("GET /v1/memory/export", s.authed(noStore(s.exportMemory)))
-	mux.HandleFunc("POST /v1/memory/items", s.authed(noStore(s.addMemoryItem)))
-	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(noStore(s.patchMemoryItem)))
-	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(noStore(s.deleteMemoryItem)))
+	// 4.0.0: every memory route and approve are browser-session only
+	// (security #65 merge condition); a Bearer API key gets 403.
+	mux.HandleFunc("GET /v1/memory", s.authed(s.browserOnly(noStore(s.getMemory))))
+	mux.HandleFunc("DELETE /v1/memory", s.authed(s.browserOnly(noStore(s.deleteAllMemory))))
+	mux.HandleFunc("GET /v1/memory/export", s.authed(s.browserOnly(noStore(s.exportMemory))))
+	mux.HandleFunc("POST /v1/memory/items", s.authed(s.browserOnly(noStore(s.addMemoryItem))))
+	mux.HandleFunc("PATCH /v1/memory/items/{id}", s.authed(s.browserOnly(noStore(s.patchMemoryItem))))
+	mux.HandleFunc("DELETE /v1/memory/items/{id}", s.authed(s.browserOnly(noStore(s.deleteMemoryItem))))
 	// Approve exists only while memory is on (off: same 404 as before).
-	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(noStore(s.approveAction)))
+	mux.HandleFunc("POST /v1/actions/{id}/approve", s.persisted(s.browserOnly(noStore(s.approveAction))))
 }
 
 func (s *Server) memHMAC(text string) string {
@@ -307,7 +309,7 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 // prompt of the forwarded request. Any error injects nothing (fail-closed).
 // Proactive/scheduler runs do not come through here.
 func (s *Server) injectMemory(r *http.Request, body map[string]any) {
-	if !s.memoryFor(r) {
+	if !s.memoryActive(r) {
 		return
 	}
 	msgs, _ := body["messages"].([]any)
