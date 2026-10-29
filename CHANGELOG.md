@@ -18,6 +18,7 @@
   unavailable). The memory line says a memory is not saved before the user approves the card. No version, commit, function names or API paths are
   included. Generated from runtime state (`internal/selfdesc`, `internal/handlers/selfdesc.go`); a new feature appears when its entry is added,
   and only while it is on. Per request, not stored in threads. Size guard in tests: under 300 estimated tokens (the estimator is approximate; measure with the real tokenizer).
+  A regression test (`TestBuild_NoSensitiveInfo`) asserts the block never contains API keys or tokens, DB DSNs or passwords, hostnames, IPs, URLs or file paths in any state.
   Only requests with the `interactive` scope get it (browser/app sessions); API-key requests are unchanged, with no block and no tools.
 - The `memory_propose` result the model reads says nothing is saved yet until the user approves the card.
 - `memory_propose` is now offered whenever memory is active, also when web search is off for the request (and when
