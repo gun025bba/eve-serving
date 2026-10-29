@@ -1,6 +1,6 @@
 # Change list for the Major security review (one line per file)
 
-Base: `feat/enable-web-deploy` (d5b246d). Branch: `feat/unattended-deploy`. Everything is under `deploy/nopasswd/` unless a path says otherwise.
+Base: `main` (ae0b03f, #142 squash). Branch: `feat/unattended-deploy-v2`. Everything is under `deploy/nopasswd/` unless a path says otherwise.
 
 | file | change | why it needs a look |
 |---|---|---|
