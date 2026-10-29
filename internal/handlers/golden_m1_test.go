@@ -50,7 +50,7 @@ func TestGolden_M1ByteIdentical(t *testing.T) {
 				j, _ := json.Marshal(q)
 				up = append(up, string(j))
 			}
-			got := "status: " + r.Status + "\n--- upstream\n" + strings.Join(up, "\n") + "\n--- response\n" + normalizeGolden(string(b)) + "\n"
+			got := normalizeGolden("status: " + r.Status + "\n--- upstream\n" + strings.Join(up, "\n") + "\n--- response\n" + string(b) + "\n")
 			p := filepath.Join("testdata", "golden_m1", c.name+".txt")
 			if *updateGolden {
 				os.MkdirAll(filepath.Dir(p), 0o755)
