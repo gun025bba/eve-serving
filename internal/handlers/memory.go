@@ -330,6 +330,14 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) []string {
 	if err != nil || blk == "" {
 		return nil
 	}
+	// P① must never be empty while a block is in the prompt: if the selection
+	// yields no item texts, the block text itself is protected.
+	prot := func() []string {
+		if p := protectedTexts(d.Items, now); len(p) > 0 {
+			return p
+		}
+		return []string{blk}
+	}
 	// The block must be the very last text of the system prompt: append it to
 	// the LAST message of the leading run of system messages, so no client
 	// system text follows it. (Web mode later prepends tools.SystemPrompt;
@@ -344,7 +352,7 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) []string {
 	}
 	if last < 0 {
 		body["messages"] = append([]any{map[string]any{"role": "system", "content": blk}}, msgs...)
-		return protectedTexts(d.Items, now)
+		return prot()
 	}
 	m := msgs[last].(map[string]any)
 	c, ok := m["content"].(string)
@@ -359,7 +367,7 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) []string {
 	out := append([]any{}, msgs...)
 	out[last] = cp
 	body["messages"] = out
-	return protectedTexts(d.Items, now)
+	return prot()
 }
 
 // protectedTexts are the memory item texts that were put in the prompt (all

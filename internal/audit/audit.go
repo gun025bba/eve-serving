@@ -33,6 +33,7 @@ const (
 	EvDomainBlocked  = "domain_blocked"
 	EvRegistryLoaded = "registry_loaded"
 	EvKillswitch     = "killswitch"
+	EvApproveRefused = "approve_refused" // approval refused by the operator kill switch before the token was spent
 	EvPolicyLoaded   = "policy_loaded"
 )
 

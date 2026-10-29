@@ -77,3 +77,10 @@ tools:                    # 6.0.0 automatic tool selection (docs/architecture/au
   # log_hmac_key_file: ~/llm-serving/etc/tools_log_hmac.key   # GW_TOOLS_LOG_HMAC_KEY_FILE
   #   0600 file, 64+ hex characters. REQUIRED for automatic selection: without a usable key the web tools are off.
   v4_mode: off            # GW_TOOLS_V4_MODE: off | shadow | on (same-model yes/no decision call, design 4.4.1)
+  # pim_window_start: "2026-11-01T09:00:00+09:00"   # GW_TOOLS_PIM_WINDOW_START (RFC 3339)
+  #   When 5.1.0 went live. 5.1.0 does not record personal-data (calendar/reminder) reads, so assistant messages
+  #   created from then on WITHOUT metadata.tools[] are treated as personal-data reads (design 4.3.4 M-f):
+  #   a request whose history holds one makes no web search. Unset = "earliest" (the whole history; fail closed).
+  # pim_window_end: "2026-11-15T09:00:00+09:00"     # GW_TOOLS_PIM_WINDOW_END (RFC 3339)
+  #   When 6.0.0 went live (it writes metadata.tools[] on every assistant message). Unset = no end; that is safe.
+  #   The metric llm_pim_window_assumed_total counts the requests this rule affected.

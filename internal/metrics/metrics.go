@@ -41,6 +41,10 @@ type Metrics struct {
 	ToolRounds    prometheus.Histogram
 	ToolParseFail prometheus.Counter
 	WebPurged     prometheus.Counter
+	// PIMWindowAssumed counts requests whose history held an assistant message
+	// from the 5.1.0 window that was assumed to be a personal-data read (design
+	// 4.3.4 M-f). A request count only: no thread, user or content.
+	PIMWindowAssumed prometheus.Counter
 
 	// Tool platform (M2).
 	ToolDenied        *prometheus.CounterVec // tool, reason (constant reasons only)
@@ -79,15 +83,16 @@ func New(window int) *Metrics {
 		MemMLX:   prometheus.NewGauge(prometheus.GaugeOpts{Name: "llm_mlx_server_rss_bytes", Help: "mlx_lm.server RSS"}),
 		Recent:   NewWindow(window),
 
-		ToolCalls:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_tool_calls_total", Help: "Web tool calls"}, []string{"tool", "provider", "status"}),
-		ToolLat:       prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_tool_latency_seconds", Help: "Web tool latency", Buckets: latBuckets}, []string{"tool", "provider"}),
-		SearchResults: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_search_results", Help: "Results per search", Buckets: []float64{0, 1, 2, 3, 5, 8}}, []string{"provider"}),
-		SearchErrs:    prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_search_provider_errors_total", Help: "Search provider errors"}, []string{"provider", "kind"}),
-		FetchBytes:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_fetch_bytes", Help: "Fetched body bytes (decompressed)", Buckets: prometheus.ExponentialBuckets(1024, 4, 8)}),
-		FetchBlocked:  prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_fetch_blocked_total", Help: "Fetches blocked by policy"}, []string{"reason"}),
-		ToolRounds:    prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_tool_rounds", Help: "Tool rounds per request", Buckets: []float64{0, 1, 2, 3, 4}}),
-		ToolParseFail: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
-		WebPurged:     prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
+		ToolCalls:        prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_tool_calls_total", Help: "Web tool calls"}, []string{"tool", "provider", "status"}),
+		ToolLat:          prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_tool_latency_seconds", Help: "Web tool latency", Buckets: latBuckets}, []string{"tool", "provider"}),
+		SearchResults:    prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "llm_search_results", Help: "Results per search", Buckets: []float64{0, 1, 2, 3, 5, 8}}, []string{"provider"}),
+		SearchErrs:       prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_search_provider_errors_total", Help: "Search provider errors"}, []string{"provider", "kind"}),
+		FetchBytes:       prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_fetch_bytes", Help: "Fetched body bytes (decompressed)", Buckets: prometheus.ExponentialBuckets(1024, 4, 8)}),
+		FetchBlocked:     prometheus.NewCounterVec(prometheus.CounterOpts{Name: "llm_fetch_blocked_total", Help: "Fetches blocked by policy"}, []string{"reason"}),
+		ToolRounds:       prometheus.NewHistogram(prometheus.HistogramOpts{Name: "llm_tool_rounds", Help: "Tool rounds per request", Buckets: []float64{0, 1, 2, 3, 4}}),
+		PIMWindowAssumed: prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_pim_window_assumed_total", Help: "Requests with a 5.1.0-window assistant message assumed to be a PIM read"}),
+		ToolParseFail:    prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_tool_parse_failures_total", Help: "Unparsable tool calls"}),
+		WebPurged:        prometheus.NewCounter(prometheus.CounterOpts{Name: "llm_web_history_purged_total", Help: "tool_calls/web_sources rows deleted by retention"}),
 
 		ToolDenied:        prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_tool_denied_total", Help: "Tool calls/results denied by policy"}, []string{"tool", "reason"}),
 		AuditWriteFail:    prometheus.NewCounter(prometheus.CounterOpts{Name: "eve_audit_write_failures_total", Help: "tool_audit append failures"}),
@@ -105,7 +110,7 @@ func New(window int) *Metrics {
 		GenStreamErr:      prometheus.NewCounterVec(prometheus.CounterOpts{Name: "eve_gen_stream_errors_total", Help: "Errors delivered inside the SSE stream"}, []string{"code", "status"}),
 	}
 	m.Reg.MustRegister(m.Reqs, m.Errs, m.Auth, m.CSRF, m.Lat, m.QWait, m.TTFT, m.TPS, m.PTok, m.CTok, m.Inflight, m.QDepth, m.MemSys, m.MemMLX,
-		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged,
+		m.ToolCalls, m.ToolLat, m.SearchResults, m.SearchErrs, m.FetchBytes, m.FetchBlocked, m.ToolRounds, m.ToolParseFail, m.WebPurged, m.PIMWindowAssumed,
 		m.ToolDenied, m.AuditWriteFail, m.AuditVerifyFail, m.PolicySnapshotAge, m.PolicyFallback, m.AuditBreakerOpen, m.WebAuditDisabled,
 		m.GenRuns, m.GenBytes, m.GenEvictions, m.GenOverflows, m.GenRejected, m.GenCancelled, m.GenStreamErr,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))

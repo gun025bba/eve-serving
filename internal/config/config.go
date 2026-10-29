@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -151,6 +152,7 @@ type PushConfig struct {
 // ToolsConfig is the operator configuration of the tool layer (6.0.0,
 // design §4.8). Old builds reject the unknown "tools" key at startup: remove
 // it before rolling back to 5.x (docs/runbooks/auto-tool-selection-rollback.md).
+// Deploy order and rollback: docs/runbooks/auto-tool-selection-rollback.md.
 type ToolsConfig struct {
 	// LogHMACKeyFile is the 0600 file with the HMAC key for argument hashes in
 	// logs, audit events and tool_calls. Without a usable key the automatic
@@ -159,6 +161,24 @@ type ToolsConfig struct {
 	// V4Mode is the stage of the same-model yes/no decision call (§4.4.1):
 	// off (default), shadow (judge and count only) or on.
 	V4Mode string `yaml:"v4_mode" json:"-"`
+	// PIMWindowStart / PIMWindowEnd bound the 5.1.0 window (design 4.3.4 M-f):
+	// assistant messages created inside it without metadata.tools[] are treated
+	// as personal-data reads, because 5.1.0 does not record them. RFC 3339.
+	// Start = when 5.1.0 was deployed; empty means "earliest" (fail closed: the
+	// whole history is in the window). End = when 6.0.0 started writing
+	// metadata.tools[] on every assistant message; empty means "no end", which
+	// is safe because 6.0.0 writes the key on every message it persists.
+	// GW_TOOLS_PIM_WINDOW_START / GW_TOOLS_PIM_WINDOW_END.
+	PIMWindowStart string `yaml:"pim_window_start" json:"-"`
+	PIMWindowEnd   string `yaml:"pim_window_end" json:"-"`
+}
+
+// PIMWindow returns the parsed window; a zero Start is "earliest", a zero End
+// "no end". Validate has already checked the format.
+func (t ToolsConfig) PIMWindow() (start, end time.Time) {
+	start, _ = time.Parse(time.RFC3339, t.PIMWindowStart)
+	end, _ = time.Parse(time.RFC3339, t.PIMWindowEnd)
+	return
 }
 
 // V4 modes.
@@ -390,6 +410,14 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	default:
 		return c, fmt.Errorf("tools.v4_mode must be off|shadow|on")
 	}
+	for k, v := range map[string]string{"tools.pim_window_start": c.Tools.PIMWindowStart, "tools.pim_window_end": c.Tools.PIMWindowEnd} {
+		if v == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, v); err != nil {
+			return c, fmt.Errorf("%s must be an RFC 3339 time (for example 2026-11-01T09:00:00+09:00)", k)
+		}
+	}
 	return c, nil
 }
 
@@ -487,6 +515,12 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_TOOLS_LOG_HMAC_KEY_FILE"); v != "" {
 		c.Tools.LogHMACKeyFile = v
+	}
+	if v := getenv("GW_TOOLS_PIM_WINDOW_START"); v != "" {
+		c.Tools.PIMWindowStart = v
+	}
+	if v := getenv("GW_TOOLS_PIM_WINDOW_END"); v != "" {
+		c.Tools.PIMWindowEnd = v
 	}
 	if v := getenv("GW_TOOLS_V4_MODE"); v != "" {
 		c.Tools.V4Mode = v

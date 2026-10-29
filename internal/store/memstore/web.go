@@ -146,3 +146,28 @@ func (s *Store) SetThreadSettings(_ context.Context, user, id string, v json.Raw
 	s.settings[id] = b
 	return nil
 }
+
+// SetMessageMetadata and MessageMetadata are test helpers.
+func (s *Store) SetMessageMetadata(id string, raw json.RawMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.msgs[id]; ok {
+		m.Metadata = raw
+	}
+}
+
+func (s *Store) MessageMetadata(id string) json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.msgs[id]; ok {
+		return append(json.RawMessage(nil), m.Metadata...)
+	}
+	return nil
+}
+
+// AddToolCallForTest attaches a tool_calls row to a message (test helper).
+func (s *Store) AddToolCallForTest(id string, c store.ToolCall) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls[id] = append(s.calls[id], c)
+}

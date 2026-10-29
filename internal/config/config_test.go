@@ -296,3 +296,31 @@ func TestMemoryResolvedLogNoSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestToolsConfig_PIMWindow(t *testing.T) {
+	c, err := Load("", func(k string) string {
+		return map[string]string{"GW_TOOLS_PIM_WINDOW_START": "2026-11-01T09:00:00+09:00", "GW_TOOLS_PIM_WINDOW_END": "2026-11-15T09:00:00+09:00"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, en := c.Tools.PIMWindow()
+	if st.IsZero() || en.IsZero() || !en.After(st) {
+		t.Fatalf("window %v %v", st, en)
+	}
+	c, err = Load("", func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, en := c.Tools.PIMWindow(); !st.IsZero() || !en.IsZero() {
+		t.Fatalf("unset must mean earliest / no end: %v %v", st, en)
+	}
+	if _, err = Load("", func(k string) string {
+		if k == "GW_TOOLS_PIM_WINDOW_START" {
+			return "yesterday"
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("a window time that does not parse was accepted")
+	}
+}

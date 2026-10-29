@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gun025bba/eve-serving/internal/store"
 	"github.com/gun025bba/eve-serving/internal/tools"
@@ -20,9 +21,31 @@ func (s *Server) argKID() string {
 // personalTool classifies a tool name as a personal-data read (G1).
 func (s *Server) personalTool(name string) bool { return tools.IsPersonalTool(name) }
 
+// personalReady is the fail-closed precondition for offering personal-data
+// read tools (§4.3.4 "G1 prerequisites"): the guard code that protects what
+// they return must be able to run. That means automatic selection is on (the
+// session with G1-G3 and the echo filter exists) and the store is the web
+// store whose messages P④ and G1 ⓑ read back. Without it no personal tool is
+// offered.
+func (s *Server) personalReady() bool {
+	if s.Personal == nil || !s.autoSelect() {
+		return false
+	}
+	_, ok := s.Store.(store.WebStore)
+	return ok
+}
+
 // personalExposed reports whether personal-data tools are offered on r.
 func (s *Server) personalExposed(r *http.Request) bool {
-	return s.PersonalExposed != nil && s.PersonalExposed(r)
+	return s.personalReady() && len(s.Personal.Defs(r)) > 0
+}
+
+// personalDefs are the personal tool definitions for r (nil when not offered).
+func (s *Server) personalDefs(r *http.Request) []any {
+	if !s.personalExposed(r) {
+		return nil
+	}
+	return s.Personal.Defs(r)
 }
 
 // assistantTexts are the contents of the assistant messages of a request.
@@ -43,29 +66,39 @@ type storedTool struct {
 	Status string `json:"status"`
 }
 
-// readsPersonal reports whether a stored assistant message used a personal
-// data read: metadata.tools[] first, then (messages written before
-// metadata.tools[] existed) its tool_calls rows. found tells whether either
-// source had an answer.
-func readsPersonal(m store.Message, calls []store.ToolCall) (reads, found bool) {
+// readsPersonal reports whether a stored assistant message is to be treated as
+// a personal-data read (P④, G1 ⓑ). Order (design 4.3.4 M-f):
+//  1. an explicit metadata.pim_read marker is followed;
+//  2. metadata.tools[] (6.0.0 writes it on every assistant message): a PIM tool
+//     with status ok means read;
+//  3. no metadata.tools[] and created inside the 5.1.0 window [start, end):
+//     assumed to be a read (5.1.0 recorded nothing), assumed=true;
+//  4. otherwise not a read.
+//
+// tool_calls rows are not consulted: nothing says they hold PIM reads, they
+// are deleted after 90 days, and a reconstruction is no input for a safety
+// control.
+func readsPersonal(m store.Message, start, end time.Time) (reads, assumed bool) {
 	var md struct {
-		Tools *[]storedTool `json:"tools"`
+		Tools   *[]storedTool `json:"tools"`
+		PIMRead *bool         `json:"pim_read"`
 	}
-	if len(m.Metadata) > 0 && json.Unmarshal(m.Metadata, &md) == nil && md.Tools != nil {
+	if len(m.Metadata) > 0 {
+		_ = json.Unmarshal(m.Metadata, &md) // unparsable: treated as absent, so the window rule decides
+	}
+	if md.PIMRead != nil {
+		return *md.PIMRead, false
+	}
+	if md.Tools != nil {
 		for _, t := range *md.Tools {
 			if tools.IsPersonalTool(t.Tool) && t.Status == "ok" {
-				return true, true
+				return true, false
 			}
 		}
-		return false, true
+		return false, false
 	}
-	if len(calls) > 0 {
-		for _, c := range calls {
-			if tools.IsPersonalTool(c.Tool) { // any status: the read was attempted
-				return true, true
-			}
-		}
-		return false, true
+	if !m.CreatedAt.Before(start) && (end.IsZero() || m.CreatedAt.Before(end)) {
+		return true, true
 	}
 	return false, false
 }
@@ -75,37 +108,34 @@ func readsPersonal(m store.Message, calls []store.ToolCall) (reads, found bool) 
 // that were built from a personal-data read; private is true when the history
 // holds such an answer, or - while personal tools are exposed - an assistant
 // turn the server cannot match with a stored message (a client-written turn
-// cannot be shown to be free of personal data).
+// cannot be shown to be free of personal data). Messages of the 5.1.0 window
+// without metadata.tools[] count as reads whether or not personal tools are
+// offered on this request (design 4.3.4 M-f); the unmatched-turn rule only
+// applies while they are.
 func (s *Server) personalHistory(r *http.Request, msgs []any, pr *chatPersist) (protected []string, private bool) {
-	if !s.personalExposed(r) {
-		return nil, false
-	}
+	exposed := s.personalExposed(r)
 	want := assistantTexts(msgs)
 	if len(want) == 0 {
 		return nil, false
 	}
 	if pr == nil || pr.threadID == "" {
-		return nil, true // nothing stored to check them against: fail closed
+		return nil, exposed // nothing stored to check them against: fail closed
 	}
 	matched := map[string]bool{}
+	start, end := s.Cfg.Tools.PIMWindow()
+	windowHit := false
+	if s.M != nil {
+		defer func() {
+			if windowHit {
+				s.M.PIMWindowAssumed.Inc() // once per request, content-free
+			}
+		}()
+	}
 	before := ""
 	for page := 0; page < 20; page++ {
 		ms, more, err := s.Store.ListMessages(r.Context(), user(r), pr.threadID, 500, before)
 		if err != nil {
 			return protected, true
-		}
-		var ids []string
-		for _, m := range ms {
-			if m.Role == "assistant" {
-				ids = append(ids, m.ID)
-			}
-		}
-		var calls map[string][]store.ToolCall
-		if ws, ok := s.Store.(store.WebStore); ok && len(ids) > 0 {
-			var err error
-			if calls, err = ws.ToolCallsByMessage(r.Context(), user(r), ids); err != nil {
-				return protected, true
-			}
 		}
 		for _, m := range ms {
 			if m.Role != "assistant" {
@@ -115,10 +145,13 @@ func (s *Server) personalHistory(r *http.Request, msgs []any, pr *chatPersist) (
 			if t == "" {
 				continue
 			}
-			reads, _ := readsPersonal(m, calls[m.ID])
+			reads, assumed := readsPersonal(m, start, end)
 			if reads {
 				protected = append(protected, m.Content)
 				private = true
+			}
+			if assumed {
+				windowHit = true
 			}
 			matched[t] = true
 		}
@@ -128,7 +161,7 @@ func (s *Server) personalHistory(r *http.Request, msgs []any, pr *chatPersist) (
 		before = ms[0].ID
 	}
 	for _, t := range want {
-		if !matched[t] {
+		if exposed && !matched[t] {
 			private = true // not a message of this thread: unverifiable (G1 ⓑ)
 			break
 		}

@@ -324,9 +324,10 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 	if status == store.StatusIncomplete || status == store.StatusFailed {
 		md["incomplete"], md["reason"], md["error_code"] = true, reason, reason
 	}
-	if len(md) > 0 {
-		m.Metadata, _ = json.Marshal(md)
+	if _, ok := md["tools"]; !ok {
+		md["tools"] = []any{} // 6.0.0 always records the key: its absence marks a 5.1.0-window message (design 4.3.4 M-f)
 	}
+	m.Metadata, _ = json.Marshal(md)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 	defer cancel()
 	var err error

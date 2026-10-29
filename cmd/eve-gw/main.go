@@ -11,7 +11,7 @@ import (
 
 func main() {
 	if !cli.IsCommand(os.Args[1:]) {
-		fmt.Fprintln(os.Stderr, "usage: eve-gw pair --user <login> | eve-gw sessions list | eve-gw sessions revoke <id>")
+		fmt.Fprintln(os.Stderr, "usage: eve-gw pair --user <login> | eve-gw sessions list | eve-gw sessions revoke <id> | eve-gw killswitch-check <file>")
 		os.Exit(2)
 	}
 	os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))

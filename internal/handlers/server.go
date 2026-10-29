@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/tools"
 	"mime"
 	"net/http"
 	"os"
@@ -75,12 +76,13 @@ type Server struct {
 	// AuditBreaker disables the web tools after repeated audit write/verify
 	// failures (M2 fail-open mitigation). nil = no breaker.
 	AuditBreaker *audit.Breaker
-	// PersonalExposed reports whether this request offers personal-data read
-	// tools (calendar, reminders) to the model. nil in a build without such an
-	// adapter: then G1 ⓑ and P④ have nothing to protect. When it is set, the
-	// rules in autotool.go (G1 ⓑ, P④, P②) apply and it must be set together
-	// with the hooks that put PIM results into the protected text.
-	PersonalExposed func(r *http.Request) bool
+	// Personal supplies the personal-data read tools (calendar, reminders,
+	// notes) of a later release; nil in this build (tests use a mock). Its
+	// tools are offered only when the G1/P2/P4 prerequisites hold
+	// (personalReady): automatic selection on and a store that can join
+	// tool_calls to messages. Every call of such a tool sets private_read, and
+	// all string fields of its result enter the protected text.
+	Personal PersonalTools
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool
@@ -565,4 +567,12 @@ func rootRedirectTarget(rawQuery string) string {
 		}
 	}
 	return "/ui/?" + rawQuery
+}
+
+// PersonalTools is the seam for personal-data read tools.
+type PersonalTools interface {
+	// Defs are the tool definitions offered to the user of r (none: no tools).
+	Defs(r *http.Request) []any
+	// Adapters run the tools of Defs.
+	Adapters(r *http.Request) map[string]tools.Adapter
 }

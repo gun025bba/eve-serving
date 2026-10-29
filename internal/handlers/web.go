@@ -39,6 +39,9 @@ type WebTools struct {
 	// MAC keys the argument hash of logs, audit events and tool_calls (§4.2-3).
 	// nil = no usable key: automatic selection is off (fail closed, §6.4).
 	MAC *tools.ArgMAC
+	// Suspicious overrides the instruction-like text detector (tests only;
+	// nil = built-in R1-R7).
+	Suspicious func(text string) []string
 }
 
 func secsDur(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
@@ -114,10 +117,14 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protec
 	if wt == nil {
 		wt = &WebTools{} // web disabled: memory-only tool path, no web call is ever executed
 	}
+	var extra map[string]tools.Adapter
+	if s.personalExposed(r) {
+		extra = s.Personal.Adapters(r)
+	}
 	return tools.NewSession(tools.Deps{
 		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
 		Auto: true, Protected: protected, Budget: wt.Budget, StepBudget: 15 * time.Second,
-		MAC: wt.MAC, AutoOff: s.autoOffNow, PrivateHistory: privateHistory, Private: s.personalTool,
+		MAC: wt.MAC, AutoOff: s.autoOffNow, PrivateHistory: privateHistory, Private: s.personalTool, Extra: extra, Suspicious: wt.Suspicious,
 		OnEcho: func(tc tools.Call, rule string) {
 			s.Log.Warn("web_echo_rejected", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rule", rule)
 		},
@@ -446,9 +453,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			// Expose is recomputed before every upstream request: round 1 only
 			// for web_search, nothing after a fetch result, a suspect result, two
 			// echo rejections or a kill switch change (§4.3.4).
-			defs = sess.ToolDefsFor(rounds)
+			defs = append(sess.ToolDefsFor(rounds), s.personalDefs(r)...)
 		}
-		if td := s.withMemoryTool(defs, memUser && !sess.Suspect()); len(td) > 0 {
+		if td := s.withMemoryTool(defs, memUser && !sess.Suspect() && !tools.Default().Kill.Disabled(memory.ToolPropose)); len(td) > 0 {
 			b["tools"], b["tool_choice"] = td, "auto"
 		} else {
 			delete(b, "tools")
@@ -524,6 +531,11 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 				continue
 			}
+			if c.name == memory.ToolName && tools.Default().Kill.Disabled(memory.ToolPropose) {
+				res := toolResult(map[string]any{"status": "denied", "error_code": "kill_switch"})
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
 			if c.name == memory.ToolName && memUser && sess.Suspect() {
 				res := toolResult(map[string]any{"status": "denied", "error_code": "tainted"})
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
@@ -548,7 +560,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 				continue
 			}
-			res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args)
+			res, rc := sess.Exec(ctx, rounds, c.id, c.name, c.args) // web tools and personal reads alike (G1)
 			emitCall(rc)
 			conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 			if ctx.Err() != nil {
@@ -696,10 +708,14 @@ func validCites(c []int, n int) []int {
 // when web calls were made (or locked out) and none did, or when the Gate hint
 // said fresh and no tool was called, "" otherwise.
 func freshStatus(sess *tools.Session, hint bool) string {
+	web := false
+	for _, c := range sess.Calls {
+		web = web || c.Tool == "web_search" || c.Tool == "web_fetch"
+	}
 	switch {
 	case sess.Verified():
 		return "ok"
-	case len(sess.Calls) > 0 || sess.Rejections() > 0 || hint:
+	case web || sess.Rejections() > 0 || hint:
 		return "unverified" // includes: the Gate hint said fresh and no tool was called
 	}
 	return ""
