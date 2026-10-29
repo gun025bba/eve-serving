@@ -24,7 +24,7 @@ unset _v
 # --- end drop ---
 
 # ----- pins: what gets installed, byte for byte (the README line pins the hash of THIS file) -----
-SRC_COMMIT=9fc55e51a6a54d2430a67573f6c5dbfbc02de518
+SRC_COMMIT=a4a6c026bdca3edc8021abe852f833e38f9bb387
 SRC_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 COSIGN_URL=https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-darwin-arm64
 SHA_COSIGN=9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4
