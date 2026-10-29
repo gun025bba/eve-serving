@@ -43,7 +43,7 @@ SHA_PIN=$PIM_SHA
 VERSION=5.1.0
 yes_ "version 5.1.0" is_ver 5.1.0
 no_ "version 5.1" is_ver 5.1
-no_ "version 5.1.0.1" is_ver 5.1.0.1
+no_ "version 5.1.0.rc1" is_ver 5.1.0.rc1
 no_ "version v5.1.0" is_ver v5.1.0
 no_ "version 05.1.0" is_ver 05.1.0
 no_ "version with a path" is_ver "5.1.0/../x"
