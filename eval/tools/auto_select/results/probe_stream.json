@@ -1,0 +1,57 @@
+[
+ {
+  "first_chunk_s": 0.5,
+  "first_output_s": 0.55,
+  "total_s": 1.38,
+  "tool_call_chunks": 1,
+  "text_before_call_chars": 2,
+  "finish_reason": "tool_calls",
+  "args_is_complete_json_string": true,
+  "call_has_id_and_index": true,
+  "n_chunks": 4
+ },
+ {
+  "first_chunk_s": 0.3,
+  "first_output_s": 0.35,
+  "total_s": 1.15,
+  "tool_call_chunks": 1,
+  "text_before_call_chars": 2,
+  "finish_reason": "tool_calls",
+  "args_is_complete_json_string": true,
+  "call_has_id_and_index": true,
+  "n_chunks": 4
+ },
+ {
+  "first_chunk_s": 0.33,
+  "first_output_s": 0.37,
+  "total_s": 1.46,
+  "tool_call_chunks": 1,
+  "text_before_call_chars": 2,
+  "finish_reason": "tool_calls",
+  "args_is_complete_json_string": true,
+  "call_has_id_and_index": true,
+  "n_chunks": 4
+ },
+ {
+  "first_chunk_s": 0.32,
+  "first_output_s": 0.36,
+  "total_s": 1.62,
+  "tool_call_chunks": 0,
+  "text_before_call_chars": 85,
+  "finish_reason": "stop",
+  "args_is_complete_json_string": false,
+  "call_has_id_and_index": false,
+  "n_chunks": 55
+ },
+ {
+  "first_chunk_s": 0.31,
+  "first_output_s": 0.35,
+  "total_s": 1.35,
+  "tool_call_chunks": 1,
+  "text_before_call_chars": 2,
+  "finish_reason": "tool_calls",
+  "args_is_complete_json_string": true,
+  "call_has_id_and_index": true,
+  "n_chunks": 4
+ }
+]
