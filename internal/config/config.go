@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -366,6 +367,14 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	}
 	if c.AllowedUsers == nil {
 		c.AllowedUsers = []string{}
+	}
+	// Fail closed on a malformed allowlist: one entry must be one login. A joined
+	// list ("a@x b@y", or a comma inside a YAML item) would otherwise silently
+	// lock everyone out or name a login nobody has.
+	for _, u := range c.AllowedUsers {
+		if u = strings.TrimSpace(u); u != "" && strings.ContainsFunc(u, func(r rune) bool { return r == ',' || unicode.IsSpace(r) || unicode.IsControl(r) }) {
+			return c, fmt.Errorf("allowed_users: each entry must be exactly one login without commas or whitespace (GW_ALLOWED_USERS is a comma separated list)")
+		}
 	}
 	switch c.Web.DefaultMode {
 	case "off", "auto", "force":

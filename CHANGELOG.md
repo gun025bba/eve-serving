@@ -5,6 +5,14 @@
 > 캘린더 연동·아침 브리핑(M1). Everything is off by default. Switches and enabling order:
 > `docs/runbooks/5.1.0-calendar-briefing.md`.
 
+### Fixed
+- **`allowed_users` fails closed (#131).** An empty allowlist already admits nobody; this is now pinned by tests
+  (a valid paired session is refused and does not fall through to the API key, `eve-gw pair` refuses every login).
+  A comma- or whitespace-joined login (`a@x, b@y`) is never a login: such an entry in `allowed_users` /
+  `GW_ALLOWED_USERS` (YAML item or space-separated list) now makes the gateway refuse to start with a clear error
+  instead of silently allowlisting nothing, and `ValidLogin` rejects it in `AllowedLogin` and the session check.
+  `tailscale-identity` itself was removed in 4.0.0, so there is no header path left to harden.
+
 ### Changed (security review follow-up, Low findings)
 - `calendar_add_event` now **requires `calendar_id`** (from `calendar_list_events`); the confirmation card always
   names the target calendar. There is no implicit default calendar. (L-1)
