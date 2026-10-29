@@ -158,6 +158,20 @@ The agent that prepares releases must use a separate GitHub account or App, **no
 5. **Actions**: "Require actions to be pinned to a full-length commit SHA" on (Settings, Actions, General; every workflow in this repository is already pinned, `test/run.sh` checks it).
    Workflow permissions default: read-only. "Allow GitHub Actions to create and approve pull requests": off.
 6. **`eve-web`**: the same rulesets, environment, immutable releases and SHA pinning. Its release workflow only calls the reusable workflow above (`eve-web-release.yml.example`).
+   `deploy/nopasswd/mac-oneshot.sh` applies it (run once by the owner on the Mac, idempotent, `--dry-run` available, verify table at the end). Order: local key first; pinned install; throwaway `gh` login (must be `gun025bba`, admin of `eve-web`);
+   **preflight (read-only): list the repository's deploy keys, and if any WRITE key other than ours exists (same public key or same title `eve-web-release-tagger`) abort with no change at all**; register the write deploy key
+   `eve-web-release-tagger` (`~/.eve-web-release-tagger/id_ed25519`); then the settings: ruleset `release-tags` on `refs/tags/v*` (**creation only**; bypass = the repository admin role **and** the `DeployKey` actor), ruleset
+   `release-tags-lock` on `refs/tags/v*` (update/delete/non-fast-forward blocked; bypass = the **admin role only**, so the deploy key can create a tag but never move or delete one); `main-protect` with linear history and the strict
+   required check `test`; environment `deploy` (tags `v*` only, admins cannot bypass; whether GitHub applied `can_admins_bypass=false` is decided by the verify table, not by the PUT's status); immutable releases; SHA pinning;
+   read-only default token permission; fork PR approval for all external contributors.
+   Differences from this repository, on purpose: `eve-web` has the admin role as a second bypass actor on `release-tags`, and no `pull_request` rule on its main (not requested). **A `DeployKey` bypass is not tied to one key:
+   it covers every write deploy key of the repository**, hence the preflight above, and the verify step fails if another write key exists afterwards.
+   **The OAuth token of the setup login**: `gh auth logout` only deletes the local copy; GitHub keeps honouring the token. The script therefore logs out, deletes its throwaway config dir, prints
+   <https://github.com/settings/applications> (Authorized OAuth Apps, "GitHub CLI", Revoke), waits for the owner to type `revoked`, and then proves it by calling `gh api user` with the token and requiring HTTP 401;
+   anything else is a FAIL row and a non-zero exit. This also runs when the script stops early after the login (error, Ctrl-C). **SIGKILL (`kill -9`) and power loss cannot run any cleanup**: the throwaway directory
+   (`$TMPDIR/eve-oneshot-gh.*`, mode 0700) then stays with the token inside; delete it by hand and revoke the authorization at that link.
+   Until that repository is hardened and the owner has checked the summary, the installed entrypoint
+   refuses `kind=web` altogether (`WEB_ENABLED=no` in `eve-deploy`; turning it on = a reviewed change of that constant, a new pin and a new one-time install).
 7. **Accounts**: the owner's account has two-factor authentication with a passkey or hardware key; the agent account (or App) has write access only, no admin, no ruleset bypass, no ability
    to edit environments, and cannot approve its own pull requests.
 

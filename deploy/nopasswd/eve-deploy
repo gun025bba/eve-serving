@@ -63,6 +63,9 @@ SIGNER_IDENTITY=https://github.com/gun025bba/eve-serving/.github/workflows/deplo
 SIGNER_TRIGGER=push                     # the run that signed must have been a tag push (not workflow_dispatch / pull_request)
 REPO_GATEWAY=gun025bba/eve-serving      # repo (certificate claim) allowed to sign `kind=gateway`
 REPO_WEB=gun025bba/eve-web              # repo (certificate claim) allowed to sign `kind=web`
+# `kind=web` (deploy-web / rollback-web) is OFF in this build: the web repo is not hardened (tag ruleset, deploy environment, key) until the
+# owner has run mac-oneshot.sh and checked its summary. Turning it on = a reviewed change of this constant + a new one-time install.
+WEB_ENABLED=no                          # plain assignment: neither the environment nor the caller can change it
 REF_FMT='refs/tags/v%s'                 # the triggering ref must be this tag for the version being installed
 BRANCH_WANT=main                        # the signed `branch` must be exactly this: CI signs only the tip of main (no other branch)
 MAX_AGE_SECS=$((14 * 86400))            # a signed release whose built_at is older than this is refused (limits replay of a stale, signed, newer-than-installed release)
@@ -516,6 +519,9 @@ do_rollback_web() {
 main() {
   PATH=$SAFE_PATH; export PATH; LC_ALL=C; export LC_ALL
   parse_args "$@" || { usage; log "REJECTED arguments (count=$#)"; exit 2; }
+  if [ "$KIND" = web ] && [ "$WEB_ENABLED" != yes ]; then
+    log "REJECTED: web deploys are disabled in this build"; printf 'eve-deploy: web deploys are disabled in this build (WEB_ENABLED=no)\n' >&2; exit 4
+  fi
   require_root
   umask 077
   check_caller

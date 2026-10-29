@@ -11,7 +11,7 @@ Run this **once**, in a terminal on the Mac, as the user that will deploy (it as
 installer from a fixed commit, refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`:
 
 ```
-s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/2aa1b0baecc3033f993ffd194527c5a8aeeff1a0/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 9510df7c893fb917d53367e5ffc64f957c75cc5ec74c231d37eeef655d1d7c2c ] && printf '%s\n' "$s" | sudo /bin/bash -s
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/77ab92731d9ee77d1fda63947a6261bba78b8c04/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = e4e574abffbce0c0f48eff68524c6ccb428b7b5e36cc790f0bc6b30da29edaf7 ] && printf '%s\n' "$s" | sudo /bin/bash -s
 ```
 
 It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
@@ -25,6 +25,18 @@ deploy   deploy-web   rollback   rollback-web
 No key is generated, copied or read. The installer refuses if a directory in the chain is user-writable, if `visudo -c` fails, or if the
 live version cannot be determined. Options (append after `-s --`): `--schema N`, `--current X.Y.Z`, `--current-web X.Y.Z`.
 Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/eve-deploy`, which ends the NOPASSWD rule at once).
+
+**One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
+(same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys stay
+**refused** by the installed entrypoint (`WEB_ENABLED=no`) until a reviewed change turns them on.
+
+```bash
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/e3ab57677d3f3c5ca2f0445ca41e97fd2677472d/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 62bda12893cbdf4ba58f47e14118603388fb3f01cef565477989bb6a08be0246 ] && bash -c "$s" mac-oneshot
+```
+
+Run it in a terminal (bash or zsh; it needs the terminal for the browser login and the final `revoked` prompt, hence `bash -c "$s"` and not `| bash`). Add `--dry-run` after `mac-oneshot` to only print what it would do.
+Pins: commit `e3ab57677d3f3c5ca2f0445ca41e97fd2677472d`, sha256 `62bda12893cbdf4ba58f47e14118603388fb3f01cef565477989bb6a08be0246`. At the end it makes you revoke the GitHub CLI authorization at https://github.com/settings/applications and proves it is dead (`gh auth logout` alone does not revoke it).
+If the script is killed with SIGKILL, delete `$TMPDIR/eve-oneshot-gh.*` by hand and revoke the authorization at that link.
 
 ## Releasing (no one touches a key)
 
