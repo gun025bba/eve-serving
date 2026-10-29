@@ -6,6 +6,7 @@
 #   deploy | deploy-web | rollback | rollback-web      (exact arguments, no wildcard; all via /usr/local/libexec/eve/deploy)
 # Remove it again with /usr/local/libexec/eve/uninstall, or by hand: sudo rm /etc/sudoers.d/eve-deploy. Never reads or prints secrets.
 #   optional: --schema N  --current X.Y.Z  --current-web X.Y.Z   (otherwise: newest migration, the live gateway's own version, the live UI's version)
+#   optional: --deploy-user NAME   the account that may call the four commands and owns the staging dir (default: the user who ran sudo). setup-unattended.sh creates a dedicated one (evedeploy).
 # Everything is inside main() and the file ends with the call, so when bash reads this script from a pipe nothing is left on stdin for a
 # child command to swallow, and main() starts by pointing stdin at /dev/null.
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
@@ -23,12 +24,12 @@ unset _v
 # --- end drop ---
 
 # ----- pins: what gets installed, byte for byte (the README line pins the hash of THIS file) -----
-SRC_COMMIT=4c1c0bc97effadd8a6d584ae220f0a41e47c19cd
+SRC_COMMIT=9fc55e51a6a54d2430a67573f6c5dbfbc02de518
 SRC_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 COSIGN_URL=https://github.com/sigstore/cosign/releases/download/v3.1.4/cosign-darwin-arm64
 SHA_COSIGN=9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4
-SHA_DEPLOY=fff9f36eecbb2452b4f6f419faa48edf86960822d8da2287769fcad76f0cc4a8
-SHA_FETCH=fb90fc5252c7adba3263c1795a7353ada2ed29efe69001df914ab16482845c83
+SHA_DEPLOY=26b91a29598e7a3c0cdd14c34620bcf7b12b0d22eae849cf26d5b9b33dcf7039
+SHA_FETCH=52ea1729eb4e96beebe2032114fe804f33c9a21f3eac2e54058ff47bde59b0f2
 SHA_ROOT=6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66
 SHA_UNINSTALL=2bde36730633cfe8624bcc3f5eec1924985a30563baa90e9290c56a9e9586d00
 DEFAULT_SCHEMA=8
@@ -54,12 +55,13 @@ SUDOERS_FILE=$SUDOERS_D/eve-deploy
 die() { echo "setup-deploy-nopasswd: $*" >&2; exit 1; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }
 
-SCHEMA=$DEFAULT_SCHEMA CUR="" CURW=""
+SCHEMA=$DEFAULT_SCHEMA CUR="" CURW="" DEPLOY_USER=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --schema) SCHEMA=${2:-}; shift 2;;
     --current) CUR=${2:-}; shift 2;;
     --current-web) CURW=${2:-}; shift 2;;
+    --deploy-user) DEPLOY_USER=${2:-}; shift 2;;
     *) die "unknown argument: $1";;
   esac
 done
@@ -67,6 +69,7 @@ V_RE='^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'
 [ "$SKIP_ROOT" = 1 ] || [ "$(id -u)" = 0 ] || die "run with sudo"
 [ "$SKIP_ARCH" = 1 ] || { [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; } || die "this release path is for macOS on Apple silicon (darwin/arm64)"
 USER_NAME=${SUDO_USER:-}
+[ -z "$DEPLOY_USER" ] || { [ -n "$USER_NAME" ] || die "--deploy-user is only for a run via sudo"; USER_NAME=$DEPLOY_USER; }
 [ -n "$USER_NAME" ] && [ "$USER_NAME" != root ] && [ "$USER_NAME" != _evegw ] || die "run via 'sudo' from your own account (not root, not _evegw)"
 [[ "$USER_NAME" =~ ^[A-Za-z_][A-Za-z0-9_.-]{0,31}$ ]] || die "unsupported user name"
 U_UID=$(id -u "$USER_NAME") || die "unknown user"

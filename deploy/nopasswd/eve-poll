@@ -1,0 +1,102 @@
+#!/bin/bash
+# eve-poll: looks for a new CI-signed release every few minutes and hands it to the existing fetch + sudo deploy path. Run by launchd AS THE DEPLOY USER (evedeploy):
+# no root, no password, no token (both repositories are public), no key. It decides nothing about trust: the root entrypoint verifies the signature, the pinned CI identity, the
+# version (must be higher), the PAUSE file, the blocklist and the floor, and it refuses what it does not like. This script cannot read or write any of those (root-owned).
+#   input checked: ONLY the Location header of https://github.com/<repo>/releases/latest (curl --proto =https --max-redirs 0), which must be exactly
+#                  https://github.com/<repo>/releases/tag/vX.Y.Z (strict version, host on the allow list); nothing else from the response is used.
+#   one run at a time: mkdir lock (macOS has no flock). Gateway first, UI second. Each version gets at most 3 attempts with a growing pause between them.
+#   after a successful deploy it watches the service for 5 minutes (one probe per minute); 3 failed probes in a row call `sudo deploy rollback` (rollback-web); root then blocklists the
+#   version and sets PAUSE. Written for macOS /bin/bash 3.2. Installed at /usr/local/libexec/eve/poll (root:wheel 0755).
+# shellcheck disable=SC2015  # "A && B || die" is intended
+set -Eeuo pipefail
+export PATH=/usr/bin:/bin
+umask 077
+LIBEXEC=${EVE_POLL_LIBEXEC:-/usr/local/libexec/eve}          # EVE_POLL_* exist for the tests; this script never runs as root
+WORK=${EVE_POLL_WORK:-/var/evedeploy/poll}                   # owned by the deploy user; NEVER the directory of a tag key (nothing downloaded here is written there)
+BASE=${EVE_POLL_BASE:-https://github.com}
+PROTO=${EVE_POLL_PROTO:-=https}
+ALLOW_HOSTS=${EVE_POLL_ALLOW_HOSTS:-github.com}              # hosts the Location header may name
+SUDO=${EVE_POLL_SUDO:-/usr/bin/sudo}
+HEALTH_URL=${EVE_POLL_HEALTH_URL:-http://127.0.0.1:8000/health}
+UI_URL=${EVE_POLL_UI_URL:-http://127.0.0.1:8000/ui/}
+OBSERVE_N=${EVE_POLL_OBSERVE_N:-5}                           # probes after a deploy
+OBSERVE_GAP=${EVE_POLL_OBSERVE_GAP:-60}                      # seconds between probes
+BACKOFF=${EVE_POLL_BACKOFF:-300}                             # seconds; doubles with every failed attempt of the same version
+MAXTRY=3
+NUM='(0|[1-9][0-9]{0,8})'
+log() { printf '%s eve-poll: %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$WORK/poll.log" >&2; }
+die() { echo "eve-poll: $*" >&2; exit 1; }
+[ "$(id -u)" != 0 ] || die "run as the deploy user, not root"
+[ -d "$WORK" ] && [ ! -L "$WORK" ] && [ -w "$WORK" ] || die "work dir $WORK is missing or not yours (run setup-unattended.sh first)"
+
+LOCK=$WORK/lock
+if ! mkdir "$LOCK" 2>/dev/null; then
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; mkdir "$LOCK" 2>/dev/null || exit 0   # stale after 30 minutes
+  else exit 0; fi
+fi
+trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+trap 'exit 1' INT TERM HUP
+
+latest_version() { # $1 repo -> prints X.Y.Z, or returns 1 (anything unexpected: no output, no error text from the server is used)
+  local repo=$1 hdr code loc host v prefix
+  hdr=$(curl -sS -m 30 -o /dev/null -D - --proto "$PROTO" --tlsv1.2 --max-redirs 0 "$BASE/$repo/releases/latest" 2>/dev/null | tr -d '\r') || return 1
+  code=$(printf '%s\n' "$hdr" | awk 'NR==1 {print $2}')
+  case "$code" in 301|302) ;; *) return 1;; esac
+  loc=$(printf '%s\n' "$hdr" | awk 'tolower($1)=="location:" {print $2; exit}')
+  [[ "$loc" =~ ^https?://([A-Za-z0-9.:-]+)/ ]] || return 1
+  host=${BASH_REMATCH[1]}
+  case " $ALLOW_HOSTS " in *" $host "*) ;; *) return 1;; esac
+  prefix=$BASE/$repo/releases/tag/v
+  case "$loc" in "$prefix"*) v=${loc#"$prefix"};; *) return 1;; esac
+  [[ "$v" =~ ^$NUM\.$NUM\.$NUM$ ]] || return 1
+  printf '%s' "$v"
+}
+health_ok() { # $1 kind
+  local b c
+  if [ "$1" = web ]; then c=$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$UI_URL" 2>/dev/null || true); [ "$c" = 200 ]
+  else b=$(curl -s -m 3 "$HEALTH_URL" 2>/dev/null || true); [ "$b" = '{"status":"ok"}' ]; fi
+}
+tries_of() { local f=$WORK/try_$1_$2 n=0 t=0; [ ! -f "$f" ] || read -r n t <"$f" || true; echo "${n:-0} ${t:-0}"; }
+note_fail() { local n t; read -r n t <<EOF2
+$(tries_of "$1" "$2")
+EOF2
+  printf '%s %s\n' $((n + 1)) "$(date +%s)" >"$WORK/try_$1_$2"; }
+observe() { # $1 kind $2 verb: 3 failed probes in a row -> rollback (root decides what that means; it also blocklists and pauses)
+  local bad=0 i=0
+  while [ "$i" -lt "$OBSERVE_N" ]; do
+    if health_ok "$1"; then bad=0; else bad=$((bad + 1)); fi
+    if [ "$bad" -ge 3 ]; then
+      log "$1: 3 failed health probes after the deploy: calling $2"
+      "$SUDO" -n "$LIBEXEC/deploy" "$2" >/dev/null 2>&1 && log "$1: rollback done (root blocklisted the version and set PAUSE)" || log "$1: rollback REFUSED or failed: manual action needed"
+      return 0
+    fi
+    i=$((i + 1)); [ "$i" -ge "$OBSERVE_N" ] || sleep "$OBSERVE_GAP"
+  done
+  log "$1: healthy for the whole observation window"
+}
+poll_kind() { # $1 kind $2 repo $3 deploy verb $4 rollback verb
+  local kind=$1 repo=$2 v n t out
+  v=$(latest_version "$repo") || { log "$kind: no usable Location header (ignored)"; return 0; }
+  [ "$(cat "$WORK/done_$kind" 2>/dev/null || true)" != "$v" ] || return 0
+  read -r n t <<EOF2
+$(tries_of "$kind" "$v")
+EOF2
+  if [ "$n" -ge "$MAXTRY" ]; then return 0; fi
+  if [ "$n" -gt 0 ] && [ $(( $(date +%s) - t )) -lt $(( BACKOFF * (1 << (n - 1)) )) ]; then return 0; fi
+  if [ "$(cat "$WORK/staged_$kind" 2>/dev/null || true)" != "$v" ]; then
+    log "$kind: new release v$v: fetching"
+    if "$LIBEXEC/fetch" "$kind" "$v" >/dev/null 2>"$WORK/fetch.err"; then printf '%s\n' "$v" >"$WORK/staged_$kind"
+    else note_fail "$kind" "$v"; log "$kind: fetch of v$v failed"; return 0; fi
+  fi
+  if out=$("$SUDO" -n "$LIBEXEC/deploy" "$3" 2>&1); then
+    printf '%s\n' "$v" >"$WORK/done_$kind"; log "$kind: v$v deployed"
+    observe "$kind" "$4"
+  else
+    case "$out" in
+      *PAUSED*) log "$kind: v$v waits: deploys are PAUSED (not counted)";;
+      *) note_fail "$kind" "$v"; log "$kind: v$v refused: $(printf '%s' "$out" | tail -1 | cut -c1-200)";;
+    esac
+  fi
+}
+poll_kind gateway gun025bba/eve-serving deploy rollback
+poll_kind web gun025bba/eve-web deploy-web rollback-web
