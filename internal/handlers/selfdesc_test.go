@@ -256,7 +256,7 @@ func TestSelfDescription_OrderAndNotPersisted(t *testing.T) {
 	e := memWebEnv(t, true, true)
 	enableUserMemory(t, e.st, "alice@example")
 	memory.Add(e.srv.Memory, uidOf(t, &e.env, "alice@example"), memory.NewItem{Kind: "fact", Text: "고양이를 키운다", Confidence: "user"}, time.Now())
-	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"thread_id":"new","messages":[{"role":"system","content":"CLIENT"},{"role":"user","content":"hi"}]}`)
+	r, b := e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"thread_id":"new","messages":[{"role":"system","content":"CLIENT"},{"role":"user","content":"go 1.27 release"}]}`)
 	if r.StatusCode != 200 {
 		t.Fatal(r.StatusCode, string(b))
 	}

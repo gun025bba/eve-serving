@@ -24,8 +24,8 @@ var goldenCases = []struct{ name, user, body string }{
 	{"auto_1", "", `{"web_search":"auto","messages":[{"role":"user","content":"go 1.27 나왔어?"}]}`},
 	{"auto_2", "", `{"stream":true,"web_search":"auto","messages":[{"role":"user","content":"go 1.27 release"}]}`},
 	{"auto_3", "", `{"web_search":true,"messages":[{"role":"system","content":"be brief"},{"role":"user","content":"news"}]}`},
-	{"auto_4", "", `{"stream":true,"web_search":"auto","messages":[{"role":"user","content":"read https://two.example/ please"}]}`},
-	{"auto_5", "", `{"web_search":"auto","messages":[{"role":"user","content":"q1"},{"role":"assistant","content":"a1"},{"role":"user","content":"q2"}]}`},
+	{"auto_4", "", `{"stream":true,"web_search":"auto","messages":[{"role":"user","content":"go 1.27 release: read https://two.example/ please"}]}`},
+	{"auto_5", "", `{"web_search":"auto","messages":[{"role":"user","content":"q1"},{"role":"assistant","content":"a1"},{"role":"user","content":"go 1.27 release q2"}]}`},
 }
 
 var volatileRe = regexp.MustCompile(`("(?:id|created|latency_ms|request_id|queue_ms|upstream_ms|duration_ms|elapsed_ms)":)("[^"]*"|-?[0-9.]+)`)

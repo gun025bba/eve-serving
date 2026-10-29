@@ -6,10 +6,15 @@ import (
 	"time"
 )
 
-// freshRe is the Gate hint: a cheap, local check whether the latest user
-// message looks like it needs current information. It only adds a sentence
-// to the system prompt; the model still decides whether to call a tool.
-var freshRe = regexp.MustCompile(`(?i)\b(today|tonight|tomorrow|yesterday|this (week|month|year)|latest|current(ly)?|right now|news|weather|forecast|price|stock|score|schedule|release date|who is the (current )?|20(2[5-9]|[3-9]\d))\b|오늘|내일|어제|이번\s*(주|달|해)|최신|현재|지금|뉴스|날씨|시세|주가|환율|가격|순위|결과|일정|출시|발표|대통령|총리|올해|최근`)
+// freshRe is the Gate hint (design §4.3): a cheap, local check whether the
+// latest user message looks like it needs current information. The vocabulary
+// is the one list the design names - today, yesterday, now, recently, these
+// days, this week, latest, current, market price, weather, news, tidings,
+// real time, this year, 20xx - and nothing broader, so the hint stays a
+// positive signal with few false positives. It only adds a sentence to the
+// system prompt; the model still decides whether to call a tool, and a fresh
+// hint with no tool call is reported as fresh:"unverified".
+var freshRe = regexp.MustCompile(`(?i)\b(today|tonight|yesterday|right now|these days|recent(ly)?|this week|latest|current(ly)?|weather|news|real[- ]?time|this year|20(2[5-9]|[3-9]\d))\b|오늘|어제|지금|최근|요즘|이번\s*주|최신|현재|시세|날씨|뉴스|소식|실시간|올해|20(2[5-9]|[3-9]\d)\s*년`)
 
 // Gate reports whether text looks time-sensitive.
 func Gate(text string) bool { return freshRe.MatchString(strings.TrimSpace(text)) }

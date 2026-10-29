@@ -75,6 +75,12 @@ type Server struct {
 	// AuditBreaker disables the web tools after repeated audit write/verify
 	// failures (M2 fail-open mitigation). nil = no breaker.
 	AuditBreaker *audit.Breaker
+	// PersonalExposed reports whether this request offers personal-data read
+	// tools (calendar, reminders) to the model. nil in a build without such an
+	// adapter: then G1 ⓑ and P④ have nothing to protect. When it is set, the
+	// rules in autotool.go (G1 ⓑ, P④, P②) apply and it must be set together
+	// with the hooks that put PIM results into the protected text.
+	PersonalExposed func(r *http.Request) bool
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool

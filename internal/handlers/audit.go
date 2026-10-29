@@ -36,6 +36,9 @@ func (s *Server) toolEvent(pr *chatPersist, c tools.Call, ev string) audit.Event
 	if pr != nil {
 		e.ThreadID, e.MessageID = pr.threadID, pr.userMsgID
 	}
+	if c.ArgHash != "" && s.Web != nil && s.Web.MAC != nil {
+		e.Detail = map[string]string{"kid": s.Web.MAC.KID()} // key id of the HMAC in payload_sha256
+	}
 	return e
 }
 
@@ -51,7 +54,9 @@ func (s *Server) auditCall(r *http.Request, pr *chatPersist, c tools.Call, ev st
 	if ev == audit.EvCallDone {
 		e.Status = c.Status
 		if c.BlockReason != "" || c.Blocked > 0 {
-			e.Detail = map[string]string{}
+			if e.Detail == nil {
+				e.Detail = map[string]string{}
+			}
 			if c.BlockReason != "" {
 				e.Detail["block_reason"] = c.BlockReason
 			}

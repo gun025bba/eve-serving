@@ -22,7 +22,7 @@ func TestSelfDescription_NotInjectedForAPIClients(t *testing.T) {
 	for _, web := range []string{`"off"`, `"auto"`} {
 		e := memWebEnv(t, true, true)
 		enableUserMemory(t, e.st, "alice@example")
-		r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"web_search":`+web+`,"messages":[{"role":"system","content":"S"},{"role":"user","content":"hi"}]}`)
+		r, b := e.call(t, "", "POST", "/v1/chat/completions", `{"web_search":`+web+`,"messages":[{"role":"system","content":"S"},{"role":"user","content":"go 1.27 release"}]}`)
 		if r.StatusCode != 200 {
 			t.Fatal(r.StatusCode, string(b))
 		}

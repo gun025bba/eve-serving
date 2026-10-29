@@ -17,7 +17,6 @@ import (
 	"github.com/gun025bba/eve-serving/internal/apierr"
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/store"
-	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 const maxImportBody = 5 << 20
@@ -210,24 +209,9 @@ func (s *Server) patchThread(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	if b.Settings != nil {
-		ts, ok := s.Store.(store.ThreadSettingsStore)
-		// Legacy field: validated and stored for old UIs, but since 6.0.0 it
-		// has no effect (automatic selection is server-wide).
-		m, valid := tools.ParseMode(b.Settings.WebSearch)
-		switch {
-		case !ok:
-			s.fail(w, r, apierr.New(501, "not_supported", "Thread settings are not supported by this store", "invalid_request_error"))
-			return
-		case !valid:
-			s.fail(w, r, apierr.BadRequest(`'settings.web_search' must be "off", "auto" or "force"`))
-			return
-		}
-		if err := ts.SetThreadSettings(r.Context(), user(r), r.PathValue("id"), json.RawMessage(`{"web_search":"`+string(m)+`"}`)); err != nil {
-			s.fail(w, r, storeErr(err, "Thread"))
-			return
-		}
-	}
+	// settings.web_search is a deprecated field (6.0.0): accepted with 200 and
+	// ignored whatever its value - not validated, not stored, not returned.
+	_ = b.Settings
 	if b.Title != nil {
 		t := store.Preview(*b.Title, 200)
 		b.Title = &t
@@ -478,10 +462,11 @@ func (s *Server) importThreads(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"results": out})
 }
 
-// stripServerKeys removes server-only keys (memory taint flag) from
-// threads.settings before it is returned.
+// stripServerKeys removes server-only keys (memory taint flag) and the
+// deprecated web_search key (5.x rows may still hold it; it has no effect since
+// 6.0.0) from threads.settings before it is returned.
 func stripServerKeys(raw []byte) []byte {
-	if !bytes.Contains(raw, []byte(threadTaintKey)) {
+	if !bytes.Contains(raw, []byte(threadTaintKey)) && !bytes.Contains(raw, []byte(`"web_search"`)) {
 		return raw
 	}
 	var m map[string]json.RawMessage
@@ -489,6 +474,7 @@ func stripServerKeys(raw []byte) []byte {
 		return raw
 	}
 	delete(m, threadTaintKey)
+	delete(m, "web_search")
 	b, _ := json.Marshal(m)
 	return b
 }

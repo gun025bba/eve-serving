@@ -5,8 +5,6 @@
 package tools
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/url"
 	"regexp"
 	"strings"
@@ -85,12 +83,6 @@ func CheckQueryMax(q string, max int) string {
 		}
 	}
 	return ""
-}
-
-// Hash returns a short sha256 prefix for logs (never log raw queries/URLs).
-func Hash(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:8])
 }
 
 // CanonURL normalizes a URL for allowlist comparison ("" if not http(s)).

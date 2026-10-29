@@ -36,6 +36,9 @@ type WebTools struct {
 	Domains *domains.Policy
 	// Budget is the shared per-user/global call budget of automatic selection.
 	Budget *tools.Budget
+	// MAC keys the argument hash of logs, audit events and tool_calls (§4.2-3).
+	// nil = no usable key: automatic selection is off (fail closed, §6.4).
+	MAC *tools.ArgMAC
 }
 
 func secsDur(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
@@ -64,12 +67,22 @@ func (s *Server) webEnabled() bool {
 	return s.Cfg.Web.Enabled && s.Web != nil && !s.WebAuditBlocked && !s.AuditBreaker.Open()
 }
 
+// autoOffNow is the live "auto selection is off" state: the server option
+// web.auto_select_off (or GW_WEB_AUTO_SELECT_OFF, which fails closed) or the
+// auto_select_off key of the kill-switch file, which the poller applies within
+// 5 s without a restart and without SIGHUP (§6.7, G4). It is read for every
+// request, every round and every tool call.
+func (s *Server) autoOffNow() bool {
+	return s.Cfg.Web.AutoSelectOff || tools.Default().Kill.AutoSelectOff()
+}
+
 // autoSelect reports whether the model may choose web tools on its own. It
-// is the default for every request. The only off switch is the server config
-// web.auto_select_off (or GW_WEB_AUTO_SELECT_OFF, which fails closed); there
-// is no per-request, per-thread or per-user override in either direction.
+// is the default for every request. It is off when web is disabled, when no
+// argument-hash key is loaded (fail closed, §6.4), or when the operator
+// switched it off (autoOffNow). There is no per-request, per-thread or
+// per-user override in either direction.
 func (s *Server) autoSelect() bool {
-	return s.webEnabled() && !s.Cfg.Web.AutoSelectOff
+	return s.webEnabled() && s.Web.MAC != nil && !s.autoOffNow()
 }
 
 // webMode is the tool mode of this request: auto, or off when web is
@@ -86,7 +99,10 @@ func (s *Server) webMode() tools.Mode {
 // web tools.
 func dropWebField(body map[string]any) { delete(body, "web_search") }
 
-func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protected []string) *tools.Session {
+// newSession builds the per-request tool session. privateHistory starts the
+// turn with private_read set (G1 ⓑ / P④: the history holds an answer built from
+// personal data).
+func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protected []string, privateHistory bool) *tools.Session {
 	var userTexts []string
 	for _, x := range msgs {
 		if m, ok := x.(map[string]any); ok && m["role"] == "user" {
@@ -101,6 +117,7 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protec
 	return tools.NewSession(tools.Deps{
 		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
 		Auto: true, Protected: protected, Budget: wt.Budget, StepBudget: 15 * time.Second,
+		MAC: wt.MAC, AutoOff: s.autoOffNow, PrivateHistory: privateHistory, Private: s.personalTool,
 		OnEcho: func(tc tools.Call, rule string) {
 			s.Log.Warn("web_echo_rejected", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rule", rule)
 		},
@@ -146,7 +163,7 @@ func (s *Server) observeCall(r *http.Request, c tools.Call) {
 		s.M.FetchBytes.Observe(float64(c.FetchBytes))
 	}
 	s.Log.Info("web_tool", "request_id", rid(r), "user", logUser(r), "tool", c.Tool, "provider", prov, "status", c.Status,
-		"round", c.Round, "arg_sha256", c.ArgHash, "arg_len", c.ArgLen, "block_reason", c.BlockReason, "latency_ms", c.LatencyMs, "result_chars", c.ResultChars)
+		"round", c.Round, "arg_hmac", c.ArgHash, "kid", s.argKID(), "arg_len", c.ArgLen, "block_reason", c.BlockReason, "latency_ms", c.LatencyMs, "result_chars", c.ResultChars)
 }
 
 // sseOut writes SSE events for the web path.
@@ -340,7 +357,27 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			return
 		}
 	}
-	sess := s.newSession(r, clean, pr, protected)
+	// History checks (once): the thread's taint (memory proposals, P⑤) and the
+	// personal-data history (P④, G1 ⓑ).
+	var memTaint []string
+	memUser := memOffer // memory active (enabled + intro seen) and history checkable (fail-closed)
+	tainted := false
+	if memUser || webTools {
+		tainted, memTaint = s.historyTainted(r, msgs, pr) // raw request history: client tool messages taint too
+	}
+	protected = append([]string(nil), protected...)
+	privHist := false
+	if webTools {
+		if tainted {
+			// P⑤: in a tainted thread earlier answers may restate web results or
+			// facts the model took from anywhere; they are not query material.
+			protected = append(protected, assistantTexts(clean)...)
+		}
+		var pp []string
+		pp, privHist = s.personalHistory(r, msgs, pr)
+		protected = append(protected, pp...)
+	}
+	sess := s.newSession(r, clean, pr, protected, privHist)
 	lim := sess.Limits()
 	if !webTools && lim.MaxRounds > 3 {
 		lim.MaxRounds = 3 // memory_propose only: propose, answer
@@ -367,10 +404,10 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	// session announces them right before the network request); a rejected
 	// call produces just its tool_result with an error_code.
 	sess.OnAccepted(func(c tools.Call) {
-		out.event(map[string]any{"object": "chat.completion.tool_call", "id": c.ID, "tool": c.Tool, "args": publicArgs(c), "round": c.Round})
+		out.event(map[string]any{"object": "chat.completion.tool_call", "id": c.ID, "tool": c.Tool, "args": publicArgs(c), "round": c.Round, "selected_by": "model"})
 	})
 	emitCall := func(c tools.Call) {
-		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources)}
+		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources), "elapsed_ms": c.LatencyMs}
 		if c.ErrorCode != "" {
 			res["error_code"] = c.ErrorCode
 		}
@@ -381,11 +418,6 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			res["blocked_count"] = c.Blocked // count only (§13); the UI shows "차단 n건"
 		}
 		out.event(res)
-	}
-	var memTaint []string
-	memUser := memOffer // memory active (enabled + intro seen) and history checkable (fail-closed)
-	if memUser {
-		_, memTaint = s.historyTainted(r, msgs, pr) // raw request history: client tool messages taint too
 	}
 	rounds := 0
 	var final upMsg
@@ -405,18 +437,16 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	}
 
 	done := false
-	for rounds < lim.MaxRounds && !done && ferr == nil {
+	for rounds < lim.MaxRounds && !done && ferr == nil && !sess.Suspect() {
 		rounds++
 		b := base()
 		b["messages"] = conv
 		var defs []any
 		if webTools {
-			defs = tools.ToolDefs()
-			if sess.Rejections() >= 2 {
-				defs = nil // caught echoing private text twice: no more web tools
-			} else if sess.Suspect() {
-				defs = tools.ToolDefsWithout("web_fetch") // instruction-like result removed: no fetch
-			}
+			// Expose is recomputed before every upstream request: round 1 only
+			// for web_search, nothing after a fetch result, a suspect result, two
+			// echo rejections or a kill switch change (§4.3.4).
+			defs = sess.ToolDefsFor(rounds)
 		}
 		if td := s.withMemoryTool(defs, memUser && !sess.Suspect()); len(td) > 0 {
 			b["tools"], b["tool_choice"] = td, "auto"
@@ -470,6 +500,13 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			break
 		}
 		preamble += fwd
+		if webTools {
+			names := make([]string, len(calls))
+			for i, c := range calls {
+				names[i] = c.name
+			}
+			sess.BeginRound(rounds, names) // G1 ⓒ: a personal read in this round locks search in the same round
+		}
 		var tcs []any
 		for _, c := range calls {
 			tcs = append(tcs, map[string]any{"id": c.id, "type": "function", "function": map[string]any{"name": c.name, "arguments": c.args}})
@@ -522,7 +559,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		if webTools && ferr == nil {
 			// Gateway-owned notes for the next round (never web text).
 			if sess.Suspect() && !noteSuspect {
-				noteSuspect = true
+				noteSuspect = true // the loop ends here: no further search or fetch, FinalNotice follows
 				conv = append(conv, map[string]any{"role": "system", "content": tools.SuspectNotice})
 			}
 			if len(sess.Calls) > 0 && !sess.Verified() {
@@ -570,9 +607,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	srcs := sourcesView(sess.Sources, nil)
 	fresh, toolSummary := "", []map[string]any(nil)
 	if webTools {
-		fresh, toolSummary = freshStatus(sess), toolsView(sess)
+		fresh, toolSummary = freshStatus(sess, freshHint), toolsView(sess)
 	}
 	if pr != nil {
+		if webTools {
+			pr.setMeta(fresh, toolSummary)
+		}
 		pr.finish(r, saved, final.Reasoning, "", pt, ct, status, reason)
 		s.saveWebRun(r, pr, sess, cites)
 	}
@@ -653,14 +693,14 @@ func validCites(c []int, n int) []int {
 
 // freshStatus tells the client whether the answer rests on a verified web
 // result: "ok" when at least one call returned usable sources, "unverified"
-// when web calls were made (or locked out) and none did, "" when no web tool
-// was used.
-func freshStatus(sess *tools.Session) string {
+// when web calls were made (or locked out) and none did, or when the Gate hint
+// said fresh and no tool was called, "" otherwise.
+func freshStatus(sess *tools.Session, hint bool) string {
 	switch {
 	case sess.Verified():
 		return "ok"
-	case len(sess.Calls) > 0 || sess.Rejections() > 0:
-		return "unverified"
+	case len(sess.Calls) > 0 || sess.Rejections() > 0 || hint:
+		return "unverified" // includes: the Gate hint said fresh and no tool was called
 	}
 	return ""
 }
@@ -745,31 +785,42 @@ func (s *Server) saveWebRun(r *http.Request, pr *chatPersist, sess *tools.Sessio
 	if !ok || pr.msgID == "" || (len(sess.Calls) == 0 && pr.replaceID == "") {
 		return
 	}
-	calls := make([]store.ToolCall, len(sess.Calls))
+	// Only the web tools have tool_calls rows (the tool CHECK); a personal-data
+	// read is recorded in messages.metadata.tools[] only.
+	calls := make([]store.ToolCall, 0, len(sess.Calls))
+	newSeq := make([]int, len(sess.Calls)) // Session.Calls index -> stored seq (-1: not stored)
+	var expires *time.Time
+	if d := s.Cfg.Web.ArgsRetentionDays; d > 0 {
+		t := time.Now().Add(time.Duration(d) * 24 * time.Hour)
+		expires = &t
+	}
 	for i, c := range sess.Calls {
+		if c.Tool != "web_search" && c.Tool != "web_fetch" {
+			newSeq[i] = -1
+			continue
+		}
+		newSeq[i] = len(calls)
 		args, _ := json.Marshal(c.Args)
-		st := c.Status
-		if st == "denied" {
-			st = "blocked" // the tool_calls.status CHECK has no "denied"
-		}
-		tc := store.ToolCall{Round: c.Round, Seq: i, Tool: c.Tool, Args: args, Status: st, LatencyMs: c.LatencyMs, ResultChars: c.ResultChars}
-		if tc.Tool != "web_search" && tc.Tool != "web_fetch" {
-			tc.Tool = "web_search" // unknown tool names are recorded as an errored search slot
-			tc.Status = "error"
-		}
+		by := "model"
+		tc := store.ToolCall{Round: c.Round, Seq: len(calls), Tool: c.Tool, Args: args, Status: c.Status, LatencyMs: c.LatencyMs,
+			ResultChars: c.ResultChars, SelectedBy: &by, ArgsExpiresAt: expires} // "denied" is stored as "denied" (migration 00009)
 		if c.Provider != "" {
 			p := c.Provider
 			tc.Provider = &p
 		}
 		if c.ErrorCode != "" {
 			e := c.ErrorCode // the code only, never an internal message
-			tc.Error = &e
+			tc.Error, tc.ErrorCode = &e, &e
 		}
-		calls[i] = tc
+		if c.Tool == "web_search" && c.Status == "ok" {
+			n := c.ResultCount
+			tc.ResultCount = &n
+		}
+		calls = append(calls, tc)
 	}
 	srcs := make([]store.WebSource, len(sess.Sources))
 	for i, x := range sess.Sources {
-		seq := x.CallSeq
+		seq := newSeq[x.CallSeq]
 		srcs[i] = store.WebSource{N: x.N, URL: x.URL, Title: x.Title, Domain: x.Domain, Snippet: x.Snippet, Fetched: x.Fetched, FinalURL: x.FinalURL,
 			ContentSHA256: x.SHA256, Cited: containsInt(cites, x.N), ToolCallSeq: &seq}
 	}
@@ -800,7 +851,11 @@ func (s *Server) RunWebRetention(ctx context.Context, interval time.Duration) {
 			return
 		}
 		s.M.WebPurged.Add(float64(n))
-		s.Log.Info("web_retention", "deleted_rows", n, "retention_days", days)
+		cleared, err := ws.ClearExpiredArgs(c, time.Now())
+		if err != nil {
+			s.Log.Error("web_args_retention_failed", "error", logTrunc(err.Error(), 200))
+		}
+		s.Log.Info("web_retention", "deleted_rows", n, "retention_days", days, "args_cleared", cleared, "args_retention_days", s.Cfg.Web.ArgsRetentionDays)
 	}
 	run()
 	t := time.NewTicker(interval)

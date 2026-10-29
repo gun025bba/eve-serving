@@ -94,13 +94,20 @@ func (p *Platform) exec(ctx context.Context, s *Session, c *Call, name string, a
 		c.Status, c.Error, c.BlockReason = "blocked", "tool call limit reached", ReasonLimit
 		return ""
 	}
+	if ex, ok := s.d.Extra[name]; ok {
+		if s.d.OnStart != nil {
+			s.d.OnStart(*c)
+		}
+		return ex.Call(ctx, s, c, args)
+	}
 	a, ok := p.Adapters[name]
 	if _, reg := p.Reg.Get(name); !ok || !reg {
 		c.Status, c.Error = "error", "unknown tool"
 		return ""
 	}
 	if p.Kill.Disabled(name) {
-		c.Status, c.Error, c.BlockReason = "blocked", "tool disabled", ReasonDisabled
+		// kill switch (all_off, disabled[]): a gateway refusal, not a tool failure
+		c.Status, c.Error, c.BlockReason, c.ErrorCode = "denied", "tool disabled", ReasonDisabled, ErrCodeKill
 		return ""
 	}
 	if s.d.OnStart != nil {

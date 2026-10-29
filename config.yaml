@@ -40,13 +40,13 @@ auth:
 database:
   url: ""
   auto_migrate: true   # run embedded goose migrations at startup (GW_DB_AUTO_MIGRATE)
-web:                 # web_search / web_fetch tools (docs/web-search.md). Off by default.
-  enabled: false     # GW_WEB_ENABLED (master switch)
+web:                 # web_search / web_fetch tools (docs/web-search.md). On by default since 6.0.0.
+  enabled: true      # GW_WEB_ENABLED (master switch; false removes the web tools)
   # 6.0.0: when enabled the model decides per request whether to search (auto tool selection). There is no
   # per-request or per-user switch; the request field "web_search" and default_mode are ignored.
   auto_select_off: false  # GW_WEB_AUTO_SELECT_OFF: rollback, turns auto selection off for everyone (fails closed:
                           # an unparsable env value also turns it off; the env can never turn it back on over the file)
-  default_mode: auto      # deprecated, ignored (GW_WEB_DEFAULT_MODE); still validated: off|auto|force
+  default_mode: auto      # deprecated, ignored (GW_WEB_DEFAULT_MODE); still validated: off|auto ("force" was removed in 6.0.0)
   user_daily_search: 150  # per user per day (Asia/Seoul); GW_WEB_USER_DAILY_SEARCH
   user_daily_fetch: 100   # GW_WEB_USER_DAILY_FETCH
   global_search_per_min: 30    # all users; GW_WEB_GLOBAL_SEARCH_PER_MIN
@@ -55,10 +55,11 @@ web:                 # web_search / web_fetch tools (docs/web-search.md). Off by
   global_daily_fetch: 800      # GW_WEB_GLOBAL_DAILY_FETCH
   max_rounds: 3
   max_calls: 5
-  max_searches: 3
+  max_searches: 2         # web_search calls per turn (G2); values above 2 are capped at 2
   rate_per_min: 10        # searches per user per minute
   fetch_rate_per_min: 20  # fetches per user per minute
   retention_days: 90      # tool_calls / web_sources auto-deleted after this
+  args_retention_days: 90 # tool_calls.args (query/URL) cleared to {} after this; values below 90 are refused
   providers: [searxng]    # GW_SEARCH_PROVIDERS; "brave" is a stub (disabled)
   searxng_url: http://127.0.0.1:8888   # loopback only (enforced)
   search_timeout_s: 6
@@ -71,3 +72,8 @@ web:                 # web_search / web_fetch tools (docs/web-search.md). Off by
   fetch_deny_cidrs: []
   fetch_global_conc: 4
   fetch_per_host_conc: 2
+
+tools:                    # 6.0.0 automatic tool selection (docs/architecture/auto-tool-selection.md)
+  # log_hmac_key_file: ~/llm-serving/etc/tools_log_hmac.key   # GW_TOOLS_LOG_HMAC_KEY_FILE
+  #   0600 file, 64+ hex characters. REQUIRED for automatic selection: without a usable key the web tools are off.
+  v4_mode: off            # GW_TOOLS_V4_MODE: off | shadow | on (same-model yes/no decision call, design 4.4.1)

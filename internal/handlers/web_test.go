@@ -116,7 +116,11 @@ func newWebEnv(t *testing.T, enabled bool) *webEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Web = &WebTools{Domains: pol, Search: e.fs, Fetch: e.ff, Rate: tools.NewRateLimiter(map[string]int{"search": 100, "fetch": 100})}
+	mac, err := tools.NewArgMAC([]byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Web = &WebTools{Domains: pol, Search: e.fs, Fetch: e.ff, MAC: mac, Rate: tools.NewRateLimiter(map[string]int{"search": 100, "fetch": 100})}
 	e.st = memstore.New()
 	s.Store = e.st
 	e.ts = httptest.NewServer(s.Handler())
@@ -296,18 +300,24 @@ func TestWebLegacyFieldIgnored(t *testing.T) {
 	}
 }
 
-// Thread settings keep their old shape for old UIs but have no effect: the
-// stored value neither enables nor disables tools.
+// settings.web_search is accepted with 200 whatever its value (not validated),
+// is neither stored nor returned, and neither enables nor disables tools.
 func TestWebThreadSettingIgnored(t *testing.T) {
 	e := newWebEnv(t, true)
 	r, b := e.call(t, "alice@example", "POST", "/v1/threads", `{"title":"t"}`)
 	tid := js(t, b)["id"].(string)
-	if r, b := e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"bogus"}}`); r.StatusCode != 400 {
-		t.Fatal(string(b))
+	if r, b := e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"bogus"}}`); r.StatusCode != 200 || strings.Contains(string(b), "web_search") || strings.Contains(string(b), "bogus") {
+		t.Fatal(r.StatusCode, string(b))
 	}
 	r, b = e.call(t, "alice@example", "PATCH", "/v1/threads/"+tid, `{"settings":{"web_search":"off"}}`)
-	if r.StatusCode != 200 {
+	if r.StatusCode != 200 || strings.Contains(string(b), "web_search") {
 		t.Fatal(string(b))
+	}
+	if _, b = e.call(t, "alice@example", "GET", "/v1/threads/"+tid, ""); strings.Contains(string(b), "web_search") {
+		t.Fatal("web_search returned by GET", string(b))
+	}
+	if raw, err := e.st.(store.ThreadSettingsStore).ThreadSettings(context.Background(), "alice@example", tid); err == nil && strings.Contains(string(raw), "web_search") {
+		t.Fatal("web_search stored", string(raw))
 	}
 	e.call(t, "alice@example", "POST", "/v1/chat/completions", `{"web_search":false,"thread_id":"`+tid+`","messages":[{"role":"user","content":"go news"}]}`)
 	if e.fs.n != 1 {

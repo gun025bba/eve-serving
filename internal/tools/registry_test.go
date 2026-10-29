@@ -184,7 +184,7 @@ func TestKillswitch_ExecAndExposure(t *testing.T) {
 	}
 	s := NewSession(Deps{Domains: testPolicy(), Rate: NewRateLimiter(map[string]int{"search": 9, "fetch": 9})}, "u", []string{"https://a.example/"})
 	_, c := s.Exec(context.Background(), 1, "c1", "web_fetch", `{"url":"https://a.example/"}`)
-	if c.Status != "blocked" || c.Error != "tool disabled" {
+	if c.Status != "denied" || c.ErrorCode != ErrCodeKill || c.Error != "tool disabled" {
 		t.Fatal(c)
 	}
 }

@@ -1,10 +1,14 @@
 package tools
 
 import (
+	"bufio"
+	_ "embed"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // Echo filter (auto tool selection): a model-written query or URL must not
@@ -14,9 +18,25 @@ import (
 // rejected when at least EchoGrams of its 4-grams occur in a single protected
 // text but in none of the user's texts, or when it contains an e-mail,
 // phone-like, 4+ digit or URL token that is protected and not user-typed.
+//
+// Rule ② (echo_token, §4.3.1 rev 6): a content token m of a protected text
+// and a query token t reject the query when t is a substring of m or m is a
+// substring of t (either direction, token against token, no particle list),
+// unless t is a word the user typed. A user word is a token u of the user's
+// texts with t == u, or one a prefix of the other and a length difference of
+// at most EchoUserSlack runes (word boundaries; concatenated text is never
+// searched). Rule ③ (echo_newtoken): the runes of the query tokens that are
+// neither user words nor stopwords add up to EchoNewRunes-1 at most, and the
+// query must reuse a content word of the user's texts when there is one.
 const (
 	EchoGrams    = 3
 	EchoGramSize = 4
+	// EchoNewRunes: a query whose new tokens add up to this many runes or more
+	// is rejected (rule ③, 12 runes are allowed).
+	EchoNewRunes = 13
+	// EchoUserSlack is the longest length difference (runes) between a query
+	// token and a user word that still counts as that word (rule ②/③).
+	EchoUserSlack = 3
 	// MaxAutoQuery is the rune cap for model-written queries.
 	MaxAutoQuery = 128
 )
@@ -88,14 +108,17 @@ func echoTokens(s string) map[string]struct{} {
 
 // Echo holds the protected texts and the user's own texts of one request.
 type Echo struct {
-	prot  []echoText
-	user  map[string]struct{}
-	userT map[string]struct{}
+	prot     []echoText
+	user     map[string]struct{}
+	userT    map[string]struct{}
+	userTok  []string // tokens of the user texts (word boundaries kept)
+	userCont []string // the usable, non-stopword ones
 }
 
 type echoText struct {
 	grams map[string]struct{}
 	toks  map[string]struct{}
+	cont  map[string]struct{} // content tokens M (rule ②)
 }
 
 // NewEcho builds the filter. protected are texts whose content must not be
@@ -103,11 +126,18 @@ type echoText struct {
 func NewEcho(protected, user []string) *Echo {
 	e := &Echo{user: map[string]struct{}{}, userT: map[string]struct{}{}}
 	for _, u := range user {
-		for g := range grams4(NormEcho(u, false)) {
+		n := NormEcho(u, false)
+		for g := range grams4(n) {
 			e.user[g] = struct{}{}
 		}
 		for t := range echoTokens(u) {
 			e.userT[t] = struct{}{}
+		}
+		for _, t := range splitTokens(u) {
+			e.userTok = append(e.userTok, t)
+			if usableToken(t) && !stopwords[t] {
+				e.userCont = append(e.userCont, t)
+			}
 		}
 	}
 	e.AddProtected(protected...)
@@ -124,22 +154,119 @@ func (e *Echo) AddProtected(texts ...string) {
 		if strings.TrimSpace(p) == "" {
 			continue
 		}
-		e.prot = append(e.prot, echoText{grams: grams4(NormEcho(p, false)), toks: echoTokens(p)})
+		e.prot = append(e.prot, echoText{grams: grams4(NormEcho(p, false)), toks: echoTokens(p), cont: contentTokens(p)})
 	}
 }
 
 // Active reports whether any protected text is registered.
 func (e *Echo) Active() bool { return e != nil && len(e.prot) > 0 }
 
-// Reject reports whether q (a search query) echoes protected text.
-func (e *Echo) Reject(q string) bool {
-	if !e.Active() {
-		return false
+// ProtectedCount is the number of protected texts (P) registered so far.
+func (e *Echo) ProtectedCount() int {
+	if e == nil {
+		return 0
 	}
-	return e.reject(grams4(NormEcho(q, false)), echoTokens(q))
+	return len(e.prot)
 }
 
-// RejectURL applies the filter to everything after the host of rawURL
+// Rule ids returned by Check; all map to the public code query_rejected.
+const (
+	RuleEchoFilter   = "echo_filter"
+	RuleEchoURL      = "echo_filter_url"
+	RuleEchoToken    = "echo_token"
+	RuleEchoNewToken = "echo_newtoken"
+	RuleEchoNoToken  = "echo_notoken"
+)
+
+// Reject reports whether q (a search query) is refused by rules ①–③.
+func (e *Echo) Reject(q string) bool { return e.Check(q) != "" }
+
+// Check returns the id of the first rule that refuses q, or "".
+func (e *Echo) Check(q string) string {
+	if e == nil {
+		return ""
+	}
+	nq := NormEcho(q, false)
+	if e.Active() {
+		if e.reject(grams4(nq), echoTokens(q)) {
+			return RuleEchoFilter
+		}
+		if e.rejectToken(queryTokens(q)) {
+			return RuleEchoToken
+		}
+	}
+	return e.newTokens(q)
+}
+
+// userWord reports whether t counts as a word the user typed: equal to a
+// token u of the user's texts, or a prefix of it (or it of t) with a length
+// difference of at most EchoUserSlack runes.
+func userWord(t string, toks []string) bool {
+	nt := utf8.RuneCountInString(t)
+	for _, u := range toks {
+		if u == t {
+			return true
+		}
+		d := utf8.RuneCountInString(u) - nt
+		if d < 0 {
+			d = -d
+		}
+		// the prefix relation needs two runes on the shorter side, so a query
+		// spelled one rune at a time cannot hide behind a user word
+		if d <= EchoUserSlack && min(nt, utf8.RuneCountInString(u)) >= 2 && (strings.HasPrefix(u, t) || strings.HasPrefix(t, u)) {
+			return true
+		}
+	}
+	return false
+}
+
+// rejectToken is rule ②: a query token that has a content token of P inside
+// it, or sits inside one, and is not a user word.
+func (e *Echo) rejectToken(qtoks []string) bool {
+	for _, t := range qtoks {
+		if userWord(t, e.userTok) {
+			continue
+		}
+		for _, p := range e.prot {
+			for m := range p.cont {
+				if strings.Contains(m, t) || strings.Contains(t, m) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// newTokens is rule ③: the runes of the query tokens that are neither user
+// words nor stopwords may add up to EchoNewRunes-1; one-rune tokens count, so
+// splitting or joining a query does not change the sum. The query must reuse
+// a content word of the user's texts when there is one.
+func (e *Echo) newTokens(q string) string {
+	toks := splitTokens(q)
+	sum, reuse := 0, false
+	for _, t := range toks {
+		if userWord(t, e.userTok) {
+			if userWord(t, e.userCont) {
+				reuse = true
+			}
+			continue
+		}
+		if stopwords[t] && utf8.RuneCountInString(t) >= 2 { // one-rune tokens always count
+			continue
+		}
+		sum += utf8.RuneCountInString(t)
+	}
+	if sum >= EchoNewRunes {
+		return RuleEchoNewToken
+	}
+	if !reuse && len(e.userCont) > 0 && len(toks) > 0 {
+		return RuleEchoNoToken
+	}
+	return ""
+}
+
+// RejectURL applies rules ① and ② to everything after the host of rawURL
 // (path, query, fragment), percent-decoded and without NFKC.
 func (e *Echo) RejectURL(rawURL string) bool {
 	if !e.Active() {
@@ -156,7 +283,10 @@ func (e *Echo) RejectURL(rawURL string) bool {
 		}
 	}
 	toks := echoTokens(rest)
-	return e.reject(grams4(NormEcho(rest, true)), toks)
+	if e.reject(grams4(NormEcho(rest, true)), toks) {
+		return true
+	}
+	return e.rejectToken(queryTokens(rest))
 }
 
 func (e *Echo) reject(qg map[string]struct{}, qt map[string]struct{}) bool {
@@ -185,4 +315,114 @@ func (e *Echo) reject(qg map[string]struct{}, qt map[string]struct{}) bool {
 		}
 	}
 	return false
+}
+
+// --- tokens (rules ② and ③) ---
+
+//go:embed echo_stopwords.txt
+var stopwordsRaw string
+
+// stopwords is read once at startup from the embedded data file. Nothing
+// changes it while the process runs.
+var stopwords = mustStopwords(stopwordsRaw)
+
+func parseStopwords(raw string) []string {
+	var out []string
+	sc := bufio.NewScanner(strings.NewReader(raw))
+	for sc.Scan() {
+		w := strings.TrimSpace(sc.Text())
+		if w == "" || strings.HasPrefix(w, "#") {
+			continue
+		}
+		out = append(out, strings.ToLower(w))
+	}
+	return out
+}
+
+func mustStopwords(raw string) map[string]bool {
+	m := map[string]bool{}
+	for _, w := range parseStopwords(raw) {
+		m[w] = true
+	}
+	if len(m) < 50 {
+		panic("echo_stopwords: list missing or truncated")
+	}
+	return m
+}
+
+// StopwordCount is the size of the loaded stopword list.
+func StopwordCount() int { return len(stopwords) }
+
+// IsStopword reports whether w (already lower-cased) is on the list.
+func IsStopword(w string) bool { return stopwords[w] }
+
+var dateTimeTokRe = regexp.MustCompile(`^\d+(년|월|일|시|분|초|개|명|원|%|st|nd|rd|th)?$`)
+
+// splitTokens splits s (NFKC, invisible characters removed, lower-cased) at
+// every character that is neither letter nor digit.
+func splitTokens(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(SanitizeUntrusted(s)), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// usableToken: two runes or more, not a number or date/time pattern.
+func usableToken(t string) bool {
+	return utf8.RuneCountInString(t) >= 2 && !dateTimeTokRe.MatchString(t)
+}
+
+// queryTokens are the tokens of a query (or URL remainder) that rule ②
+// compares: usable (two runes or more, not a number or date) and not
+// stopwords, in order and deduplicated.
+func queryTokens(q string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range splitTokens(q) {
+		if usableToken(t) && !stopwords[t] && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// contentTokens is the content token set M of a protected text: usable
+// tokens that are not stopwords. No stems are made; the bidirectional match
+// of rule ② covers particles, endings and compounds.
+func contentTokens(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, t := range splitTokens(s) {
+		if usableToken(t) && !stopwords[t] {
+			out[t] = struct{}{}
+		}
+	}
+	return out
+}
+
+// LintStopwords checks a stopword list: entities (names, places, brands)
+// must not be stopwords. It returns one message per offending entry, sorted.
+// entities is the reviewed canary set (testdata/echo_entities.txt). The
+// heuristic part rejects what is certainly not a function or search word:
+// digit-bearing entries, place-like (…동) entries, honorifics (님), very long
+// entries, and duplicates.
+func LintStopwords(raw string, entities map[string]bool) []string {
+	var bad []string
+	seen := map[string]bool{}
+	for _, w := range parseStopwords(raw) {
+		switch {
+		case seen[w]:
+			bad = append(bad, "duplicate: "+w)
+		case entities[w]:
+			bad = append(bad, "entity: "+w)
+		case utf8.RuneCountInString(w) > 12:
+			bad = append(bad, "too long: "+w)
+		case strings.IndexFunc(w, unicode.IsDigit) >= 0:
+			bad = append(bad, "digit: "+w)
+		case utf8.RuneCountInString(w) >= 3 && strings.HasSuffix(w, "동"):
+			bad = append(bad, "place-like: "+w)
+		case strings.HasSuffix(w, "님"):
+			bad = append(bad, "honorific/name-like: "+w)
+		}
+		seen[w] = true
+	}
+	sort.Strings(bad)
+	return bad
 }

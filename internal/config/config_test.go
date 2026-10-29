@@ -72,12 +72,12 @@ func TestAuthProviders(t *testing.T) {
 	}
 }
 
-func TestWebDefaultsOffAndEnv(t *testing.T) {
+func TestWebDefaultsOnAndEnv(t *testing.T) {
 	c, err := Load("/nonexistent.yaml", func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Web.Enabled || c.Web.DefaultMode != "auto" || c.Web.AutoSelectOff || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
+	if !c.Web.Enabled || c.Web.MaxSearches != 2 || c.Web.ArgsRetentionDays != 90 || c.Tools.V4Mode != V4Off || c.Web.DefaultMode != "auto" || c.Web.AutoSelectOff || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
 		t.Fatalf("%+v", c.Web)
 	}
 	env := map[string]string{"GW_WEB_ENABLED": "true", "GW_WEB_DEFAULT_MODE": "auto", "GW_SEARXNG_URL": "http://127.0.0.1:9999", "GW_FETCH_ALLOWED_PORTS": "80,443,8443", "GW_SEARCH_TIMEOUT": "4s"}

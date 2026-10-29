@@ -15,7 +15,11 @@ import (
 )
 
 // callStep is one scripted model turn: a tool call, or the final text.
-type callStep struct{ tool, args, text string }
+// also adds parallel calls in the same round (tool_calls index 1, 2, ...).
+type callStep struct {
+	tool, args, text string
+	also             []callStep
+}
 
 // autoEnv: auto tool selection ON (the default), memory on for alice, and a
 // model that follows steps in order (one step per upstream round).
@@ -28,6 +32,9 @@ func autoEnv(t *testing.T, steps ...callStep) (*webEnv, *streamUp) {
 		}
 		if st.tool != "" && b["tools"] != nil {
 			sse(w, fl, toolDelta(0, fmt.Sprintf("c%d", n), st.tool, st.args))
+			for i, a := range st.also {
+				sse(w, fl, toolDelta(i+1, fmt.Sprintf("c%d_%d", n, i+1), a.tool, a.args))
+			}
 		} else {
 			txt := st.text
 			if txt == "" {
@@ -160,9 +167,9 @@ func TestAuto_EchoFilterAllowsUsersOwnWords(t *testing.T) {
 func TestAuto_BudgetExhausted(t *testing.T) {
 	a1, _ := json.Marshal(map[string]string{"query": "go release one"})
 	a2, _ := json.Marshal(map[string]string{"query": "go release two"})
-	e, _ := autoEnv(t, callStep{tool: "web_search", args: string(a1)}, callStep{tool: "web_search", args: string(a2)}, callStep{text: "ok"})
+	e, _ := autoEnv(t, callStep{tool: "web_search", args: string(a1), also: []callStep{{tool: "web_search", args: string(a2)}}}, callStep{text: "ok"})
 	e.srv.Web.Budget = tools.NewBudget(tools.BudgetConfig{UserDailySearch: 1})
-	evs := sseEvents(t, e, `{"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	evs := sseEvents(t, e, `{"stream":true,"messages":[{"role":"user","content":"go release"}]}`)
 	res := byObject(evs, "chat.completion.tool_result")
 	if len(res) != 2 || res[0]["status"] != "ok" || res[1]["error_code"] != "budget_exhausted" || e.fs.n != 1 {
 		t.Fatalf("%v searches=%d", res, e.fs.n)
@@ -271,14 +278,14 @@ func TestAuto_EchoLockoutWithdrawsWebTools(t *testing.T) {
 	secret := "회사 비밀 프로젝트 오로라 출시 일정은 다음 분기"
 	q1, _ := json.Marshal(map[string]string{"query": "회사 비밀 프로젝트 오로라 출시"})
 	q2, _ := json.Marshal(map[string]string{"query": "프로젝트 오로라 출시 일정은 다음"})
-	e, up := autoEnv(t, callStep{tool: "web_search", args: string(q1)}, callStep{tool: "web_search", args: string(q2)}, callStep{text: "ok"})
+	e, up := autoEnv(t, callStep{tool: "web_search", args: string(q1), also: []callStep{{tool: "web_search", args: string(q2)}}}, callStep{text: "ok"})
 	memory.Add(e.srv.Memory, uidOf(t, &e.env, "alice@example"), memory.NewItem{Kind: "fact", Text: secret, Confidence: "user"}, time.Now())
 	sseEvents(t, e, `{"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	reqs := up.requests()
-	if len(reqs) < 3 {
+	if len(reqs) < 2 {
 		t.Fatalf("%d requests", len(reqs))
 	}
-	if n := toolNames(reqs[2]); has(n, "web_search") || has(n, "web_fetch") {
+	if n := toolNames(reqs[1]); has(n, "web_search") || has(n, "web_fetch") {
 		t.Fatalf("web tools still offered after two echo rejections: %v", n)
 	}
 	if e.fs.n != 0 {

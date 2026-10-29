@@ -1,0 +1,18 @@
+# Words that are ENTITIES (names, places, brands, allergens ...) and must
+# never appear in echo_stopwords.txt. TestEcho_StopwordFile fails if one does.
+# Add the canary entities used by the tests, and any a reviewer spots.
+나비
+땅콩
+알레르기
+역삼동
+서울
+부산
+카카오
+네이버
+삼성
+애플
+아이폰
+강남
+제주
+고양이
+강아지

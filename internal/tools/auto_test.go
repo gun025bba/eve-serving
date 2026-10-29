@@ -11,7 +11,7 @@ import (
 
 func TestEcho_RejectsProtectedPhraseNotInUserText(t *testing.T) {
 	prot := "Alice is allergic to peanuts and takes warfarin every morning at breakfast"
-	e := NewEcho([]string{prot}, []string{"what should I eat today"})
+	e := NewEcho([]string{prot}, []string{"what should I eat today, with oats or butter"})
 	if !e.Active() {
 		t.Fatal("echo filter must be active with protected text")
 	}
@@ -24,7 +24,7 @@ func TestEcho_RejectsProtectedPhraseNotInUserText(t *testing.T) {
 			t.Errorf("echo not rejected: %q", q)
 		}
 	}
-	for _, q := range []string{"go 1.27 release date", "butter recipe", "oats"} {
+	for _, q := range []string{"butter recipe", "oats", "oats butter"} {
 		if e.Reject(q) {
 			t.Errorf("clean query rejected: %q", q)
 		}
@@ -207,7 +207,7 @@ func TestGateAndPrompt(t *testing.T) {
 			t.Errorf("gate false for %q", s)
 		}
 	}
-	for _, s := range []string{"write me a poem", "2+2?"} {
+	for _, s := range []string{"write me a poem", "2+2?", "내일 일정 알려줘", "이 제품 가격이 얼마야", "대통령 중심제란", "출시일 정리"} { // outside the §4.3 vocabulary
 		if Gate(s) {
 			t.Errorf("gate true for %q", s)
 		}
