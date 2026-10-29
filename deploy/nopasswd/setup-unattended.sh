@@ -20,7 +20,7 @@ umask 022
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 if [ "$(id -u)" = 0 ]; then for _v in $(compgen -e); do case "$_v" in EVE_*) unset "$_v";; esac; done; fi   # a root run never honours the test knobs
 unset _v
-SRC_COMMIT=9fc55e51a6a54d2430a67573f6c5dbfbc02de518   # pin-unattended.sh <A> rewrites the three pins below
+SRC_COMMIT=9063b714164b78ace8bda2b6c3b0a505ea385c16   # pin-unattended.sh <A> rewrites the three pins below
 SRC_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 SHA_POLL=d14ad0d4f612370dfa8d67b2159379b4dc450af0d70f42b4024b3c672f863996
 SHA_PLIST=e85875caf422172dd8fbfa860f4650ac42c3d50af471fb0d1ff20105035df5ed
