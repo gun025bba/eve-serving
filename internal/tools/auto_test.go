@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -277,5 +278,44 @@ func TestEcho_PIMToolResultFieldsInP(t *testing.T) {
 	// a failed read protects what it returned too
 	if !s.PrivateRead() {
 		t.Fatal("private read not recorded")
+	}
+}
+
+// "지금" alone is filler ("지금 한 단어로만 대답해"); it counts only next to a
+// time-sensitive word.
+func TestGate_NowFiller(t *testing.T) {
+	for _, s := range []string{"지금 한 단어로만 대답해: 네", "지금 정리해줘", "지금까지 한 일 요약"} {
+		if Gate(s) {
+			t.Errorf("gate true for %q", s)
+		}
+	}
+	for _, s := range []string{"지금 몇 시야", "지금 환율 알려줘", "지금 날씨 어때", "지금 기준 최신 버전", "right now in Seoul"} {
+		if !Gate(s) {
+			t.Errorf("gate false for %q", s)
+		}
+	}
+}
+
+func TestStripDisabledToolCalls(t *testing.T) {
+	call := `<tool_call>{"name":"web_search","arguments":{"query":"x"}}</tool_call>`
+	if got := StripDisabledToolCalls("a " + call); got != "a "+call {
+		t.Fatalf("exposed tool stripped: %q", got) // the caller parses it as a call
+	}
+	prev := Default().Kill
+	dir := t.TempDir()
+	ks := NewKillswitch(dir+"/ks.yaml", os.Getuid())
+	SetKillswitch(ks)
+	t.Cleanup(func() { SetKillswitch(prev) })
+	if err := os.WriteFile(dir+"/ks.yaml", []byte("disabled: [web_search]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ks.Poll()
+	if got := StripDisabledToolCalls("hi " + call + " bye"); got != "hi  bye" {
+		t.Fatalf("%q", got)
+	}
+	for _, keep := range []string{"plain", `<tool_call>{"name":"rm_rf","arguments":{}}</tool_call>`, `<tool_call>{"name":"web_search","argu`} {
+		if got := StripDisabledToolCalls(keep); got != keep {
+			t.Errorf("changed %q to %q", keep, got)
+		}
 	}
 }

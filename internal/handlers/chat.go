@@ -326,6 +326,7 @@ func (s *Server) streamSSE(w http.ResponseWriter, r *http.Request, body io.Reade
 		pr.finish(r, acc.content.String(), acc.reasoning.String(), acc.model, rec.pt, rec.ct, status, reason)
 		v := pr.ids()
 		v["object"], v["created"], v["status"] = "chat.completion.persisted", created, pr.apiStatus(status)
+		v["tools"] = []any{} // the stored metadata always has the key; [] = no tool was used
 		return event(v)
 	}
 	if pr != nil {

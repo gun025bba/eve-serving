@@ -222,7 +222,11 @@ func sourcesView(ss []tools.Source, ns []int) []map[string]any {
 		if ns != nil && !containsInt(ns, src.N) {
 			continue
 		}
-		out = append(out, map[string]any{"n": src.N, "title": src.Title, "url": src.URL, "domain": src.Domain, "fetched": src.Fetched})
+		v := map[string]any{"n": src.N, "title": src.Title, "url": src.URL, "domain": src.Domain, "fetched": src.Fetched}
+		if src.Published != "" {
+			v["published"] = src.Published
+		}
+		out = append(out, v)
 	}
 	return out
 }
@@ -415,7 +419,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		out.event(map[string]any{"object": "chat.completion.tool_call", "id": c.ID, "tool": c.Tool, "args": publicArgs(c), "round": c.Round, "selected_by": "model"})
 	})
 	emitCall := func(c tools.Call) {
-		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "sources": sourcesView(sess.Sources, c.Sources), "elapsed_ms": c.LatencyMs}
+		res := map[string]any{"object": "chat.completion.tool_result", "id": c.ID, "tool": c.Tool, "status": c.Status, "selected_by": "model", "sources": sourcesView(sess.Sources, c.Sources), "elapsed_ms": c.LatencyMs}
 		if c.ErrorCode != "" {
 			res["error_code"] = c.ErrorCode
 		}
@@ -503,6 +507,9 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			content = rest
 		}
 		if len(calls) == 0 {
+			// A textual call to a tool the kill switch has turned off is not a
+			// call; its raw text must not reach the user.
+			m.Content = tools.StripDisabledToolCalls(m.Content)
 			final, done = m, true
 			finalStreamed = fwd != ""
 			break
@@ -649,9 +656,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			if fresh != "" {
 				lastResp["fresh"] = fresh
 			}
-			if len(toolSummary) > 0 {
-				lastResp["tools"] = toolSummary
-			}
+			lastResp["tools"] = nonNilTools(toolSummary) // always present: [] means no tool was used
 		}
 		if pr != nil {
 			for k, x := range pr.ids() {
@@ -683,9 +688,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		if fresh != "" {
 			v["fresh"] = fresh
 		}
-		if len(toolSummary) > 0 {
-			v["tools"] = toolSummary
-		}
+		v["tools"] = nonNilTools(toolSummary) // always present: [] means no tool was used
 		out.event(v)
 	}
 	out.raw([]byte("data: [DONE]\n\n"))
@@ -720,6 +723,14 @@ func freshStatus(sess *tools.Session, hint bool) string {
 		return "unverified" // includes: the Gate hint said fresh and no tool was called
 	}
 	return ""
+}
+
+// nonNilTools makes the tool summary marshal as [] rather than null.
+func nonNilTools(t []map[string]any) []map[string]any {
+	if t == nil {
+		return []map[string]any{}
+	}
+	return t
 }
 
 // toolsView is the per-turn tool summary of the persisted event. It has no
@@ -1082,7 +1093,15 @@ func (s *Server) streamRound(ctx context.Context, body map[string]any, out *sseO
 		// Decide what is left: a textual call that parses is handled by the
 		// caller (the held text is dropped); anything else is released.
 		calls, _, _ := tools.ParseTextToolCalls(content.String(), maxCalls)
-		if !(textMode && len(calls) > 0) {
+		switch {
+		case textMode && len(calls) > 0:
+			// handled by the caller; the held text is dropped
+		case textMode && tools.StripDisabledToolCalls(content.String()) != content.String():
+			// a textual call to a tool the kill switch has turned off: never
+			// shown raw; the caller emits the cleaned answer
+			held = nil
+			msg["content"] = tools.StripDisabledToolCalls(content.String())
+		default:
 			flush()
 		}
 	}

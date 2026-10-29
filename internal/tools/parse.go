@@ -51,6 +51,36 @@ func ParseTextToolCalls(content string, limit int) (calls []ParsedCall, rest str
 	return calls, strings.TrimSpace(rest), failures
 }
 
+// StripDisabledToolCalls removes complete <tool_call>{...}</tool_call> blocks
+// that name a registered tool the kill switch has switched off. Such a block
+// is not a call (ParseTextToolCalls only knows the exposed tools), so without
+// this it would reach the user as raw text. Blocks for unknown names and
+// truncated blocks are left alone (they are ordinary text), and so is content
+// without a match (returned unchanged).
+func StripDisabledToolCalls(content string) string {
+	if !strings.Contains(content, "<tool_call>") {
+		return content
+	}
+	p := Default()
+	out := tcRe.ReplaceAllStringFunc(content, func(block string) string {
+		m := tcRe.FindStringSubmatch(block)
+		var v struct {
+			Name string `json:"name"`
+		}
+		if m == nil || json.Unmarshal([]byte(m[1]), &v) != nil {
+			return block
+		}
+		if _, registered := p.Reg.Get(v.Name); registered && !p.IsExposed(v.Name) {
+			return ""
+		}
+		return block
+	})
+	if out == content {
+		return content
+	}
+	return strings.TrimSpace(out)
+}
+
 // SanitizeHistory makes client-supplied history safe to re-inject: raw tool
 // results (role "tool") are replaced by metadata-only user notes, assistant
 // tool_calls are dropped, and any system message that contains web-content

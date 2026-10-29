@@ -6,9 +6,9 @@ status: 200 OK
 --- response
 data: {"args":{"max_results":5,"query":"go 1.27 release"},"created":"_","id":"_","object":"chat.completion.tool_call","round":1,"selected_by":"model","tool":"web_search"}
 
-data: {"count":2,"created":"_","elapsed_ms":"_","id":"_","object":"chat.completion.tool_result","sources":[{"domain":"go.example","fetched":false,"n":1,"title":"Go release","url":"https://go.example/rel"},{"domain":"two.example","fetched":false,"n":2,"title":"Two","url":"https://two.example/"}],"status":"ok","tool":"web_search"}
+data: {"count":2,"created":"_","elapsed_ms":"_","id":"_","object":"chat.completion.tool_result","selected_by":"model","sources":[{"domain":"go.example","fetched":false,"n":1,"title":"Go release","url":"https://go.example/rel"},{"domain":"two.example","fetched":false,"n":2,"title":"Two","url":"https://two.example/"}],"status":"ok","tool":"web_search"}
 
-data: {"created":"_","elapsed_ms":"_","error_code":"permission_denied","id":"_","object":"chat.completion.tool_result","sources":[{"domain":"go.example","fetched":false,"n":1,"title":"Go release","url":"https://go.example/rel"},{"domain":"two.example","fetched":false,"n":2,"title":"Two","url":"https://two.example/"}],"status":"blocked","tool":"web_fetch"}
+data: {"created":"_","elapsed_ms":"_","error_code":"permission_denied","id":"_","object":"chat.completion.tool_result","selected_by":"model","sources":[{"domain":"go.example","fetched":false,"n":1,"title":"Go release","url":"https://go.example/rel"},{"domain":"two.example","fetched":false,"n":2,"title":"Two","url":"https://two.example/"}],"status":"blocked","tool":"web_fetch"}
 
 data: {"choices":[{"delta":{"content":"Go 1.27 is out [1].","role":"assistant"},"finish_reason":"stop","index":0}],"created":"_","id":"_","model":"m1","object":"chat.completion.chunk"}
 

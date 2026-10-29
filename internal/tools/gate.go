@@ -14,7 +14,11 @@ import (
 // positive signal with few false positives. It only adds a sentence to the
 // system prompt; the model still decides whether to call a tool, and a fresh
 // hint with no tool call is reported as fresh:"unverified".
-var freshRe = regexp.MustCompile(`(?i)\b(today|tonight|yesterday|right now|these days|recent(ly)?|this week|latest|current(ly)?|weather|news|real[- ]?time|this year|20(2[5-9]|[3-9]\d))\b|오늘|어제|지금|최근|요즘|이번\s*주|최신|현재|시세|날씨|뉴스|소식|실시간|올해|20(2[5-9]|[3-9]\d)\s*년`)
+//
+// "지금" alone is not in the list: it is ordinary filler in prompts such as
+// "지금 한 단어로만 대답해". It counts only next to a time-sensitive word
+// (지금 몇 시, 지금 환율, 지금 기준, ...); "right now" is kept as is.
+var freshRe = regexp.MustCompile(`(?i)\b(today|tonight|yesterday|right now|these days|recent(ly)?|this week|latest|current(ly)?|weather|news|real[- ]?time|this year|20(2[5-9]|[3-9]\d))\b|오늘|어제|지금\s*(?:몇\s*시|시간|기준|환율|주가|가격|상황|순위|현황|인기|얼마)|최근|요즘|이번\s*주|최신|현재|시세|날씨|뉴스|소식|실시간|올해|20(2[5-9]|[3-9]\d)\s*년`)
 
 // Gate reports whether text looks time-sensitive.
 func Gate(text string) bool { return freshRe.MatchString(strings.TrimSpace(text)) }

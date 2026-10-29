@@ -124,15 +124,16 @@ const ReasonToolsDisabled = "tools_disabled"
 
 // Source is a citation (metadata only; page text is never stored).
 type Source struct {
-	N        int    `json:"n"`
-	Title    string `json:"title"`
-	URL      string `json:"url"`
-	Domain   string `json:"domain"`
-	Snippet  string `json:"snippet,omitempty"`
-	Fetched  bool   `json:"fetched"`
-	FinalURL string `json:"final_url,omitempty"` // set when a fetch was redirected
-	SHA256   string `json:"-"`
-	CallSeq  int    `json:"-"` // index into Session.Calls of the call that produced it
+	N         int    `json:"n"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Domain    string `json:"domain"`
+	Snippet   string `json:"snippet,omitempty"`
+	Published string `json:"published,omitempty"` // RFC 3339 (UTC), only when the search result carried a date
+	Fetched   bool   `json:"fetched"`
+	FinalURL  string `json:"final_url,omitempty"` // set when a fetch was redirected
+	SHA256    string `json:"-"`
+	CallSeq   int    `json:"-"` // index into Session.Calls of the call that produced it
 }
 
 // Call is one executed tool call (what gets persisted to tool_calls).
@@ -339,6 +340,14 @@ func (s *Session) Allowed(rawURL string) bool { return s.allow[CanonURL(rawURL)]
 // CallsLeft reports whether another tool call is permitted.
 func (s *Session) CallsLeft() bool { return len(s.Calls) < s.d.Limits.MaxCalls }
 
+// publishedStr formats a result's publication time, "" when it has none.
+func publishedStr(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
 func (s *Session) addSource(src Source) int {
 	c := CanonURL(src.URL)
 	if i, ok := s.byURL[c]; ok {
@@ -349,6 +358,9 @@ func (s *Session) addSource(src Source) int {
 			if s.Sources[i].Title == "" {
 				s.Sources[i].Title = src.Title
 			}
+		}
+		if s.Sources[i].Published == "" {
+			s.Sources[i].Published = src.Published
 		}
 		return s.Sources[i].N
 	}
@@ -604,7 +616,7 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 			}
 		}
 		s.allow[cu] = true // results of this request become fetchable
-		n := s.addSource(Source{Title: cleanText(r.Title), URL: r.URL, Snippet: cleanText(r.Snippet), CallSeq: c.Seq})
+		n := s.addSource(Source{Title: cleanText(r.Title), URL: r.URL, Snippet: cleanText(r.Snippet), Published: publishedStr(r.Published), CallSeq: c.Seq})
 		c.Sources = append(c.Sources, n)
 		items = append(items, item{n, cleanText(r.Title), r.URL, cleanText(r.Snippet)})
 	}
