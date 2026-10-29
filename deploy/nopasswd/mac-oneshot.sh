@@ -15,7 +15,7 @@
 #   0. KEY, local, FIRST: generates ~/.eve-web-release-tagger/id_ed25519 (ed25519, no passphrase, dir 0700, key 0600) unless it exists (an existing key is kept, but only if it and its dir are
 #      owned by you and not accessible to others), so a problem with an existing key stops everything before sudo or any GitHub change. The private key is never printed, copied or sent.
 #   1. INSTALL (sudo): downloads the installer from a FIXED commit, refuses unless its sha256 matches the pin below, and pipes exactly the checked text to `sudo /bin/bash -s`
-#      (the same thing as the README line). The installed entrypoint REFUSES kind=web (WEB_ENABLED=no in eve-deploy) until a reviewed change turns it on.
+#      (the same thing as the README line). kind=web is accepted by the entrypoint (WEB_ENABLED=yes in eve-deploy) once the installer has been re-run with these pins.
 #      Skipped if /usr/local/libexec/eve/deploy already has the pinned bytes.
 #   2. GITHUB: `gh auth login --web` as gun025bba in a THROWAWAY gh config dir (token stored only there, git credential config redirected there; your own gh login is untouched).
 #      Aborts unless `gh api user` says gun025bba and that account is admin of gun025bba/eve-web.
@@ -51,9 +51,9 @@ set -euo pipefail
 
 # ---------- pins and constants (the tests check these against the files in the repository) ----------
 INSTALL_RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-INSTALL_COMMIT=77ab92731d9ee77d1fda63947a6261bba78b8c04
-INSTALL_SHA256=e4e574abffbce0c0f48eff68524c6ccb428b7b5e36cc790f0bc6b30da29edaf7
-ENTRY_SHA256=2cd051c1b9c140e49927eff97b95d4d12515d21c5ed2255d47274e35b7e17c4f   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
+INSTALL_COMMIT=283ca399d0a3ace5774d326156b8ac04124ab474
+INSTALL_SHA256=2e11dab0707e0416f10666e8d8b696120640e36f2885de70bf4ca0b37285e0b5
+ENTRY_SHA256=fff9f36eecbb2452b4f6f419faa48edf86960822d8da2287769fcad76f0cc4a8   # sha256 of the installed /usr/local/libexec/eve/deploy (SHA_DEPLOY in the installer)
 KNOWN_HOSTS_SHA256=f455f6ec65126db336c18d44d7c73b8066e6c91e9529a92dea2712cd1552bfee
 LIBEXEC=${ONESHOT_LIBEXEC:-/usr/local/libexec/eve}       # only decides whether step 1 can be skipped
 GH_USER=gun025bba

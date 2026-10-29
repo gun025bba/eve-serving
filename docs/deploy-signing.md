@@ -175,8 +175,8 @@ The agent that prepares releases must use a separate GitHub account or App, **no
    <https://github.com/settings/applications> (Authorized OAuth Apps, "GitHub CLI", Revoke), waits for the owner to type `revoked`, and then proves it by calling `gh api user` with the token and requiring HTTP 401;
    anything else is a FAIL row and a non-zero exit. This also runs when the script stops early after the login (error, Ctrl-C). **SIGKILL (`kill -9`) and power loss cannot run any cleanup**: the throwaway directory
    (`$TMPDIR/eve-oneshot-gh.*`, mode 0700) then stays with the token inside; delete it by hand and revoke the authorization at that link.
-   Until that repository is hardened and the owner has checked the summary, the installed entrypoint
-   refuses `kind=web` altogether (`WEB_ENABLED=no` in `eve-deploy`; turning it on = a reviewed change of that constant, a new pin and a new one-time install).
+   Once that repository is hardened and the owner has checked the summary (done), the installed entrypoint accepts `kind=web`
+   (`WEB_ENABLED=yes` in `eve-deploy`, a reviewed change with a new pin and a re-run of the one-time install; before that it refused `kind=web` altogether).
 7. **Accounts**: the owner's account has two-factor authentication with a passkey or hardware key; the agent account (or App) has write access only, no admin, no ruleset bypass, no ability
    to edit environments, and cannot approve its own pull requests.
 
