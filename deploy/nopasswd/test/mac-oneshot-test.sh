@@ -27,7 +27,7 @@ eq "pin: known_hosts sha256" "$(const KNOWN_HOSTS_SHA256)" "$(sha256 "$D/github_
 grep -q "$(const INSTALL_COMMIT)/deploy/nopasswd/setup-deploy-nopasswd.sh" "$D/README.md" && ok || bad "README install line must use the same installer commit as mac-oneshot.sh"
 grep -q "= $(const INSTALL_SHA256) " "$D/README.md" && ok || bad "README install line must use the same installer sha256 as mac-oneshot.sh"
 eq "pin: installer SRC_COMMIT is a full sha" "$(sed -n 's/^SRC_COMMIT=//p' "$D/setup-deploy-nopasswd.sh" | grep -cE '^[0-9a-f]{40}$')" 1
-eq "eve-deploy keeps web disabled" "$(sed -n 's/^WEB_ENABLED=\([a-z]*\).*/\1/p' "$D/eve-deploy")" no
+eq "eve-deploy has web deploys enabled" "$(sed -n 's/^WEB_ENABLED=\([a-z]*\).*/\1/p' "$D/eve-deploy")" yes
 case "$(head -1 "$SCRIPT")" in "#!/bin/bash") ok;; *) bad "shebang";; esac
 grep -q '^set -euo pipefail' "$SCRIPT" && ok || bad "set -euo pipefail"
 grep -nE '(^|[^a-z_])(set -x|set -o xtrace)' "$SCRIPT" >/dev/null && bad "xtrace must never be enabled" || ok

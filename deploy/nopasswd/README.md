@@ -27,8 +27,8 @@ live version cannot be determined. Options (append after `-s --`): `--schema N`,
 Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/eve-deploy`, which ends the NOPASSWD rule at once).
 
 **One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
-(same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys stay
-**refused** by the installed entrypoint (`WEB_ENABLED=no`) until a reviewed change turns them on.
+(same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys are accepted by the installed entrypoint (`WEB_ENABLED=yes`) only
+after the installer has been re-run with the pins below (an older install refuses them).
 
 ```bash
 s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/94a224bdbe85129f60595ed6298364dae5a8b24b/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 1eed8df8bb7689807fb299f2f8531a6e13eb1f1a3841bfa6e356e42204d78a21 ] && bash -c "$s" mac-oneshot
