@@ -26,7 +26,7 @@
   `/opt/eve-pim/bin/eve-pim` (`root:wheel 0755`) via a temp file in the same directory and an atomic `mv`, with the sha256 re-verified
   afterwards; an already-installed binary with the same sha256 is not replaced (no new TCC prompt); one previous adapter is kept with its
   signed manifest and `--rollback` follows the same rules. The LaunchAgent now runs the binary from that directory instead of `~/eve-pim`
-  (one new TCC prompt on the first install). Logs and copies stay in a private `mktemp -d` (0700); the pin stays on `keep/pim-adapter-6ce1993`.
+  (one new TCC prompt on the first install). The hex checks list the digits instead of a range: macOS bash 3.2 in a UTF-8 locale let `[a-f]` match upper case, so the old `is_hex_len` accepted an upper-case `PIM_SHA` there. Logs and copies stay in a private `mktemp -d` (0700); the pin stays on `keep/pim-adapter-6ce1993`.
 - **Adapter is calendar-only and hardened.** `pim/eve-pim/build-release.sh` builds it and signs with `codesign -s - -o runtime`;
   `Support/eve-pim.entitlements` carries only `com.apple.security.personal-information.calendars` and `Support/eve-pim-Info.plist` only the
   Calendar usage strings (tests, the build script and the installer reject any other key: no contacts, no full disk access).

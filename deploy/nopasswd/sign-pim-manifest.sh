@@ -7,6 +7,7 @@
 # --git-sha must be the source commit the binary was built from, i.e. the PIM_SHA pinned in install-calendar-adapter.sh.
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
 set -Eeuo pipefail
+export LC_ALL=C
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
 die() { echo "sign-pim-manifest: $*" >&2; exit 1; }
 sha_of() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi; }
@@ -18,7 +19,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$KEY" ] && [ -n "$SHA" ] && [ -n "$BIN" ] && [ -n "$OUT" ] || die "need --key --git-sha --adapter --out"
-[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "--git-sha must be 40 lowercase hex"
+[[ "$SHA" =~ ^[0123456789abcdef]{40}$ ]] || die "--git-sha must be 40 lowercase hex"
 [ -f "$KEY" ] && [ -f "$BIN" ] && [ -s "$BIN" ] && [ ! -L "$BIN" ] || die "key/adapter file missing or empty"
 mkdir -p "$OUT" && OUT=$(cd "$OUT" && pwd -P) || die "cannot create --out"
 M=$OUT/eve-pim.MANIFEST

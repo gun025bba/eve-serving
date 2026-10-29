@@ -126,6 +126,12 @@ func TestCalendarAdapterPinIsFullSHA(t *testing.T) {
 		`pim_sha256) is_hex_len "$v" 64`,
 		`[ "$(sha_of "$WORK/in.eve-pim")" = "$MF_SHA256" ] || die`,
 	)
+	// macOS bash 3.2 (UTF-8 locale) lets the range [a-f] match upper case: hex checks list the digits.
+	for _, f := range []string{script, signScript, buildScript} {
+		if strings.Contains(readFile(t, f), "[0-9a-f]") || strings.Contains(readFile(t, f), "[!0-9a-f]") {
+			t.Errorf("%s uses the locale-dependent range [0-9a-f]", f)
+		}
+	}
 	if strings.Contains(s, `case "$FULL" in "$PIM_SHA"*)`) {
 		t.Error("prefix comparison of the pin is back")
 	}
@@ -150,7 +156,7 @@ func TestCalendarAdapterHexLen(t *testing.T) {
 	}{
 		{h40, "40", true}, {h64, "64", true},
 		{h40[:39], "40", false}, {h40[:7], "40", false}, {h40 + "a", "40", false},
-		{strings.ToUpper(h40), "40", false}, {h40[:39] + "g", "40", false}, {"", "40", false},
+		{strings.ToUpper(h40), "40", false}, {strings.ToUpper(h64), "64", false}, {h40[:39] + "G", "40", false}, {h40[:39] + "g", "40", false}, {"", "40", false},
 		{h64, "40", false}, {h40, "64", false}, {h40[:20] + " " + h40[21:], "40", false},
 	} {
 		cmd := exec.Command(bash, "-c", m+"\n"+`is_hex_len "$1" "$2"`, "x", c.v, c.n)

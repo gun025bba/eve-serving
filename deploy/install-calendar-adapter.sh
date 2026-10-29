@@ -70,7 +70,8 @@ die()  { log "FAIL: $*"; exit 1; }
 run()  { if [ "$DRY_RUN" = 1 ]; then echo "  DRY: $*"; else "$@"; fi; }
 
 # ----- small helpers -----
-is_hex_len() { case "$1" in ""|*[!0-9a-f]*) return 1;; esac; [ "${#1}" -eq "$2" ]; }   # lowercase hex of exactly $2 chars
+# lowercase hex of exactly $2 chars. The digits are listed, never a range: macOS bash 3.2 in a UTF-8 locale lets [a-f] match A-F (found by the macOS CI job).
+is_hex_len() { case "$1" in ""|*[!0123456789abcdef]*) return 1;; esac; [ "${#1}" -eq "$2" ]; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
 stat_uid() { /usr/bin/stat -c %u "$1" 2>/dev/null || /usr/bin/stat -f %u "$1" 2>/dev/null; }   # GNU first: BSD stat rejects -c, GNU stat misreads -f
 stat_gid() { /usr/bin/stat -c %g "$1" 2>/dev/null || /usr/bin/stat -f %g "$1" 2>/dev/null; }
