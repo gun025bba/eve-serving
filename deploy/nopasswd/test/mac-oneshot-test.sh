@@ -24,9 +24,12 @@ eq "pin: installer sha256 = the installer file" "$(const INSTALL_SHA256)" "$(sha
 eq "pin: entrypoint sha256 = eve-deploy" "$(const ENTRY_SHA256)" "$(sha256 "$D/eve-deploy")"
 eq "pin: entrypoint sha256 = SHA_DEPLOY of the installer" "$(const ENTRY_SHA256)" "$(sed -n 's/^SHA_DEPLOY=//p' "$D/setup-deploy-nopasswd.sh")"
 eq "pin: known_hosts sha256" "$(const KNOWN_HOSTS_SHA256)" "$(sha256 "$D/github_known_hosts")"
-grep -q "$(const INSTALL_COMMIT)/deploy/nopasswd/setup-deploy-nopasswd.sh" "$D/README.md" && ok || bad "README install line must use the same installer commit as mac-oneshot.sh"
+grep -q 'eve-serving/\$MAIN/deploy/nopasswd/setup-deploy-nopasswd.sh' "$D/README.md" && ok || bad "README install line must take the commit from \$MAIN (no commit written into the README)"
+grep -q -- '-- --src-commit "\$MAIN"' "$D/README.md" && ok || bad "README install line must pass --src-commit to the installer"
+eq "no commit sha is pinned in mac-oneshot.sh" "$(grep -cE '^[A-Z_]*COMMIT=[0-9a-f]{40}' "$SCRIPT")" 0
+eq "no commit sha is pinned in the README" "$(grep -cE 'eve-serving/[0-9a-f]{40}/' "$D/README.md")" 0
 grep -q "= $(const INSTALL_SHA256) " "$D/README.md" && ok || bad "README install line must use the same installer sha256 as mac-oneshot.sh"
-eq "pin: installer SRC_COMMIT is a full sha" "$(sed -n 's/^SRC_COMMIT=//p' "$D/setup-deploy-nopasswd.sh" | grep -cE '^[0-9a-f]{40}$')" 1
+eq "installer has no pinned SRC_COMMIT (it is the --src-commit argument)" "$(grep -cE '^SRC_COMMIT=[0-9a-f]{40}' "$D/setup-deploy-nopasswd.sh")" 0
 eq "eve-deploy has web deploys enabled" "$(sed -n 's/^WEB_ENABLED=\([a-z]*\).*/\1/p' "$D/eve-deploy")" yes
 case "$(head -1 "$SCRIPT")" in "#!/bin/bash") ok;; *) bad "shebang";; esac
 grep -q '^set -euo pipefail' "$SCRIPT" && ok || bad "set -euo pipefail"
@@ -234,7 +237,10 @@ HOME_T=$T/home; LIBX=$T/libexec
 reset_home() { rm -rf "$HOME_T"; mkdir -p "$HOME_T"; rm -rf "$LIBX"; mkdir -p "$LIBX"; }
 # run the script in a copy next to a copy of the known_hosts file; PATH = fakes first. Exports a poisoned GH_TOKEN to prove it is not passed on.
 SD=$T/sd; mkdir -p "$SD"; cp "$SCRIPT" "$SD/mac-oneshot.sh"; cp "$D/github_known_hosts" "$SD/github_known_hosts"
-run() { ( cd "$T" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" GH_TOKEN=LEAKED-TOKEN GITHUB_TOKEN=LEAKED-TOKEN2 TMPDIR="$T/tmp" "$@" ) >"$T/out" 2>"$T/err"; RC=$?; OUT=$(cat "$T/out" "$T/err"); }
+TSC=0123456789abcdef0123456789abcdef01234567   # a stand-in for the main commit of the one-line command
+# run: the main commit is an ARGUMENT of the script, so it is inserted right after the script path unless NOSRC=1
+run() { local a=() x; for x in "$@"; do a+=("$x"); if [ "$x" = "$SD/mac-oneshot.sh" ] && [ "${NOSRC:-}" != 1 ]; then a+=(--src-commit "$TSC"); fi; done
+  ( cd "$T" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" GH_TOKEN=LEAKED-TOKEN GITHUB_TOKEN=LEAKED-TOKEN2 TMPDIR="$T/tmp" "${a[@]}" ) >"$T/out" 2>"$T/err"; RC=$?; OUT=$(cat "$T/out" "$T/err"); }
 mkdir -p "$T/tmp"
 glog() { cat "$T/state/gh.log" 2>/dev/null; }
 nwrites() { glog | python3 -c 'import sys,json; print(sum(1 for l in sys.stdin if json.loads(l).get("method") in ("POST","PUT","DELETE")))'; }
@@ -259,7 +265,8 @@ has "full run: all checks passed" "$OUT" "ALL CHECKS PASSED"
 hasnt "full run: no FAIL line" "$OUT" "FAIL "
 eq "sudo got exactly the checked installer text" "$(sha256 "$T/state/sudo.stdin")" "$(sed -n 's/^INSTALL_SHA256=\([0-9a-f]*\).*/\1/p' "$SCRIPT")"
 has "sudo invoked as sudo /bin/bash -s" "$(cat "$T/state/other.log")" "sudo /bin/bash -s"
-has "curl pinned https+tls1.2 and the pinned commit" "$(cat "$T/state/other.log")" "--proto =https --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$(sed -n 's/^INSTALL_COMMIT=\([0-9a-f]*\).*/\1/p' "$SCRIPT")/deploy/nopasswd/setup-deploy-nopasswd.sh"
+has "the installer gets the same --src-commit as an argument" "$(cat "$T/state/other.log")" "sudo /bin/bash -s -- --src-commit $TSC"
+has "curl pinned https+tls1.2 and the pinned commit" "$(cat "$T/state/other.log")" "--proto =https --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/$TSC/deploy/nopasswd/setup-deploy-nopasswd.sh"
 eq "login args" "$(glog | python3 -c 'import sys,json; [print(" ".join(d["args"])) for d in map(json.loads, sys.stdin) if d["cmd"]=="login"]')" "auth login --web --hostname github.com --git-protocol https --scopes repo --insecure-storage"
 eq "no GH_TOKEN/GITHUB_TOKEN (inherited or the login's own) ever reached gh" "$(glog | python3 -c 'import sys,json; print(sum(1 for d in map(json.loads, sys.stdin) if d.get("GH_TOKEN") or d.get("GITHUB_TOKEN")))')" 0
 eq "gh used a throwaway config dir under TMPDIR" "$(glog | python3 -c 'import sys,json; print(all(d.get("cfg","").startswith((sys.argv[1]+"/eve-oneshot-gh.", sys.argv[1]+"/eve-oneshot-chk.")) for d in map(json.loads, sys.stdin) if d.get("cfg")))' "$T/tmp")" True
@@ -347,14 +354,20 @@ nothing_left && ok || bad "tampered known_hosts: no temp dir left"
 init_state; reset_home; rm -f "$T/state/other.log"
 run bash "$SD/mac-oneshot.sh" --skip-install
 eq "tampered LOCAL known_hosts + good pinned download: rc" "$RC" 0
-has "pinned known_hosts downloaded from the pinned commit" "$(cat "$T/state/other.log")" "raw.githubusercontent.com/gun025bba/eve-serving/$(sed -n 's/^INSTALL_COMMIT=\([0-9a-f]*\).*/\1/p' "$SCRIPT")/deploy/nopasswd/github_known_hosts"
+has "pinned known_hosts downloaded from the pinned commit" "$(cat "$T/state/other.log")" "raw.githubusercontent.com/gun025bba/eve-serving/$TSC/deploy/nopasswd/github_known_hosts"
 hasnt "ssh used the downloaded copy, not the tampered local one" "$(grep '^ssh ' "$T/state/other.log")" "UserKnownHostsFile=$SD/"
 nothing_left && ok || bad "downloaded known_hosts dir is deleted on exit"
 cp "$T/kh.bak" "$SD/github_known_hosts"
 
+# without --src-commit nothing is downloaded and sudo is never called
+init_state; reset_home; NOSRC=1 run bash "$SD/mac-oneshot.sh" --skip-github
+[ "$RC" != 0 ] && ok || bad "no --src-commit: must refuse"; has "no --src-commit: says what is missing" "$OUT" "--src-commit"
+if grep -qE '^(curl|sudo)' "$T/state/other.log" 2>/dev/null; then bad "no --src-commit: no curl, no sudo"; else ok; fi
+NOSRC=1 run bash "$SD/mac-oneshot.sh" --src-commit abc123 --dry-run
+[ "$RC" != 0 ] && ok || bad "a short --src-commit is refused"
 # clone-free: the script text passed to `bash -c` from a directory without the repository files (how the README line runs it)
 init_state; reset_home; mkdir -p "$T/empty"; rm -f "$T/state/other.log"
-( cd "$T/empty" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" TMPDIR="$T/tmp" bash -c "$(cat "$SCRIPT")" mac-oneshot ) >"$T/out" 2>&1; RC=$?; OUT=$(cat "$T/out")
+( cd "$T/empty" && env HOME="$HOME_T" PATH="$T/bin:$PATH" FAKE_STATE="$T/state" FAKE_INSTALLER="$T/installer.sh" FAKE_KH="$T/kh.pinned" ONESHOT_TTY="$T/tty.yes" ONESHOT_LIBEXEC="$LIBX" TMPDIR="$T/tmp" bash -c "$(cat "$SCRIPT")" mac-oneshot --src-commit "$TSC" ) >"$T/out" 2>&1; RC=$?; OUT=$(cat "$T/out")
 eq "clone-free run (bash -c) rc" "$RC" 0; has "clone-free: all checks passed" "$OUT" "ALL CHECKS PASSED"
 nothing_left && ok || bad "clone-free: no temp dir left"
 
@@ -662,7 +675,8 @@ eq "N-4: a missing integration_id (any app may satisfy the check): rc 1" "$RC" 1
 
 # ---------------- 6. bash 3.2 (when the box has one) ----------------
 # README: the clone-free one-liner pins the sha256 of THIS script and a full commit
-grep -q "raw.githubusercontent.com/gun025bba/eve-serving/[0-9a-f]\{40\}/deploy/nopasswd/mac-oneshot.sh" "$D/README.md" && ok || bad "README must carry the clone-free mac-oneshot line with a full commit sha"
+grep -q 'eve-serving/\$MAIN/deploy/nopasswd/mac-oneshot.sh' "$D/README.md" && ok || bad "README must carry the clone-free mac-oneshot line with the commit taken from \$MAIN"
+grep -q 'mac-oneshot --src-commit "\$MAIN"' "$D/README.md" && ok || bad "README mac-oneshot line passes the main commit as --src-commit"
 grep -q "= $(sha256 "$SCRIPT") " "$D/README.md" && ok || bad "README mac-oneshot line must pin the sha256 of the current mac-oneshot.sh"
 grep -q 'bash -c "\$s" mac-oneshot' "$D/README.md" && ok || bad "README mac-oneshot line runs the checked text with bash -c"
 B32=${EVE_BASH32:-}
