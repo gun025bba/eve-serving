@@ -18,6 +18,7 @@ type chatPersist struct {
 	s           *Server
 	user        string
 	threadID    string
+	newThread   bool   // thread created by this request (thread_id "new"): no stored history yet
 	userMsgID   string // "" when regenerating
 	replaceID   string // assistant message being regenerated
 	model       string
@@ -152,6 +153,7 @@ func (s *Server) beginPersist(r *http.Request, body map[string]any) (*chatPersis
 			return nil, err
 		}
 		p.threadID = t.ID
+		p.newThread = true
 	} else {
 		if _, err := s.Store.GetThread(ctx, p.user, tid); err != nil {
 			return nil, storeErr(err, "Thread")
