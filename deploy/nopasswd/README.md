@@ -1,138 +1,84 @@
-# Passwordless deploy (optional, 5.0.0)
+# Passwordless, CI-signed deploy (`deploy/nopasswd/`)
 
-Deploys of a **signed** release no longer need a sudo password. This is a privilege-boundary change, so it is an
-**optional step the host owner approves by running the setup script himself**. Nothing here is installed by the
-normal 5.0.0 deploy.
+Optional path: after **one** install line, a deploy of a *released, CI-signed* gateway or UI needs no password, no laptop and no
+key. The signature is produced by GitHub Actions (Sigstore keyless); the Mac only **verifies**. Design, threat model and the repo
+settings this relies on: [`docs/deploy-signing.md`](../../docs/deploy-signing.md). Checks to run on the real Mac after installing:
+[`docs/runbooks/passwordless-deploy.md`](../../docs/runbooks/passwordless-deploy.md).
 
-## Design
+## One-time install (the only thing a person types)
 
-| Item | Value |
-|---|---|
-| Entrypoint | `/usr/local/libexec/eve/deploy` (source: `deploy/nopasswd/eve-deploy`), `root:wheel 0755` |
-| Pinned public key | `/usr/local/libexec/eve/allowed_signers`, `root:wheel 0644`, namespace-pinned (`eve-deploy`), one ed25519 key |
-| sudoers | `/etc/sudoers.d/eve-deploy`, `root:wheel 0440`, validated with `visudo -c` before and after install |
-| Staging (written by the deploy user) | `/usr/local/libexec/eve/staging/eve-<X.Y.Z>.tar` + `.tar.sig` (dir `0700`, owned by the deploy user) |
-| State (root only) | `/var/db/eve-deploy` (`0700`): `current_version`, `schema`, `allowed_user`, `previous/` |
-| Log | `/var/log/eve-deploy.log` (`0600`) + syslog tag `eve-deploy`; versions and hashes only, no secrets |
-
-sudoers (two lines, no wildcard, no `SETENV`, env reset):
+Run this **once**, in a terminal on the Mac, as the user that will deploy (it asks for your sudo password once). It downloads the
+installer from a fixed commit, refuses to continue unless its sha256 matches, and hands exactly the checked text to `sudo /bin/bash -s`:
 
 ```
-Defaults!/usr/local/libexec/eve/deploy env_reset, !setenv
-<deploy user> ALL=(root) NOPASSWD: NOSETENV: /usr/local/libexec/eve/deploy
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/283ca399d0a3ace5774d326156b8ac04124ab474/deploy/nopasswd/setup-deploy-nopasswd.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 2e11dab0707e0416f10666e8d8b696120640e36f2885de70bf4ca0b37285e0b5 ] && printf '%s\n' "$s" | sudo /bin/bash -s
 ```
 
-The entrypoint accepts **only**:
-
-- `deploy <X.Y.Z>` where `X.Y.Z` is strictly higher than the installed version (numeric compare; `^(0|[1-9][0-9]{0,8})(\.…){2}$`,
-  no leading zeros, no suffixes), and
-- `rollback` to the **one** previous version it kept (must be lower, same DB schema, hashes unchanged). No second rollback.
-
-Everything else exits `2`. It does not trust the environment: the shebang is `#!/bin/bash -p` (privileged mode: `BASH_ENV`, `ENV`, `SHELLOPTS` are ignored and no exported function is imported, even if the caller's environment was not reset), then every inherited variable and function is dropped at the top of the script, `PATH` is fixed, commands use absolute paths, `LC_ALL=C`; sudoers also resets the environment (`env_reset`).
-Only the recorded deploy user may call it (not root-by-itself, not `_evegw`; checked again against `SUDO_UID`). Nothing in the
-gateway or over HTTP can trigger it.
-
-`deploy` steps: copy the two staged files into a **root-only `mktemp -d` under `/var/db/eve-deploy` (umask 077)** (regular
-file, not a symlink, owned by the deploy user, size-capped) → **verify the copy, never the staged original**
-(`ssh-keygen -Y verify`, pinned key, namespace `eve-deploy`) → unpack the copy (exactly `MANIFEST` + `gateway`, and optionally `eve-gw`; all
-regular files) → manifest `version` equals the argument, `schema` equals the installed schema (a schema change goes through the
-normal migration deploy script), hashes match → check `/opt/eve-gw` and `/opt/eve-gw/bin` are root-owned and closed to group/world writes → snapshot the live binaries → atomic replace (`root:wheel 0755`, never writable
-by `_evegw`) → `launchctl kickstart -k` → `/health` must return `{"status":"ok"}` → on failure the snapshot is restored
-automatically. `INT`/`TERM`/`HUP`/`QUIT` are ignored **only during the swap window**: from just before the live binaries are snapshotted until the new version is recorded (or the old binaries are restored), so a Ctrl-C cannot leave new binaries live with old state. Before that window (while the staged files are copied and verified) the default action applies: Ctrl-C or `kill` aborts at once and the exit trap removes the work dir and the lock. The database, config and secrets are never touched and no migration (up or down) runs.
-
-### What is in a bundle (and what is not)
-
-- **`gateway`** is required: the runbooks install only `/opt/eve-gw/bin/gateway`.
-- **`eve-gw`** is **optional**. It is replaced only if the bundle carries it. A bundle without it leaves a live `eve-gw` untouched;
-  `rollback` restores exactly what the kept version had (and removes an `eve-gw` that the rolled-back version had added).
-- **The web UI (`/opt/eve-gw/web`) is deliberately not part of the bundle.** It stays on the existing UI deploy path
-  (runbook §3: `cp -RP web/. /opt/eve-gw/web/` with the symlink check). Reason: a recursive tree copy as root from a staged archive
-  needs its own symlink/ownership handling and review; this entrypoint stays a two-binary swap. A release that changes both
-  binary and UI needs the UI step done separately (with sudo, as today).
-
-## One-time install (the host owner, with sudo)
-
-On the signing machine (**not the Mac server**), create the key once and keep the private key there:
+It installs, root-owned and not writable by anyone else: `/usr/local/libexec/eve/{deploy,fetch,uninstall,cosign,trusted_root.json}`
+(`cosign` and the trust root are pinned by sha256 inside the installer), a state directory under `/private/var/db/eve-deploy`, a
+staging directory owned by you, and `/etc/sudoers.d/eve-deploy` with **one user, one exact path, four exact verbs (no wildcard), no SETENV**:
 
 ```
-ssh-keygen -t ed25519 -f eve-deploy-signing -C eve-deploy-release     # passphrase recommended
+deploy   deploy-web   rollback   rollback-web
 ```
 
-Copy only `eve-deploy-signing.pub` to the Mac, and read its fingerprint **on the signing machine** (not on the Mac):
+No key is generated, copied or read. The installer refuses if a directory in the chain is user-writable, if `visudo -c` fails, or if the
+live version cannot be determined. Options (append after `-s --`): `--schema N`, `--current X.Y.Z`, `--current-web X.Y.Z`.
+Remove it: `sudo /usr/local/libexec/eve/uninstall` (or `sudo rm /etc/sudoers.d/eve-deploy`, which ends the NOPASSWD rule at once).
 
-```
-ssh-keygen -l -f eve-deploy-signing.pub        # prints SHA256:<43 chars> ...  (compare it out-of-band with what the Mac shows)
-```
+**One-shot for the Mac** (install + the `eve-web` repository settings + the web tag key, one command, `--dry-run` first if you like): `bash deploy/nopasswd/mac-oneshot.sh` (from a clone) or the clone-free line below. It runs the install line above
+(same pins), logs in to GitHub in the browser in a throwaway `gh` config, applies and verifies the `eve-web` settings (`docs/deploy-signing.md`, item 6) and prints a PASS/FAIL table. `kind=web` deploys are accepted by the installed entrypoint (`WEB_ENABLED=yes`) only
+after the installer has been re-run with the pins below (an older install refuses them).
 
-Then, from a checkout at the reviewed commit, run this **one line** (one `sudo`, at the very end; `sudo /bin/bash` because macOS `sudo` has no `secure_path`, so a bare `bash` would be looked up in the caller's `PATH`). It stops before `sudo` if the
-checkout is not the reviewed commit, is dirty, or any of the three scripts differs from the hashes below:
-
-```
-cd <checkout> && [ "$(git rev-parse HEAD)" = 8466b4d4d37202f72813e4539f7db6ece3c62ca1 ] && git diff --quiet HEAD -- deploy/nopasswd && cd deploy/nopasswd && printf '%s  %s\n' 0afa70da4c5bfab1e920883da86213ad7ad019b66e22f802eb7bf02e2eb9a81e setup-deploy-nopasswd.sh 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 eve-deploy 333d1f1125267171be69b416240aee72c05d81e6cf611f2456601eaa4115ccb9 uninstall-deploy-nopasswd.sh | shasum -a 256 -c - && sudo /bin/bash setup-deploy-nopasswd.sh --expect-sha256 0fd3461704d8e042138195e4260924d2ba6f797a4bcdff6d321d7b9c2fecbf66 --expect-key-fingerprint <SHA256:fingerprint> --pubkey <path>/eve-deploy-signing.pub --current <installed X.Y.Z> --schema <newest goose version>
-```
-
-`8466b4d4d37202f72813e4539f7db6ece3c62ca1` is the commit that merged this passwordless-deploy path into release/5.0.1 (check that commit out for the one-liner; this README line was added by a later commit, and `deploy/nopasswd` is byte-identical in both). The three hashes
-are the reviewed `sha256` of `setup-deploy-nopasswd.sh`, `eve-deploy` and `uninstall-deploy-nopasswd.sh` at that commit.
-
-Setup refuses to continue if: the entrypoint hash differs; the key is not a single ed25519 public key or its fingerprint differs
-from `--expect-key-fingerprint` (it prints the fingerprint it found); any parent of `/usr/local/libexec/eve`, `/var/db/eve-deploy`
-or `/opt/eve-gw/bin` is not root-owned or is group/world writable (paths are resolved physically first, so macOS's `/var` ->
-`/private/var` symlink is handled; the install directories themselves must not be symlinks); `/opt/eve-gw/bin/gateway` does not
-exist; or `visudo -c` fails (it then installs nothing / removes its sudoers file). The entrypoint and the key are first copied to a
-root-only temp directory and **only the verified copies are hashed, syntax-checked and installed**, so a swap of the checkout
-files after the check cannot change what gets installed. Out of scope (documented): another process running as **the same user** can still replace the checkout's `setup-deploy-nopasswd.sh` between `shasum` and `sudo`; such a process could equally read your sudo password prompt or change `PATH`, so this adds no real exposure. Setup also ignores every `EVE_*` variable when it runs as root (those knobs exist for the unprivileged tests only).
-
-**After the install, run the verification checklist on the Mac:** [`docs/runbooks/passwordless-deploy.md`](../../docs/runbooks/passwordless-deploy.md). If any step fails, run `sudo rm /etc/sudoers.d/eve-deploy` and report.
-
-## Releasing and deploying
-
-On the signing machine:
-
-```
-bash deploy/nopasswd/sign-deploy-bundle.sh --key eve-deploy-signing --gateway <gateway> --eve-gw <eve-gw> \
-  --version 5.0.1 --schema 8 --out out/
-# --eve-gw is optional (omit it for a gateway-only release); --out may be relative
-scp out/eve-5.0.1.tar out/eve-5.0.1.tar.sig <host>:/usr/local/libexec/eve/staging/
+```bash
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/89f3fa9babc4e0079f255a51502b28fb45b4ada7/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 341e26314ddcc60956a94118d98a2b1fbcd7f4da8ad151b09d6e9fdbef0c25d2 ] && bash -c "$s" mac-oneshot
 ```
 
-On the Mac, no password:
+Run it in a terminal (bash or zsh; it needs the terminal for the browser login and the final `revoked` prompt, hence `bash -c "$s"` and not `| bash`). Add `--dry-run` after `mac-oneshot` to only print what it would do.
+Pins: commit `89f3fa9babc4e0079f255a51502b28fb45b4ada7`, sha256 `341e26314ddcc60956a94118d98a2b1fbcd7f4da8ad151b09d6e9fdbef0c25d2`. At the end it makes you revoke the GitHub CLI authorization at https://github.com/settings/applications and proves it is dead (`gh auth logout` alone does not revoke it).
+**Repair run (`--only-fix`)**, after a first run whose table has FAIL rows: no sudo, the key files are only read, the environment / rulesets / immutable releases are only read back. It logs in again, registers the existing public key as the write deploy key `eve-web-release-tagger` (**you add it in the browser**: the script copies the public key to the clipboard, opens the page and waits for `added`; a key created through the API with this login's token would be deleted by GitHub when you revoke the token, so the script no longer does that), applies the three Actions settings (every API error is printed with its HTTP status and message; if one still fails the end of the table says what to set by hand), runs `ssh -T`, and ends with the same `revoked` prompt, the 401 proof and the table. It stops if it finds a write deploy key that is not ours (checked before and again right after you added the key; if ours is not registered, `release-tags` is applied without the DeployKey bypass) or a missing / changed key file; it re-applies only the `release-tags` ruleset (its bypass depends on the key).
 
-```
-sudo /usr/local/libexec/eve/deploy deploy 5.0.1
-sudo /usr/local/libexec/eve/deploy rollback
-```
-
-## Remove
-
-```
-sudo /bin/bash deploy/nopasswd/uninstall-deploy-nopasswd.sh            # sudoers first, then entrypoint + pinned key; keeps state and log
-sudo /bin/bash deploy/nopasswd/uninstall-deploy-nopasswd.sh --purge    # also deletes /var/db/eve-deploy, staging and the log
-sudo -n -l /usr/local/libexec/eve/deploy                           # must now ask for a password / not be allowed
+```bash
+s=$(curl -fsSL --proto '=https' --tlsv1.2 https://raw.githubusercontent.com/gun025bba/eve-serving/89f3fa9babc4e0079f255a51502b28fb45b4ada7/deploy/nopasswd/mac-oneshot.sh) && [ "$(printf '%s\n' "$s" | shasum -a 256 | cut -d' ' -f1)" = 341e26314ddcc60956a94118d98a2b1fbcd7f4da8ad151b09d6e9fdbef0c25d2 ] && bash -c "$s" mac-oneshot --only-fix
 ```
 
-Equivalent by hand: `sudo rm /etc/sudoers.d/eve-deploy`.
+If the script is killed with SIGKILL, delete `$TMPDIR/eve-oneshot-gh.*` by hand and revoke the authorization at that link.
 
-## Operations notes
+## Releasing (no one touches a key)
 
-- **Stale lock / work dirs.** A deploy that was killed hard (power loss, `kill -9`) can leave `/var/db/eve-deploy/lock` (a directory)
-  and `work.*` dirs. Check no deploy is running (`ps aux | grep eve/deploy`), then `sudo rmdir /var/db/eve-deploy/lock` and
-  `sudo rm -rf /var/db/eve-deploy/work.*`. Normal exits and Ctrl-C clean both up.
-- **State after a manual / migration deploy.** The entrypoint tracks `current_version` and `schema` in `/var/db/eve-deploy`. After
-  a deploy done the old way (with sudo) or a release that changes the DB schema, update them (root only):
-  `echo <X.Y.Z> | sudo tee /var/db/eve-deploy/current_version` and `echo <N> | sudo tee /var/db/eve-deploy/schema`; delete
-  `/var/db/eve-deploy/previous` (a kept version from before a schema change must not be rolled back to; the entrypoint also
-  refuses it when schemas differ).
-- **Health wait** is up to 60 s after `launchctl kickstart -k`.
-- **Known limits.** The staged files are checked (`regular file`, owner, size) and then opened by path. The deploy user swapping a
-  staged file for a FIFO between those two steps can only make the deploy hang until Ctrl-C/`kill` (which abort it cleanly: the swap window has not started yet); it can never get unsigned content
-  installed, because everything that is installed was copied first and verified afterwards. `BASH_ENV`/`SHELLOPTS` are ignored by the `bash -p` shebang
-  and stripped by sudo's `env_reset`.
+1. Squash or rebase the PR into `main` (linear history is required; no merge commits). 2. Tag the **current tip of main** `vX.Y.Z` and push the tag with `bash deploy/nopasswd/release-tag.sh X.Y.Z` (no human review before tagging, 태그 전 사람 리뷰 없음: it checks only that the commit is the tip of main, that the required checks are green and that the version is higher; key and revocation: `docs/deploy-signing.md`, "The release-tag deploy key") (any other commit is refused: a `release/*` branch is never signed, and neither is an older `main` commit, whatever its tag number).
+3. `release` (`.github/workflows/release.yml`) builds darwin/arm64 `gateway` + `eve-gw`, writes `MANIFEST` (version, git sha, repo, ref, branch,
+   schema, sha256 of the tar and of every member), signs the manifest with the job's OIDC identity and publishes
+   `eve-gateway-X.Y.Z.{MANIFEST,sigstore.json,tar}` as a GitHub release. It refuses to sign unless the tag is a push of `refs/tags/vX.Y.Z` on exactly the tip of `main`. Build, sign and publish are three jobs; only the sign job has `id-token` and it runs no repository code.
+4. On the Mac, as the deploy user (no sudo for the download; staging is yours):
+
+```
+/usr/local/libexec/eve/fetch gateway X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy
+sudo /usr/local/libexec/eve/deploy rollback            # back to the single kept previous version
+```
+
+**UI (`eve-web`)**: copy `eve-web-release.yml.example` to `.github/workflows/release.yml` in the eve-web repo (it calls the same reusable workflow, which
+packs the tracked UI files). Then `fetch web X.Y.Z && sudo /usr/local/libexec/eve/deploy deploy-web` and `rollback-web`. The gateway and the UI
+have independent, strictly increasing version lines.
+
+What `deploy` checks before it changes anything (any failure leaves the live system untouched; a failed health check restores the previous version):
+the Sigstore signature of `MANIFEST` offline against the pinned trust root and the pinned CI identity (workflow file at `main`, repository,
+tag ref, `push` trigger), manifest shape and kind, `version` equals the one staged (`fetch` leaves exactly one per kind; the bare verb takes it) and is **higher** than the installed one, the schema equals
+the database's (a different schema needs the migration deploy script), `ref` is that exact tag, `branch` is exactly `main`, `built_at` is at most 14 days old (and not from the future, 5 minutes of skew allowed; the Mac's clock must be right), the sha256 of the tar and of every file, and the
+machine architecture. The files are first copied into a root-only directory and verified there, so the unprivileged staging dir cannot race it.
+
+## Maintainers: pins inside the installer
+
+The installer pins the exact bytes of what it installs. After any change to `eve-deploy`, `eve-fetch`, `trusted_root.json` or
+`uninstall-deploy-nopasswd.sh`: commit it, then `bash deploy/nopasswd/pin-installer.sh <that commit>`, commit the installer, then
+`bash deploy/nopasswd/pin-installer.sh --print <installer commit>` prints the install line for this README. `test/run.sh` fails on stale pins
+and on a README that does not pin the current installer hash. The cosign version and the Sigstore trust root are bumped the same way (new
+hashes in `eve-deploy`, `setup-deploy-nopasswd.sh`, `test/run.sh`; a trust-root change needs the one-time install again).
 
 ## Tests
 
-`bash deploy/nopasswd/test/run.sh` (also a CI step): argument whitelist, version validation and comparison (malformed,
-leading zeros, 5.9.0 vs 5.10.0), signatures (wrong key, wrong namespace, tampered, wrong name), TOCTOU (staged file swapped
-after the copy), health-failure restore, optional `eve-gw`, `BIN_DIR` guards, signals during the swap (and that they abort the deploy outside it), the `bash -p` shebang (`BASH_ENV`, exported `builtin`/`[`/`printf` functions), relative `--out`, rollback guards,
-caller guards, the setup chain check (symlinked parents, writable parents, wrong owner, with no skip switch), the key fingerprint,
-and the setup/uninstall output (sudoers content, modes). CI runs it on Ubuntu **and on `macos-latest`** (system `/bin/bash` 3.2, real
-BSD `install`/`tar`/`stat`, `ssh-keygen -Y`, and `visudo -c` against a temp file; nothing runs under sudo).
+`bash deploy/nopasswd/test/run.sh` runs in a user-level sandbox (no root, nothing on the host is touched; CI: Ubuntu and macOS, bash 3.2, BSD tools).
+It verifies **real** CI-signed fixtures (`test/fixtures`, signed by CI from a throwaway branch; regenerated, if ever needed, by `.github/workflows/deploy-sign-fixture.yml`, a workflow the Mac does not trust) with real cosign
+(downloaded and sha256-checked): bad signature, tampered manifest/tar/member, wrong sha, downgrade and equal version, wrong ref, wrong branch (only `main`), a stale or future `built_at`, the release guard,
+wrong repo/identity/trigger, wrong kind, hostile tars, TOCTOU, signals during the swap, health-check restore, rollback, the installer and sudoers.
+The real `sudo`, `/etc/sudoers` and `/var/db` on the Mac are covered only by the manual runbook.
