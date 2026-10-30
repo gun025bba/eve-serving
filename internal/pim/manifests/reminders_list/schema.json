@@ -1,0 +1,1 @@
+{"type":"object","properties":{"due_before":{"type":"string","description":"Only reminders due before this time, RFC 3339 with offset"},"include_done":{"type":"boolean","description":"Include completed reminders (default false)"}},"additionalProperties":false}

@@ -284,6 +284,18 @@ func FilterItems(raw json.RawMessage, itemIDs []string) (json.RawMessage, error)
 	return out, err
 }
 
+// ActionScrubber removes the content of finished confirmation cards. A pim
+// write card (a calendar event or reminder the owner was asked to approve)
+// keeps its title, place and notes in payload / payload_view; once the card is
+// over (approved, rejected, voided, expired, or pending past its expiry) and
+// older than cutoff, nothing needs that text any more. ScrubActionContent
+// replaces both with '{}' for the given tools and returns the number of cards
+// scrubbed. The row, its status and payload_hash stay (the audit rows hold
+// only the hash). Idempotent; never touches a live pending card.
+type ActionScrubber interface {
+	ScrubActionContent(ctx context.Context, tools []string, cutoff time.Time) (int64, error)
+}
+
 // ActionApprover marks a proposal approved (docs/tool-platform.md §3.2). It
 // is one conditional single-row UPDATE: status='pending', token hash equal,
 // neither the proposal nor the token expired. Zero rows -> ErrConflict, so
