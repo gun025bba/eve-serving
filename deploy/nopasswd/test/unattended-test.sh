@@ -24,18 +24,19 @@ M=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const() { sed -n "s/^$1=\([^ ]*\).*/\1/p" "$2" | head -1; }
 
 # ---------------- static ----------------
-for f in eve-oneshot.sh setup-unattended.sh eve-poll pin-unattended.sh; do
+for f in eve-oneshot.sh eve-session.sh eve-measure.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh; do
   [ -x "$D/$f" ] && ok || bad "$f must be executable"
   bash -n "$D/$f" && ok || bad "$f: bash -n"
   case "$(head -1 "$D/$f")" in "#!/bin/bash") ok;; *) bad "$f shebang";; esac
   grep -nE '(^|[^a-z_])(set -x|set -o xtrace)' "$D/$f" | grep -v 'set +x' >/dev/null && bad "$f: xtrace must never be enabled" || ok
   grep -nE 'declare -A|mapfile|readarray|\$\{[a-zA-Z_]+(,,|\^\^)\}|\|&' "$D/$f" >/dev/null && bad "$f: bash 3.2 incompatible construct" || ok
 done
-if command -v shellcheck >/dev/null 2>&1; then for f in eve-oneshot.sh setup-unattended.sh eve-poll pin-unattended.sh; do shellcheck -s bash "$D/$f" >"$T/sc.out" 2>&1 && ok || { bad "shellcheck $f"; cat "$T/sc.out"; }; done; else echo "note: shellcheck not installed, skipped"; fi
+if command -v shellcheck >/dev/null 2>&1; then for f in eve-oneshot.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh; do shellcheck -s bash "$D/$f" >"$T/sc.out" 2>&1 && ok || { bad "shellcheck $f"; cat "$T/sc.out"; }; done; else echo "note: shellcheck not installed, skipped"; fi
 for f in "$SETT"/*.json; do jq -e . "$f" >/dev/null 2>&1 && ok || bad "$(basename "$f") must be valid JSON"; done
 # pins
 eq "pin: oneshot installer sha256" "$(const PIN_INSTALLER_SHA256 "$OS")" "$(sha256 "$D/setup-deploy-nopasswd.sh")"
 eq "pin: oneshot setup-unattended sha256" "$(const PIN_UNATTENDED_SHA256 "$OS")" "$(sha256 "$SU")"
+eq "pin: oneshot setup-pim-adapter sha256" "$(const PIN_PIMADAPTER_SHA256 "$OS")" "$(sha256 "$D/setup-pim-adapter.sh")"
 eq "pin: oneshot settings manifest sha256" "$(const PIN_SETTINGS_SHA256 "$OS")" "$(sha256 "$SETT/SHA256SUMS")"
 for n in $(sed -n 's/^SETTINGS_FILES="\(.*\)"/\1/p' "$OS"); do eq "SHA256SUMS: $n" "$(awk -v f="$n" '$2==f {print $1}' "$SETT/SHA256SUMS")" "$(sha256 "$SETT/$n")"; done
 eq "SHA256SUMS lists exactly the settings files" "$(wc -l <"$SETT/SHA256SUMS" | tr -d ' ')" "$(ls "$SETT"/*.json | wc -l | tr -d ' ')"
@@ -47,7 +48,7 @@ eq "pin: no 40-hex commit in a URL or pin in the shipped scripts and the README"
 eq "pin: installer SHA_DEPLOY = eve-deploy" "$(const SHA_DEPLOY "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-deploy")"
 eq "pin: installer SHA_FETCH = eve-fetch" "$(const SHA_FETCH "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-fetch")"
 # nothing that must never appear in the repository's new files
-for f in eve-oneshot.sh setup-unattended.sh eve-poll pin-unattended.sh launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
+for f in eve-oneshot.sh eve-session.sh eve-measure.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh release-tag.eve-web.constants launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
   [ -f "$D/$f" ] || continue
   grep -nE 'Mac Studio|\.ts\.net|[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|gh[pousr]_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9]|BEGIN [A-Z ]*PRIVATE KEY' "$D/$f" | grep -v '127\.0\.0\.1' >/dev/null && bad "$f contains a forbidden string (product name, address, hostname or secret)" || ok
 done
@@ -62,10 +63,15 @@ eq "release-branches: only the repository admin role may bypass (always, like re
 eq "release-branches: PR required, 0 approvals, squash+rebase, code owner off" "$(jq -r '.rules[]|select(.type=="pull_request")|.parameters|"\(.required_approving_review_count) \(.require_code_owner_review) \(.allowed_merge_methods|sort|join(","))"' "$RBJ")" "0 false rebase,squash"
 eq "release-branches: required checks = those of main-protect (test, deploy-nopasswd-macos @15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|sort|join(",")' "$RBJ")" "deploy-nopasswd-macos@15368,test@15368"
 eq "release-branches: same checks as main-protect serving" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$RBJ")" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$SETT/main-protect.eve-serving.json")"
-for n in main-protect.eve-serving main-protect.eve-ios release-branches.eve-serving; do
+for n in main-protect.eve-serving main-protect.eve-web main-protect.eve-ios release-branches.eve-serving; do
   eq "r2 L-1: $n.json pull_request has require_extra_approval_for_unattributed_changes=true (pull_request parameters only)" "$(jq -r '[.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$SETT/$n.json")/$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))] | length' "$SETT/$n.json")" "true/1"
 done
-eq "r2 L-1: main-protect.eve-web.json has no pull_request rule, so no such parameter" "$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))]|length' "$SETT/main-protect.eve-web.json")" 0
+WEBJ=$SETT/main-protect.eve-web.json
+eq "main-protect web: PR required, 0 approvals (second reviewer account later: 1), squash+rebase, code owner off, stale dismissed, threads resolved" "$(jq -r '.rules[]|select(.type=="pull_request")|.parameters|"\(.required_approving_review_count) \(.require_code_owner_review) \(.dismiss_stale_reviews_on_push) \(.required_review_thread_resolution) \(.allowed_merge_methods|sort|join(","))"' "$WEBJ")" "0 false true true rebase,squash"
+eq "main-protect web: bypass list is empty, default branch, active" "$(jq -r '"\(.bypass_actors|length) \(.conditions.ref_name.include|join(",")) \(.enforcement)"' "$WEBJ")" "0 ~DEFAULT_BRANCH active"
+eq "main-protect web: no force-push, no deletion, linear history, status checks, PR (exactly these five rules)" "$(jq -r '[.rules[].type]|sort|join(",")' "$WEBJ")" "deletion,non_fast_forward,pull_request,required_linear_history,required_status_checks"
+eq "main-protect web: required check is test from the Actions app, strict" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters|"\(.strict_required_status_checks_policy) \(.required_status_checks|map("\(.context)@\(.integration_id)")|join(","))"' "$WEBJ")" "true test@15368"
+eq "main-protect web: same pull_request parameters as eve-serving" "$(jq -c '.rules[]|select(.type=="pull_request")' "$WEBJ")" "$(jq -c '.rules[]|select(.type=="pull_request")' "$SETT/main-protect.eve-serving.json")"
 has "r2 L-1: the read-back (RS_SUM) compares the parameter" "$(cat "$OS")" 'extra=\(.parameters.require_extra_approval_for_unattributed_changes)'
 IOSJ=$SETT/main-protect.eve-ios.json
 eq "main-protect ios: required check is compile from the Actions app (15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|join(",")' "$IOSJ")" "compile@15368"
@@ -134,6 +140,9 @@ if not rest:
         done()
 if rest == ["keys"]: out(rp["keys"])
 if rest[0] == "rulesets":
+    if method in ("POST", "PUT") and body.get("name") == "release-tags" and any(x.get("actor_type") == "DeployKey" for x in body.get("bypass_actors", [])):
+        if os.environ.get("FAKE_RT_FAIL"): nf()
+        if os.environ.get("FAKE_KEY_RACE"): rp["keys"].append({"id": 99, "read_only": False, "title": "someone-else", "key": "ssh-ed25519 BBBB"})
     if method in ("POST", "PUT") and os.environ.get("FAKE_EXTRA_DROP"):
         for r in body["rules"]:
             if r["type"] == "pull_request": r["parameters"].pop("require_extra_approval_for_unattributed_changes", None)
@@ -192,7 +201,7 @@ done
 code() { if [ -n "$fmt" ]; then printf '%s' "$1"; fi; }
 M=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 case "$url" in
-  https://api.github.com/user) if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
+  https://api.github.com/user) if [ -n "${FAKE_TEMP_HTTP:-}" ] && [ "$tok" != "gho_FAKEOAUTHTOKEN0123456789" ]; then code "$FAKE_TEMP_HTTP"; exit 0; fi; if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/actions/permissions) code "${FAKE_PAT_CODE:-403}"; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/commits/$M) echo '{"sha":"'$M'"}';;
   https://api.github.com/repos/gun025bba/eve-serving/compare/$M...main) echo '{"status":"'"${FAKE_COMPARE:-ahead}"'"}';;
@@ -230,9 +239,9 @@ PY
 }
 run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary token)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
-  ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="$D" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
-      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
-      ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
+  ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="${FAKE_WT_DIR:-$D}" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
+      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
+      ${FAKE_TEMP_HTTP:+FAKE_TEMP_HTTP=$FAKE_TEMP_HTTP} ${WARN_FILE_T:+EVE_ONESHOT_WARN_FILE=$WARN_FILE_T} ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
 mkdir -p "$T/home"
@@ -252,9 +261,16 @@ has "dry-run: shows the sudo session" "$(cat "$T/out")" "su_ rehearse"
 has "dry-run: shows the settings" "$(cat "$T/out")" "release-tags-lock"
 hasnt "dry-run: no revoke prompt" "$(cat "$T/out")" 'Type "revoked"'
 run_os --dry-run --web-deploy 1.10.3 --rehearse web 1.10.4 --unpause-after-pass; eq "dry-run with options: rc" "$OSRC" 0; has "dry-run options reach the sudo line" "$(cat "$T/out")" "1.10.3 web 1.10.4 1"
+run_os --dry-run --calendar-adapter 5.1.0 --gateway-deploy 5.1.0; eq "dry-run calendar adapter: rc" "$OSRC" 0
+has "dry-run calendar adapter: the pin check is shown" "$(cat "$T/out")" "download setup-pim-adapter.sh at <merge>"
+has "dry-run calendar adapter: the session runs the adapter before the deploys" "$(cat "$T/out")" "setup-pim-adapter --version"
+has "dry-run calendar adapter: versions reach the sudo line" "$(cat "$T/out")" "<setup-pim-adapter text or -> 5.1.0 5.1.0"
+run_os --dry-run; hasnt "dry-run without the option: no adapter download" "$(cat "$T/out")" "download setup-pim-adapter.sh"
 # argument validation
 run_os --merge-commit nothex; eq "bad merge commit: refused" "$OSRC" 1
 run_os --dry-run --web-deploy 1.2; eq "bad web version: refused" "$OSRC" 1
+run_os --dry-run --calendar-adapter 5.1; eq "bad calendar-adapter version: refused" "$OSRC" 1
+run_os --dry-run --gateway-deploy x; eq "bad gateway-deploy version: refused" "$OSRC" 1
 run_os --dry-run --unpause-after-pass; eq "--unpause-after-pass without --rehearse: refused" "$OSRC" 1
 run_os --dry-run --rehearse mobile 1.2.3; eq "bad rehearse kind: refused" "$OSRC" 1
 run_os --dry-run --bogus; eq "unknown argument: refused" "$OSRC" 1
@@ -268,11 +284,12 @@ has "happy: temporary token refused on an admin endpoint" "$(cat "$T/out")" "no 
 has "happy: both tokens proven dead" "$(cat "$T/out")" "both tokens are dead"
 hasnt "happy: no FAIL row" "$(cat "$T/out")" "  FAIL  "
 eq "happy: exactly one sudo call" "$(sudo_calls)" 1
-eq "happy: sudo ARGC (-c session _ SU INST web rk rv up MERGE)" "$(sed -n 's/^ARGC //p' "$T/fk/sudo.log")" 11
+eq "happy: sudo ARGC (-c session _ SU INST web rk rv up MERGE)" "$(sed -n 's/^ARGC //p' "$T/fk/sudo.log")" 14
 eq "happy: the session text passed to sudo -c" "$(cat "$T/fk/sudo.session.txt")" "$(sed -n "/^ROOT_SESSION='/,/su_ verify'/p" "$OS" | sed "1s/^ROOT_SESSION='//; \$s/'\$//")"
 eq "happy: arg 4 (setup-unattended text) sha = the file" "$(sed -n 's/^ARG5 \([0-9a-f]*\) .*/\1/p' "$T/fk/sudo.log")" "$(printf '%s' "$(cat "$SU")" | sha_in)"
 eq "happy: arg 5 (installer text) sha = the file" "$(sed -n 's/^ARG6 \([0-9a-f]*\) .*/\1/p' "$T/fk/sudo.log")" "$(printf '%s' "$(cat "$D/setup-deploy-nopasswd.sh")" | sha_in)"
 eq "happy: the verified merge commit is the last session argument (M-2)" "$(grep '^ARG11 ' "$T/fk/sudo.log" | awk '{print $3}')" "$M"
+eq "happy: no calendar adapter requested: its text and versions are -" "$(grep -E '^ARG1[234] ' "$T/fk/sudo.log" | awk '{print $3}' | tr '\n' ' ')" "- - - "
 eq "happy: web version reaches the session" "$(grep -c '^ARG7 .* 1.10.3' "$T/fk/sudo.log")" 1
 eq "happy: 4 rulesets on eve-serving, 3 on eve-web, 1 on eve-ios" "$(jq -r '.repos|map(.rulesets|length)|join(",")' "$T/fk/gh.json")" "4,3,1"
 eq "happy: env deploy wait timer 20" "$(jq -r '.repos["gun025bba/eve-web"].envs.deploy.wait_timer' "$T/fk/gh.json")" 20
@@ -285,7 +302,7 @@ has "release-branches: PASS row" "$(cat "$T/out")" "PASS  gun025bba/eve-serving 
 # r2 L-2: the tag lock is the FIRST write of the whole run (before release-tags is rewritten and before any PUT of another setting)
 eq "r2 L-2: the first two writes are the release-tags-lock rulesets (serving, web)" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|.[0:2]|map(.body.name+" "+.ep)|join(",")')" "release-tags-lock repos/gun025bba/eve-serving/rulesets,release-tags-lock repos/gun025bba/eve-web/rulesets"
 eq "r2 L-2: no other write precedes a lock write" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|(map(.body.name=="release-tags-lock")|rindex(true)) < (map(.body.name!="release-tags-lock")|index(true))')" true
-eq "r2 L-1: the applied rulesets carry the parameter" "$(jq -r '[.repos[].rulesets[]|.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$T/fk/gh.json")" "true,true,true"
+eq "r2 L-1: the applied rulesets carry the parameter" "$(jq -r '[.repos[].rulesets[]|.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$T/fk/gh.json")" "true,true,true,true"
 # eve-ios: ONLY the main-protect ruleset, required check compile (Actions app), verified in the PASS table
 eq "ios: the ruleset applied is the pinned file" "$(jq -S 'del(.id)' <(jq -c '.repos["gun025bba/eve-ios"].rulesets[0]' "$T/fk/gh.json"))" "$(jq -S . "$SETT/main-protect.eve-ios.json")"
 eq "ios: the only writes on eve-ios are the ruleset" "$(glog '[.[]|select(.cmd=="api" and .method!="GET" and (.ep|startswith("repos/gun025bba/eve-ios")))|.method+" "+.ep]|unique|join(",")')" "POST repos/gun025bba/eve-ios/rulesets"
@@ -322,6 +339,43 @@ new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --reh
 eq "rehearse: rc" "$OSRC" 0; eq "rehearse: args" "$(grep -E '^ARG(7|8|9) ' "$T/fk/sudo.log" | awk '{print $3}' | tr '\n' ' ')" "- gateway 5.0.9 " 2>/dev/null || true
 eq "rehearse: unpause flag is the last argument" "$(grep '^ARG10 ' "$T/fk/sudo.log" | awk '{print $3}')" 1
 
+# calendar adapter guard: the shipped adapter installer says PIM_SIGNING_CI=no (CI cannot sign the adapter yet), so --calendar-adapter is refused BEFORE login, settings, sudo
+case "$(const PIM_SIGNING_CI "$D/setup-pim-adapter.sh")" in
+  no)
+    new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --calendar-adapter 5.1.0 --gateway-deploy 5.1.0
+    eq "pim guard: refused (rc non-zero)" "$((OSRC != 0))" 1
+    has "pim guard: the reason is shown" "$(cat "$T/out")" "--calendar-adapter refused: CI does not sign and publish the calendar adapter yet"
+    eq "pim guard: no sudo call" "$(sudo_calls)" 0
+    eq "pim guard: no GitHub call (no login, no settings)" "$(wc -l <"$T/fk/gh.log" | tr -d ' ')" 0
+    eq "pim guard: the same run without the option is not affected" "$(new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M; echo $OSRC)" 0;;
+  yes) ok;;
+  *) bad "PIM_SIGNING_CI must be yes or no";;
+esac
+# the flow tests below need the adapter ENABLED: a copy of the tree whose adapter installer says yes, with the one-shot's pin of that file recomputed
+YW=$T/yes-wt; rm -rf "$YW"; mkdir -p "$YW"; ( cd "$D" && tar --exclude=./test -cf - . ) | ( cd "$YW" && tar -xf - )
+sed 's/^PIM_SIGNING_CI=.*/PIM_SIGNING_CI=yes/' "$D/setup-pim-adapter.sh" >"$YW/setup-pim-adapter.sh.tmp" && mv "$YW/setup-pim-adapter.sh.tmp" "$YW/setup-pim-adapter.sh"; chmod 755 "$YW/setup-pim-adapter.sh"
+sed "s/^PIN_PIMADAPTER_SHA256=[0-9a-f]*/PIN_PIMADAPTER_SHA256=$(sha256 "$YW/setup-pim-adapter.sh")/" "$D/eve-oneshot.sh" >"$YW/eve-oneshot.sh.tmp" && mv "$YW/eve-oneshot.sh.tmp" "$YW/eve-oneshot.sh"
+OS_REAL=$OS; D_REAL=$D; OS=$YW/eve-oneshot.sh; FAKE_WT_DIR=$YW; D=$YW
+
+# calendar adapter + gateway deploy: the checked text and the versions reach the session; the adapter is fetched ONLY when asked for
+new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --calendar-adapter 5.1.0 --gateway-deploy 5.1.0 --web-deploy 1.10.3
+eq "pim: rc" "$OSRC" 0
+eq "pim: exactly one sudo call with 14 arguments" "$(sudo_calls) $(sed -n 's/^ARGC //p' "$T/fk/sudo.log")" "1 14"
+eq "pim: arg 12 (adapter text) sha = the file" "$(sed -n 's/^ARG12 \([0-9a-f]*\) .*/\1/p' "$T/fk/sudo.log")" "$(printf '%s' "$(cat "$D/setup-pim-adapter.sh")" | sha_in)"
+eq "pim: arg 13 = adapter version, arg 14 = gateway version" "$(grep -E '^ARG1[34] ' "$T/fk/sudo.log" | awk '{print $3}' | tr '\n' ' ')" "5.1.0 5.1.0 "
+eq "pim: the adapter text came from the verified merge commit" "$(grep -c "raw.githubusercontent.com/gun025bba/eve-serving/$M/deploy/nopasswd/setup-pim-adapter.sh" "$T/fk/curl.log")" 1
+has "pim: output names the adapter pin check" "$(cat "$T/out")" "setup-pim-adapter"
+sess() { grep -n -F "$1" "$T/fk/sudo.session.txt" | head -1 | cut -d: -f1; }
+b=$(sess 'setup-deploy-nopasswd --src-commit')
+eq "pim: session order is installer, adapter, gateway deploy, web deploy, state" "$b $(sess 'setup-pim-adapter --version') $(sess 'su_ deploy gateway') $(sess 'su_ deploy web') $(sess 'su_ state')" "$b $((b + 1)) $((b + 2)) $((b + 3)) $((b + 4))"
+new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "pim: not requested = not downloaded" "$(grep -c 'setup-pim-adapter' "$T/fk/curl.log")" 0
+new_world ok; FAKE_TAMPER=setup-pim-adapter.sh TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --calendar-adapter 5.1.0
+eq "pim: a tampered adapter file: rc non-zero" "$((OSRC != 0))" 1; has "pim: tampered adapter file named" "$(cat "$T/out")" "setup-pim-adapter.sh sha256 does not match the pin"; eq "pim: tampered adapter file: no sudo call" "$(sudo_calls)" 0
+new_world ok; FAKE_TAMPER=setup-pim-adapter.sh TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "pim: a tampered adapter file is not looked at without the option: rc" "$OSRC" 0
+OS=$OS_REAL; D=$D_REAL; unset FAKE_WT_DIR
+
 # S3-S6: revocation must be PROVEN, otherwise FAIL
 new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\n' >"$T/fk/revoked"; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "temp token still valid: rc non-zero" "$((OSRC != 0))" 1; has "temp token still valid: loud warning" "$(cat "$T/out")" "STILL BE VALID"; has "temp token: http=200 reported" "$(cat "$T/out")" "temporary: http=200"
@@ -330,7 +384,19 @@ eq "oauth token still valid: rc non-zero" "$((OSRC != 0))" 1; has "oauth token s
 new_world ok; TTYIN=nope TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "'revoked' not typed: rc non-zero" "$((OSRC != 0))" 1; has "'revoked' not typed: warning" "$(cat "$T/out")" "confirmed=no"
 new_world ok; run_os --merge-commit $M
-eq "no temporary token given (cannot prove): rc non-zero" "$((OSRC != 0))" 1; has "unproven temp token: http=unproven" "$(cat "$T/out")" "temporary: http=unproven"
+eq "no temporary token given (cannot prove): WARN only, rc 0" "$OSRC" 0; has "unproven temp token: http=unproven" "$(cat "$T/out")" "http=unproven"; has "unproven temp token: a WARN line" "$(cat "$T/out")" "WARN  temporary token: its revocation was NOT proven"; has "unproven temp token: follow-up text" "$(cat "$T/out")" "WARN  follow-up"; hasnt "unproven temp token: not the still-valid alarm" "$(cat "$T/out")" "STILL BE VALID"
+new_world ok; : >"$T/warnfile"; WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "unproven temp token: the marker word is left for the session" "$(cat "$T/warnfile")" temp-token
+new_world ok; : >"$T/warnfile"; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "proven temp token: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; hasnt "proven temp token: no WARN" "$(cat "$T/out")" "WARN  temporary token"
+new_world ok; printf 'PAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; run_os --merge-commit $M
+eq "no temp token but the OAuth token still valid: still FAIL" "$((OSRC != 0))" 1; has "no temp token but the OAuth token still valid: loud alarm" "$(cat "$T/out")" "STILL BE VALID"
+new_world ok; TTYIN=nope run_os --merge-commit $M
+eq "unproven temp token and 'revoked' not typed: still FAIL" "$((OSRC != 0))" 1
+# a pasted temporary token that gets no clear 401 (5xx, timeout, curl error, 403 = "other") is a FAIL, not a WARN
+for h in 502 403 000; do new_world ok; : >"$T/warnfile"; FAKE_TEMP_HTTP=$h WARN_FILE_T=$T/warnfile TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+  eq "temp token answered $h (other): FAIL, rc non-zero" "$((OSRC != 0))" 1; has "temp token answered $h: loud alarm" "$(cat "$T/out")" "STILL BE VALID"; hasnt "temp token answered $h: no WARN line" "$(cat "$T/out")" "WARN  temporary token"; eq "temp token answered $h: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; done
+# the temporary token is already dead (401) before the run: WARN, not a stop; its revocation is then proven at the end
+new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\nPAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; FAKE_PAT_CODE=401 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "temp token already 401 at the start: rc 0" "$OSRC" 0; has "temp token already 401: WARN, not a stop" "$(cat "$T/out")" "WARN: the temporary token is already invalid"; has "temp token already 401: both dead at the end" "$(cat "$T/out")" "both tokens are dead"
 new_world ok; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') run_os --merge-commit $M
 eq "temporary token pasted at the end (hidden prompt): rc" "$OSRC" 0; hasnt "pasted token is not echoed" "$(cat "$T/out")" PAT_FAKE_TEMP
 
@@ -344,6 +410,14 @@ eq "no key: release-tags applied without the DeployKey bypass" "$(jq -r '.repos[
 # S8: a foreign write deploy key: abort with NO change at all
 new_world foreign; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "foreign key: rc non-zero" "$((OSRC != 0))" 1; eq "foreign key: not a single write call" "$(writes)" 0; eq "foreign key: NO sudo" "$(sudo_calls)" 0; has "foreign key: says so" "$(cat "$T/out")" "NO change"
+# S8a: the DeployKey bypass is FAIL-CLOSED: a write key that appears after the preflight, or a failed write, puts the ruleset back WITHOUT the bypass and stops the run
+RTBYP='.repos["gun025bba/eve-serving"].rulesets[]|select(.name=="release-tags")|[.bypass_actors[].actor_type]|join(",")'
+new_world ok; FAKE_KEY_RACE=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "key race: rc non-zero" "$((OSRC != 0))" 1; has "key race: says fail-closed" "$(cat "$T/out")" "FAIL-CLOSED"; eq "key race: release-tags restored WITHOUT the DeployKey bypass" "$(jq -r "$RTBYP" "$T/fk/gh.json")" "RepositoryRole"; eq "key race: NO sudo" "$(sudo_calls)" 0
+new_world ok; FAKE_RT_FAIL=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "bypass write fails: rc non-zero" "$((OSRC != 0))" 1; has "bypass write fails: says fail-closed" "$(cat "$T/out")" "FAIL-CLOSED"; eq "bypass write fails: ruleset without the bypass" "$(jq -r "$RTBYP" "$T/fk/gh.json")" "RepositoryRole"
+new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "one key: the bypass stays" "$(jq -r "$RTBYP" "$T/fk/gh.json" | tr ',' '\n' | sort | tr '\n' ',')" "DeployKey,RepositoryRole,"
 # S8b: the eve-ios ruleset did not stick -> FAIL row, no sudo
 new_world ok; FAKE_IOS_NOAPPLY=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "ios not applied: rc non-zero" "$((OSRC != 0))" 1; has "ios not applied: FAIL row names eve-ios" "$(cat "$T/out")" "FAIL  gun025bba/eve-ios ruleset main-protect"; eq "ios not applied: NO sudo" "$(sudo_calls)" 0
@@ -421,7 +495,7 @@ cat >"$S/libexec/deploy" <<'FAKE'
 # stub entrypoint with the brake semantics (the real one is tested in run.sh): PAUSE refuses; version ending .99 = failing release (restore, blocklist, PAUSE)
 echo "deploy $*" >>"$SULOG"; st=$SUSTATE; v=$(cat "$SUSTATE_STAGED"); kind=gateway; cf=current_version; [ "$1" != deploy-web ] || { kind=web; cf=current_web_version; }
 [ ! -e "$st/PAUSE" ] || { echo "eve-deploy: deploys are PAUSED ($st/PAUSE exists)" >&2; exit 1; }
-case "$v" in *.99) echo "kind=$kind version=$v" >"$st/PAUSE"; echo "$kind $v" >>"$st/blocklist"; [ "${SU_STUB_NOLOG:-}" = 1 ] || echo "automatic rollback OK" >>"$SULOG_LOGF"; exit 1;; esac
+case "$v" in *.99) case "${SU_STUB_MUTATE:-}" in floor) echo 9.9.9 >"$st/floor";; blextra) echo "gateway 5.0.1" >>"$st/blocklist";; blwipe) : >"$st/blocklist";; esac; echo "kind=$kind version=$v" >"$st/PAUSE"; echo "$kind $v" >>"$st/blocklist"; [ "${SU_STUB_NOLOG:-}" = 1 ] || echo "automatic rollback OK" >>"$SULOG_LOGF"; exit 1;; esac
 [ "${SU_STUB_NOHOLD:-}" = 1 ] || true
 echo "$v" >"$st/$cf"
 FAKE
@@ -435,7 +509,7 @@ ME=$(id -un); MEG=$(id -gn)
 # a copy of the script whose pins match the sandbox sources
 cp "$SU" "$S/su.sh"; sed -i.bak -e "s/^SHA_POLL=.*/SHA_POLL=$(sha256 "$S/src/eve-poll")/" -e "s/^SHA_PLIST=.*/SHA_PLIST=$(sha256 "$S/src/com.llmserving.evepoll.plist.template")/" "$S/su.sh" && rm -f "$S/su.sh.bak"
 su_dbg() { [ -z "${UT_DEBUG:-}" ] || { echo "--- su out (rc $SURC)"; cat "$S/out"; }; }
-su_run() { ( env -i SU_STUB_NOLOG="${SU_STUB_NOLOG:-}" SU_SUDOERS_FILE="$S/sudoers/eve-deploy" PATH="$S/bin:/usr/bin:/bin" SUDB="$S/udb" SULOG="$S/log" SULOG_LOGF="$S/logf" SUSTATE="$S/state" SUSTATE_STAGED="$S/staged" SUSTATE_LOADED="$S/loaded" HOME="$S/home" TMPDIR="$T" \
+su_run() { ( env -i SU_STUB_NOLOG="${SU_STUB_NOLOG:-}" SU_STUB_MUTATE="${SU_STUB_MUTATE:-}" SU_SUDOERS_FILE="$S/sudoers/eve-deploy" PATH="$S/bin:/usr/bin:/bin" SUDB="$S/udb" SULOG="$S/log" SULOG_LOGF="$S/logf" SUSTATE="$S/state" SUSTATE_STAGED="$S/staged" SUSTATE_LOADED="$S/loaded" HOME="$S/home" TMPDIR="$T" \
     EVE_SKIP_ROOT=1 EVE_SKIP_OS=1 EVE_LIBEXEC="$S/libexec" EVE_STATE="$S/state" EVE_HOME_BASE="$S/home" EVE_LAUNCHD_DIR="$S/launchd" EVE_LOGF="$S/logf" EVE_OWNER="$ME:$MEG" \
     EVE_DSCL="$S/dscl" EVE_LAUNCHCTL="$S/launchctl" EVE_SUDO="$S/sudo" EVE_SRC_DIR="${SU_SRC_DIR-$S/src}" EVE_SUDOERS_D="$S/sudoers" bash "$S/su.sh" "$@" ) >"$S/out" 2>&1; SURC=$?; }
 : >"$S/log"
@@ -515,7 +589,7 @@ su_run unpause; eq "unpause after PASS: rc" "$SURC" 0; eq "unpause: PAUSE gone" 
 eq "low: unpause consumes rehearsal_ok" "$([ -f "$S/state/rehearsal_ok" ] && echo y || echo n)" n
 # low: the drill also checks both rollback verbs and the poller; a missing verb fails it BEFORE the test release
 echo "reason=initial" >"$S/state/PAUSE"; cp "$S/sudoers/eve-deploy" "$S/sudoers.keep"; sed -i.bak 's#, [^ ]*/deploy rollback-web##' "$S/sudoers/eve-deploy"; rm -f "$S/sudoers/eve-deploy.bak"; : >"$S/log"
-su_run rehearse gateway 5.0.99; eq "drill: no rollback-web verb for the deploy user: FAIL" "$SURC" 1; has "drill: says which" "$(cat "$S/out")" "rollback-web"
+: >"$S/state/blocklist"; su_run rehearse gateway 5.0.99; eq "drill: no rollback-web verb for the deploy user: FAIL" "$SURC" 1; has "drill: says which" "$(cat "$S/out")" "rollback-web"
 eq "drill FAIL: the test release was never run" "$(grep -c '^deploy' "$S/log")" 0; [ -e "$S/state/PAUSE" ] && ok || bad "drill FAIL: PAUSE stays"
 cp "$S/sudoers.keep" "$S/sudoers/eve-deploy"; rm -f "$S/sudoers.keep"
 echo "reason=initial" >"$S/state/PAUSE"; rm -f "$S/state/rehearsal_ok"; : >"$S/logf"
@@ -523,6 +597,21 @@ SU_STUB_NOLOG=1 su_run rehearse gateway 5.0.99; eq "rehearse: FAIL when the log 
 rm -f "$S/state/blocklist"; touch "$S/state/blocklist"
 echo "automatic rollback OK" >>"$S/logf"; su_run rehearse gateway 5.0.5; eq "rehearse: a release that DEPLOYS fine is a FAIL (it must fail its health check)" "$SURC" 1; eq "rehearse FAIL: PAUSE recreated by the safety trap" "$([ -f "$S/state/PAUSE" ] && echo y)" y
 rm -f "$S/state/rehearsal_ok"
+# security: rehearsal invariants (monotonic version, floor / live versions / blocklist unchanged except the one new line; a failed rehearsal never writes rehearsal_ok)
+cur_now=$(cat "$S/state/current_version"); echo "reason=initial" >"$S/state/PAUSE"; rm -f "$S/state/rehearsal_ok"; rm -f "$S/state/blocklist"; touch "$S/state/blocklist"; : >"$S/log"
+su_run rehearse gateway "$cur_now"; eq "rehearse inv: a test release EQUAL to the live version is refused" "$SURC" 1; has "rehearse inv: says why" "$(cat "$S/out")" "not higher than the live"
+su_run rehearse gateway 5.0.1; eq "rehearse inv: a LOWER test release is refused" "$SURC" 1; eq "rehearse inv: nothing was fetched or deployed" "$(grep -c . "$S/log")" 0
+echo "gateway 5.0.99" >"$S/state/blocklist"; su_run rehearse gateway 5.0.99; eq "rehearse inv: an already used test release is refused" "$SURC" 1; has "rehearse inv: says why" "$(cat "$S/out")" "already on the blocklist"
+echo "web 1.10.9" >"$S/state/blocklist"; echo "gateway 5.0.1" >>"$S/state/blocklist"; echo "automatic rollback OK" >>"$S/logf"
+SU_STUB_MUTATE=floor su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that moved the floor FAILS" "$SURC" 1; has "rehearse inv: says so" "$(cat "$S/out")" "state unchanged by the drill"; eq "rehearse inv: no rehearsal_ok" "$([ -f "$S/state/rehearsal_ok" ] && echo y || echo n)" n; echo 5.0.2 >"$S/state/floor"
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; rm -f "$S/state/PAUSE"; echo "reason=initial" >"$S/state/PAUSE"
+SU_STUB_MUTATE=blextra su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that added another blocklist line FAILS" "$SURC" 1; has "rehearse inv: says so" "$(cat "$S/out")" "gained exactly one line"
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; echo "reason=initial" >"$S/state/PAUSE"
+SU_STUB_MUTATE=blwipe su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that emptied the blocklist FAILS" "$SURC" 1
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; echo "reason=initial" >"$S/state/PAUSE"; : >"$S/log"
+su_run rehearse gateway 5.0.99; eq "rehearse inv: clean drill passes with existing blocklist lines" "$SURC" 0; eq "rehearse inv: old blocklist lines kept" "$(grep -cxE 'web 1.10.9|gateway 5.0.1' "$S/state/blocklist")" 2
+eq "rehearse inv: live version, floor untouched" "$(cat "$S/state/current_version")/$(cat "$S/state/floor")" "$cur_now/5.0.2"
+rm -f "$S/state/rehearsal_ok"; rm -f "$S/state/blocklist"; touch "$S/state/blocklist"
 su_run load; eq "load: rc" "$SURC" 0; eq "load: bootstrapped" "$([ -f "$S/loaded" ] && echo y)" y; su_run load; eq "load: idempotent" "$SURC" 0
 su_run verify; eq "verify: rc" "$SURC" 0; has "verify: INFO about PAUSE" "$(cat "$S/out")" "PAUSED"; hasnt "verify: no FAIL row" "$(cat "$S/out")" "  FAIL  "
 rm -f "$S/loaded"; su_run verify; eq "verify: not loaded is a FAIL" "$SURC" 1; has "verify: says poller loaded" "$(cat "$S/out")" "poller loaded"
