@@ -852,5 +852,10 @@ se_out=$(bash "$HERE/session-test.sh" 2>&1); se_rc=$?
 printf '%s\n' "$se_out" | tail -n 5
 eq "session tests" "$se_rc" 0
 
+# ---------------- calendar adapter installer (setup-pim-adapter.sh: verify + atomic install, fake cosign/codesign, offline) ----------------
+pa_out=$(bash "$HERE/pim-adapter-test.sh" 2>&1); pa_rc=$?
+printf '%s\n' "$pa_out" | tail -n 8
+eq "pim adapter tests" "$pa_rc" 0
+
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]

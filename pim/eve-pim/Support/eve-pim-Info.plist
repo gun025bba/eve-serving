@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Embedded into the eve-pim binary (-sectcreate __TEXT __info_plist) so TCC has a usage string for a bare CLI.
+     CALENDAR ONLY: any other usage description is rejected by a test, the build script and the installer. -->
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.eve.pim</string>
+<key>CFBundleName</key><string>eve-pim</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>NSCalendarsUsageDescription</key><string>Eve morning briefing reads your calendar (read-only).</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Eve morning briefing reads your calendar (read-only).</string>
+</dict></plist>

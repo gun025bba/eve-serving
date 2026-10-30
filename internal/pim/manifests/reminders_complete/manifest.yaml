@@ -1,0 +1,12 @@
+name: reminders_complete
+version: 1.0.0
+description: "Propose marking one existing reminder done, by the id returned from reminders_list. Nothing changes until the user approves the confirmation card; you only get status pending_confirmation back."
+scopes: [reminders.write]
+side_effect: write
+verbs: [update]
+taint_output: false
+egress: []
+secrets: []
+timeout: 5s
+max_result_chars: 1000
+exposure: {modes: [auto], max_per_turn: 2}
