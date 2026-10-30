@@ -1,0 +1,9 @@
+# Constants of release-tag.sh --repo eve-web (the UI repository). Read by release-tag.sh with a strict parser (KEY="value" lines only), never sourced.
+# Changing any line is a security-relevant change: it decides which repository is tagged, which key pushes, and which CI result gates the tag. Review it like the script itself.
+REPO="gun025bba/eve-web"
+REMOTE="git@github.com:gun025bba/eve-web.git"
+# the required check(s) of eve-web's main-protect, and the ONLY workflow file they may come from (the signing identity of the release is release.yml, which calls the gateway repo's deploy-sign.yml)
+CI_PATH=".github/workflows/test.yml"
+REQUIRED_CHECKS="test"
+# the web tag key is separate from the gateway's: $HOME/.eve-web-release-tagger/id_ed25519, registered as a write deploy key of eve-web only, titled eve-web-release-tagger
+KEY_DIRNAME=".eve-web-release-tagger"

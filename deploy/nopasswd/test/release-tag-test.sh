@@ -25,7 +25,7 @@ mkdir -p "$T/keys" "$T/bin" "$T/fix"; chmod 700 "$T/keys"
 # to the original (only the REMOTE line differs, in the real-git block).
 KH=$D/github_known_hosts
 mkcopy() { # mkcopy dir [remote]: a copy of the script (with the remote replaced when given) next to a copy of the known_hosts file
-  mkdir -p "$1"; cp "$KH" "$1/github_known_hosts"
+  mkdir -p "$1"; cp "$KH" "$1/github_known_hosts"; cp "$D/release-tag.eve-web.constants" "$1/release-tag.eve-web.constants"
   if [ -n "${2:-}" ]; then sed -e "s|^REMOTE=.*|REMOTE=\"$2\"|" "$REALSCRIPT" >"$1/release-tag.sh"; else cp "$REALSCRIPT" "$1/release-tag.sh"; fi
 }
 mkcopy "$T/rt"
@@ -48,7 +48,7 @@ cat >"$T/bin/git" <<'FAKE'
 #!/bin/bash
 # fake git: logs the arguments and the ssh command it was given; answers ls-remote from FAKE_MAIN_1/FAKE_MAIN_2 (first call / later calls) and FAKE_TAGS
 printf 'git %s | SSH=%s\n' "$*" "${GIT_SSH_COMMAND:-}" >>"$FAKE_LOG"
-while [ "${1:-}" = -c ]; do shift 2; done
+SC=0; while [ "${1:-}" = -c ] || [ "${1:-}" = -C ]; do [ "$1" = -C ] && SC=1; shift 2; done
 cmd=${1:-}; shift
 case "$cmd" in
   rev-parse)
@@ -58,8 +58,10 @@ case "$cmd" in
       *) exit 1 ;;
     esac ;;
   --version) echo "git version ${FAKE_GIT_VERSION:-2.47.3}"; exit 0 ;;
-  symbolic-ref) [ "${FAKE_BRANCH-main}" = "" ] && exit 1; echo "${FAKE_BRANCH:-main}"; exit 0 ;;
-  status) [ "${FAKE_DIRTY:-0}" = 1 ] && echo " M deploy/nopasswd/release-tag.sh"; exit 0 ;;
+  symbolic-ref) if [ "$SC" = 1 ]; then [ "${FAKE_SCRIPT_BRANCH-main}" = "" ] && exit 1; echo "${FAKE_SCRIPT_BRANCH:-main}"; exit 0; fi
+                [ "${FAKE_BRANCH-main}" = "" ] && exit 1; echo "${FAKE_BRANCH:-main}"; exit 0 ;;
+  status) if [ "$SC" = 1 ]; then [ "${FAKE_SCRIPT_DIRTY:-0}" = 1 ] && echo " M deploy/nopasswd/release-tag.eve-web.constants"; exit 0; fi
+          [ "${FAKE_DIRTY:-0}" = 1 ] && echo " M deploy/nopasswd/release-tag.sh"; exit 0 ;;
   ls-remote)
     case "$*" in
       *--get-url*) echo "${FAKE_GETURL:-$2}"; exit 0 ;;
@@ -237,6 +239,116 @@ case "$OUT" in *"'ssh' is not installed"*) ok;; *) bad "ssh missing: message nam
 # ---------------- the remote refuses the push ----------------
 reset_fixtures; run FAKE_PUSH_RC=1 -- 5.1.0; eq "push rejected: exit 1" "$RC" 1
 grep -q '^git tag -d v5.1.0' "$T/log" && ok || bad "push rejected: the local tag is removed again"; collect
+
+
+# ---------------- the eve-web profile: --repo eve-web, constants in release-tag.eve-web.constants ----------------
+RW=repos/gun025bba/eve-web
+CONSTS=$D/release-tag.eve-web.constants
+mkcopy "$T/rtw"
+WSCRIPT=$T/rtw/release-tag.sh
+wwfrun() { put "$RW/actions/runs/$1" "{\"id\":$1,\"path\":\"${3:-.github/workflows/test.yml}\",\"head_sha\":\"${2:-$SHA}\",\"repository\":{\"full_name\":\"${4:-gun025bba/eve-web}\"}}"; }
+wchecks() { local a x; a=""; for x in "$@"; do a="$a$(printf '%s' "$x" | jq -c '. + (if has("details_url") then {} else {details_url: "https://github.com/gun025bba/eve-web/actions/runs/\(.id)/job/1"} end)'),"; done; printf '{"total_count":%s,"check_runs":[%s]}' "$#" "${a%,}"; }
+WCK="$RW/commits/$SHA/check-runs?per_page=100"
+wreset() { rm -f "$T/fix"/* "$T/log" "$T/log.n" "$T/log.fetched"; wwfrun 10; put "$WCK" "$(wchecks "$okc")"; }
+wrun() { USE_SCRIPT=${USE_SCRIPT:-$WSCRIPT} run "$@"; }
+wrefuses() { local n=$1; shift; wrun "$@"; eq "web $n: refused (exit 1)" "$RC" 1; eq "web $n: no tag created" "$(tagged | tr -d ' ')" 0; eq "web $n: nothing pushed" "$(pushed | tr -d ' ')" 0; }
+wreset; wrun FAKE_TAGS="aaa\trefs/tags/v1.2.0\n" -- --repo eve-web 2.0.0
+eq "web happy: exit 0" "$RC" 0
+eq "web happy: one push, one annotated tag" "$(pushed | tr -d ' ')/$(tagged | tr -d ' ')" 1/1
+grep -q "^git push --no-verify git@github.com:gun025bba/eve-web.git refs/tags/v2.0.0:refs/tags/v2.0.0 | SSH=ssh -F /dev/null -i $KEY " "$T/log" && ok || bad "web happy: the push goes to the eve-web remote with exactly the tag refspec ($(grep '^git push' "$T/log"))"
+grep -q "^git ls-remote git@github.com:gun025bba/eve-web.git refs/heads/main" "$T/log" && ok || bad "web happy: main is read from the eve-web remote"
+eq "web happy: gh only reads eve-web (no eve-serving path at all), check runs and ONE workflow run (only the check 'test' is required)" "$(grep -c '^gh ' "$T/log")/$(grep '^gh ' "$T/log" | grep -c 'gun025bba/eve-web')/$(grep '^gh ' "$T/log" | grep -c 'eve-serving')" 2/2/0
+grep -q BAD "$T/log" && bad "web happy: gh/git misuse logged" || ok
+grep -q 'git -C .*symbolic-ref' "$T/log" && grep -q 'git -C .*status' "$T/log" && ok || bad "web happy: the checkout that holds the script is checked too"
+case "$OUT" in *"checks test passed"*) ok;; *) bad "web happy: message names the required check ($OUT)";; esac
+collect
+wreset; wrun -- --repo eve-web --dry-run 2.0.0; eq "web dry-run: exit 0, nothing pushed, no tag" "$RC/$(pushed | tr -d ' ')/$(tagged | tr -d ' ')" 0/0/0; collect
+wreset; wrun -- 2.0.0; eq "without --repo the default is eve-serving (its checks are missing here: refused)" "$RC" 1; collect
+reset_fixtures; run -- --repo eve-serving 5.1.0; eq "--repo eve-serving is the default profile" "$RC" 0
+grep -q "^git push --no-verify git@github.com:gun025bba/eve-serving.git refs/tags/v5.1.0:refs/tags/v5.1.0 | " "$T/log" && ok || bad "--repo eve-serving pushes to eve-serving"; collect
+for v in evil eve-ios gun025bba/eve-web EVE-WEB ""; do wreset; wrefuses "--repo '$v' is not allowed" -- --repo "$v" 2.0.0; collect; done
+wreset; wrefuses "--repo without a value" -- 2.0.0 --repo; wreset; wrefuses "--repo given twice" -- --repo eve-web --repo eve-serving 2.0.0
+wreset; wrefuses "--repo=eve-web (only the two-word form exists)" -- --repo=eve-web 2.0.0; collect
+# checks
+wreset; put "$WCK" "$(wchecks)"; wrefuses "no check at all" -- --repo eve-web 2.0.0
+wreset; put "$WCK" "$(wchecks '{"id":10,"name":"test","status":"completed","conclusion":"failure","app":{"slug":"github-actions"}}')"; wrefuses "check test failed" -- --repo eve-web 2.0.0
+wreset; put "$WCK" "$(wchecks '{"id":10,"name":"test","status":"in_progress","conclusion":null,"app":{"slug":"github-actions"}}')"; wrefuses "check test still running" -- --repo eve-web 2.0.0
+wreset; put "$WCK" "$(wchecks '{"id":10,"name":"test","status":"completed","conclusion":"success","app":{"slug":"other-app"}}')"; wrefuses "a success posted by another app" -- --repo eve-web 2.0.0
+wreset; wwfrun 10 "$SHA" .github/workflows/ci.yml; wrefuses "the check comes from ci.yml, not test.yml" -- --repo eve-web 2.0.0
+wreset; wwfrun 10 "$OLD"; wrefuses "the check belongs to a run of another commit" -- --repo eve-web 2.0.0
+wreset; wwfrun 10 "$SHA" .github/workflows/test.yml gun025bba/eve-serving; wrefuses "the check belongs to a run of another repository" -- --repo eve-web 2.0.0
+wreset; rm -f "$T/fix/$(fx "$WCK")"; wrefuses "an API error reading the checks" -- --repo eve-web 2.0.0
+wreset; rm -f "$T/fix/$(fx "$WCK")"; put "$R/commits/$SHA/check-runs?per_page=100" "$(checks "$okc" "$okm")"; wrefuses "only eve-serving's check runs exist (they are never looked at)" -- --repo eve-web 2.0.0
+# target, version, checkouts
+wreset; wrefuses "sha is not the main tip" -- --repo eve-web 2.0.0 "$OLD"
+wreset; wrefuses "main moved after the checks" FAKE_MAIN_2="$OLD" -- --repo eve-web 2.0.0
+wreset; wrefuses "version equal to the highest tag" FAKE_TAGS="a\trefs/tags/v2.0.0\n" -- --repo eve-web 2.0.0
+wreset; wrefuses "a malformed v* tag on the remote" FAKE_TAGS="a\trefs/tags/v1.2.0\nb\trefs/tags/v1.9.0-rc1\n" -- --repo eve-web 2.0.0
+wreset; wrun FAKE_TAGS="a\trefs/tags/v1.1.4\nb\trefs/tags/v1.2.0\n" -- --repo eve-web 1.10.2; eq "web: 1.10.2 is above 1.2.0 (numeric order)" "$RC" 0
+wreset; wrefuses "the clone being tagged is not on main" FAKE_BRANCH=feat/x -- --repo eve-web 2.0.0
+wreset; wrefuses "the clone being tagged is dirty" FAKE_DIRTY=1 -- --repo eve-web 2.0.0
+wreset; wrefuses "the checkout that holds the script is not on main" FAKE_SCRIPT_BRANCH=feat/x -- --repo eve-web 2.0.0
+wreset; wrefuses "the checkout that holds the script is detached" FAKE_SCRIPT_BRANCH= -- --repo eve-web 2.0.0
+wreset; wrefuses "the checkout that holds the script is dirty (an edited copy)" FAKE_SCRIPT_DIRTY=1 -- --repo eve-web 2.0.0
+wreset; wrefuses "git --get-url differs from the web remote" FAKE_GETURL=https://example.invalid/x.git -- --repo eve-web 2.0.0
+wreset; wrefuses "a clone that rewrites URLs" FAKE_URLREWRITE=0 -- --repo eve-web 2.0.0
+collect
+# the key: its own default path, never the gateway's
+mkdir -p "$T/home/.eve-web-release-tagger"; chmod 700 "$T/home/.eve-web-release-tagger"; cp "$KEY" "$T/home/.eve-web-release-tagger/id_ed25519"; chmod 600 "$T/home/.eve-web-release-tagger/id_ed25519"
+wreset; wrun EVE_RELEASE_TAG_KEY= -- --repo eve-web 2.0.0; eq "web: the default key is \$HOME/.eve-web-release-tagger/id_ed25519" "$RC" 0
+grep -q "SSH=ssh -F /dev/null -i $T/home/.eve-web-release-tagger/id_ed25519 -o IdentitiesOnly=yes" "$T/log" && ok || bad "web: the ssh command uses the web key"
+grep -q "release-tagger/id_ed25519 " "$T/log" && grep -q "/.eve-release-tagger/" "$T/log" && bad "web: the gateway key was used" || ok; collect
+rm -rf "$T/home/.eve-web-release-tagger"
+wreset; wrefuses "the web key is missing at its default path (the gateway key does not stand in for it)" EVE_RELEASE_TAG_KEY= -- --repo eve-web 2.0.0; collect
+# environment cannot move the web constants
+wreset; wrun EVE_REPO=evil/repo EVE_RELEASE_TAG_REMOTE=/tmp/evil.git EVE_RELEASE_TAG_CONSTANTS=/tmp/evil -- --repo eve-web 2.0.0; eq "web: env EVE_REPO/EVE_RELEASE_TAG_REMOTE/... are ignored" "$RC" 0
+grep -q 'evil' "$T/log" && bad "web: env value reached git/gh" || ok; collect
+# the constants file: strict parser, never sourced
+wc_try() { # wc_try name 'file content' : run the web profile with a patched copy of the constants file
+  local n=$1 c=$2; rm -rf "$T/rtc"; mkcopy "$T/rtc"; printf '%s\n' "$c" >"$T/rtc/release-tag.eve-web.constants"
+  wreset; USE_SCRIPT=$T/rtc/release-tag.sh; wrefuses "constants: $n" -- --repo eve-web 2.0.0; unset USE_SCRIPT; collect
+}
+GOOD=$(grep -v '^#' "$CONSTS" | grep .)
+wc_try "empty file" ""
+wc_try "REPO missing" "$(printf '%s\n' "$GOOD" | grep -v '^REPO=')"
+wc_try "REMOTE missing" "$(printf '%s\n' "$GOOD" | grep -v '^REMOTE=')"
+wc_try "CI_PATH missing" "$(printf '%s\n' "$GOOD" | grep -v '^CI_PATH=')"
+wc_try "REQUIRED_CHECKS missing" "$(printf '%s\n' "$GOOD" | grep -v '^REQUIRED_CHECKS=')"
+wc_try "KEY_DIRNAME missing" "$(printf '%s\n' "$GOOD" | grep -v '^KEY_DIRNAME=')"
+wc_try "an unknown key" "$GOOD
+EXTRA=\"1\""
+wc_try "a duplicate key" "$GOOD
+REPO=\"gun025bba/eve-web\""
+wc_try "another owner" "$(printf '%s\n' "$GOOD" | sed 's|gun025bba/eve-web"|evil/eve-web"|')"
+wc_try "REMOTE does not match REPO" "$(printf '%s\n' "$GOOD" | sed 's|^REMOTE=.*|REMOTE=\"git@github.com:gun025bba/eve-serving.git\"|')"
+wc_try "REMOTE over https" "$(printf '%s\n' "$GOOD" | sed 's|^REMOTE=.*|REMOTE=\"https://github.com/gun025bba/eve-web.git\"|')"
+wc_try "a workflow path outside .github/workflows" "$(printf '%s\n' "$GOOD" | sed 's|^CI_PATH=.*|CI_PATH=\"scripts/test.yml\"|')"
+wc_try "a workflow path with .." "$(printf '%s\n' "$GOOD" | sed 's|^CI_PATH=.*|CI_PATH=\".github/workflows/../x.yml\"|')"
+wc_try "a check list with a semicolon" "$(printf '%s\n' "$GOOD" | sed 's|^REQUIRED_CHECKS=.*|REQUIRED_CHECKS=\"test; id\"|')"
+wc_try "a key dir with a slash" "$(printf '%s\n' "$GOOD" | sed 's|^KEY_DIRNAME=.*|KEY_DIRNAME=\".ssh/../x\"|')"
+wc_try "a key dir without the leading dot" "$(printf '%s\n' "$GOOD" | sed 's|^KEY_DIRNAME=.*|KEY_DIRNAME=\"keys\"|')"
+wc_try "an unquoted value" "$(printf '%s\n' "$GOOD" | sed 's|^REQUIRED_CHECKS=.*|REQUIRED_CHECKS=test|')"
+wc_try "a trailing comment after a value" "$(printf '%s\n' "$GOOD" | sed 's|^REQUIRED_CHECKS=.*|REQUIRED_CHECKS=\"test\" # x|')"
+wc_try "an export prefix" "$(printf '%s\n' "$GOOD" | sed 's|^REPO=|export REPO=|')"
+MARK=$T/pwned; rm -f "$MARK"
+wc_try "a command substitution in a value" "$(printf '%s\n' "$GOOD" | sed "s|^REQUIRED_CHECKS=.*|REQUIRED_CHECKS=\"\$(touch $MARK)\"|")"
+wc_try "a backtick in a value" "$(printf '%s\n' "$GOOD" | sed "s|^REQUIRED_CHECKS=.*|REQUIRED_CHECKS=\"\\\`touch $MARK\\\`\"|")"
+wc_try "a shell command line" "$GOOD
+touch $MARK"
+[ ! -e "$MARK" ] && ok || bad "the constants file was executed"
+rm -rf "$T/rtc"; mkcopy "$T/rtc"; rm -f "$T/rtc/release-tag.eve-web.constants"; wreset; USE_SCRIPT=$T/rtc/release-tag.sh; wrefuses "constants file missing" -- --repo eve-web 2.0.0
+rm -rf "$T/rtc"; mkcopy "$T/rtc"; mv "$T/rtc/release-tag.eve-web.constants" "$T/rtc/real.constants"; ln -s "$T/rtc/real.constants" "$T/rtc/release-tag.eve-web.constants"; wreset; USE_SCRIPT=$T/rtc/release-tag.sh; wrefuses "constants file is a symlink" -- --repo eve-web 2.0.0; unset USE_SCRIPT; collect
+# a looser, valid file works: the parser accepts comments, blank lines and exactly the five keys
+rm -rf "$T/rtc"; mkcopy "$T/rtc"; { echo "# c"; echo; printf '%s\n' "$GOOD"; } >"$T/rtc/release-tag.eve-web.constants"; wreset; USE_SCRIPT=$T/rtc/release-tag.sh; wrun -- --repo eve-web 2.0.0; eq "constants: comments and blank lines are fine" "$RC" 0; unset USE_SCRIPT; collect
+# the shipped file
+eq "constants file: exactly the five keys, each once" "$(grep -v '^#' "$CONSTS" | grep . | sed 's/=.*//' | sort | tr '\n' ' ')" "CI_PATH KEY_DIRNAME REMOTE REPO REQUIRED_CHECKS "
+eq "constants file: eve-web repo and remote" "$(sed -n 's/^REPO="\(.*\)"$/\1/p;s/^REMOTE="\(.*\)"$/\1/p' "$CONSTS" | tr '\n' ' ')" "gun025bba/eve-web git@github.com:gun025bba/eve-web.git "
+eq "constants file: the check is the single required check of eve-web's main-protect, from test.yml" "$(sed -n 's/^REQUIRED_CHECKS="\(.*\)"$/\1/p' "$CONSTS")" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map(.context)|join(" ")' "$D/settings/main-protect.eve-web.json")"
+eq "constants file: the workflow path" "$(sed -n 's/^CI_PATH="\(.*\)"$/\1/p' "$CONSTS")" .github/workflows/test.yml
+eq "constants file: the web key is not the gateway key" "$(sed -n 's/^KEY_DIRNAME="\(.*\)"$/\1/p' "$CONSTS")" .eve-web-release-tagger
+eq "script: the constants file is never sourced, evaluated or exec-ed" "$(grep -cE '^[^#]*(^|[ ;(])(source|eval) |^[[:space:]]*\. [^ ]|bash -c' "$REALSCRIPT" | tr -d ' ')" 0
+eq "script: --repo accepts only eve-serving and eve-web" "$(grep -c 'case "\$PROFILE" in eve-serving|eve-web) ;; \*) die' "$REALSCRIPT")" 1
+eq "script: still exactly one git push" "$(grep -c '^[^#]*git push' "$REALSCRIPT")" 1
 
 # ---------------- the whole log of every scenario: only tag refs are ever pushed ----------------
 eq "some pushes happened in these tests" "$([ "$(grep -c '^git push' "$T/all.log")" -ge 4 ] && echo yes)" yes
