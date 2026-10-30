@@ -24,7 +24,7 @@ M=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const() { sed -n "s/^$1=\([^ ]*\).*/\1/p" "$2" | head -1; }
 
 # ---------------- static ----------------
-for f in eve-oneshot.sh setup-unattended.sh eve-poll pin-unattended.sh; do
+for f in eve-oneshot.sh eve-session.sh eve-measure.sh setup-unattended.sh eve-poll pin-unattended.sh; do
   [ -x "$D/$f" ] && ok || bad "$f must be executable"
   bash -n "$D/$f" && ok || bad "$f: bash -n"
   case "$(head -1 "$D/$f")" in "#!/bin/bash") ok;; *) bad "$f shebang";; esac
@@ -47,7 +47,7 @@ eq "pin: no 40-hex commit in a URL or pin in the shipped scripts and the README"
 eq "pin: installer SHA_DEPLOY = eve-deploy" "$(const SHA_DEPLOY "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-deploy")"
 eq "pin: installer SHA_FETCH = eve-fetch" "$(const SHA_FETCH "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-fetch")"
 # nothing that must never appear in the repository's new files
-for f in eve-oneshot.sh setup-unattended.sh eve-poll pin-unattended.sh release-tag.eve-web.constants launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
+for f in eve-oneshot.sh eve-session.sh eve-measure.sh setup-unattended.sh eve-poll pin-unattended.sh release-tag.eve-web.constants launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
   [ -f "$D/$f" ] || continue
   grep -nE 'Mac Studio|\.ts\.net|[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|gh[pousr]_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9]|BEGIN [A-Z ]*PRIVATE KEY' "$D/$f" | grep -v '127\.0\.0\.1' >/dev/null && bad "$f contains a forbidden string (product name, address, hostname or secret)" || ok
 done

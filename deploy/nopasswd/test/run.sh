@@ -711,7 +711,7 @@ for f in eve-deploy eve-fetch make-release.sh release-guard.sh setup-deploy-nopa
   bash -n "$D/$f" && ok || bad "$f syntax"
 done
 # nothing secret / host-specific in the deploy files
-if grep -rniE 'BEGIN [A-Z ]*PRIVATE|ghp_[A-Za-z0-9]{20}|github_pat_|xox[bp]-|AKIA[0-9A-Z]{16}|\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$D" --include='*' -I --exclude-dir=fixtures --exclude=trusted_root.json --exclude=run.sh --exclude=unattended-test.sh 2>/dev/null | grep -vE '127\.0\.0\.1|0\.0\.0\.0' | grep -q .; then bad "secret-looking or IP-looking text in deploy/nopasswd"; else ok; fi
+if grep -rniE 'BEGIN [A-Z ]*PRIVATE|ghp_[A-Za-z0-9]{20}|github_pat_|xox[bp]-|AKIA[0-9A-Z]{16}|\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$D" --include='*' -I --exclude-dir=fixtures --exclude=trusted_root.json --exclude=run.sh --exclude=unattended-test.sh --exclude=session-test.sh 2>/dev/null | grep -vE '127\.0\.0\.1|0\.0\.0\.0' | grep -q .; then bad "secret-looking or IP-looking text in deploy/nopasswd"; else ok; fi
 if grep -rliE 'ja[r]vis|자[비]스' "$REPO_ROOT/deploy/nopasswd" "$REPO_ROOT/.github/workflows" "$REPO_ROOT/docs/deploy-signing.md" 2>/dev/null | grep -q .; then bad "forbidden name present"; else ok; fi
 # ---- H-1 regression: the signing workflow has no fixture / bypass path, runs its guard first, and runs only main's scripts ----
 WFD=$REPO_ROOT/.github/workflows; WF=$WFD/deploy-sign.yml; WFF=$WFD/deploy-sign-fixture.yml; GUARD=$D/release-guard.sh
@@ -845,6 +845,12 @@ eq "mac-oneshot tests" "$mo_rc" 0
 ua_out=$(bash "$HERE/unattended-test.sh" 2>&1); ua_rc=$?
 printf '%s\n' "$ua_out" | tail -n 8
 eq "unattended tests" "$ua_rc" 0
+
+# ---------------- the release-day session and the read-only measurement (offline, fake sudo/gh/git) ----------------
+[ -x "$D/eve-session.sh" ] && [ -x "$D/eve-measure.sh" ] && ok || bad "eve-session.sh and eve-measure.sh must be executable"
+se_out=$(bash "$HERE/session-test.sh" 2>&1); se_rc=$?
+printf '%s\n' "$se_out" | tail -n 5
+eq "session tests" "$se_rc" 0
 
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]
