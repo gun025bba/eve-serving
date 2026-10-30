@@ -32,7 +32,7 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=fefb22545873c59ff1cebdd47bf6bdcafb4e0de5ed23781c41b13e29e4818796   # deploy/nopasswd/eve-oneshot.sh
+PIN_ONESHOT_SHA256=1b4bcd6216c31da48a8691d44c56af62484676bcebbb5cadfc0f44f92f5d7adf   # deploy/nopasswd/eve-oneshot.sh
 PIN_MEASURE_SHA256=dc1afc202d2baf3707c0597eaac1954df1a34234af706f8cbb1e6dd6b5aa3486   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
@@ -194,11 +194,8 @@ stage install 0.3
 if [ "$DRY" = 1 ]; then say "  DRY-RUN: bash eve-oneshot.sh --merge-commit $MERGE (its own dry run follows)"; bash "$D/eve-oneshot.sh" --dry-run --merge-commit "$MERGE" | sed 's/^/    /'
 elif [ "$FORCE_INSTALL" = 0 ] && [ "$(state_get oneshot)" = "$MERGE" ] && [ -n "$(live_ver gateway)" ]; then say "  the one-shot already ran for $MERGE and the entrypoint is installed: skipped (--force-install runs it again)"
 else
-  OSW=$(mktemp "$SESS_DIR/warn.XXXXXX") || die "cannot create a temp file in $SESS_DIR"
-  EVE_ONESHOT_WARN_FILE=$OSW bash "$D/eve-oneshot.sh" --merge-commit "$MERGE" || { rm -f "$OSW"; die "eve-oneshot.sh failed (its output above says which check; it is idempotent)"; }
+  bash "$D/eve-oneshot.sh" --merge-commit "$MERGE" || { rc=$?; die "eve-oneshot.sh failed (exit $rc). The cause is in the lines ABOVE the \"== 5.\" clean-up text: look for \"API ERROR\", \"FAIL\" or \"eve-oneshot:\" (that clean-up only closes the login). It is idempotent: re-run after the fix"; }
   state_put oneshot "$MERGE"
-  if [ -s "$OSW" ]; then state_put oneshot_warn temp-token; else state_put oneshot_warn none; fi   # a WARN of the one-shot (temporary token revocation not proven) is repeated in the table
-  rm -f "$OSW"
 fi
 
 # =========================================================== 4 switch
@@ -328,7 +325,6 @@ else
     [ "$GW_ON" = 0 ] || [ "$GW_FAIL" = 1 ] || row "gateway $REH_GW blocklisted" yes "$(sudo -n /usr/bin/grep -qxF "gateway $REH_GW" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
     row "web $REH_WV blocklisted" yes "$(sudo -n /usr/bin/grep -qxF "web $REH_WV" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
   fi
-  if [ "$(state_get oneshot_warn)" = temp-token ]; then printf '  %-4s  %-34s  %s\n' WARN "temporary token revocation" "not proven by the one-shot: check in GitHub settings that it is deleted (not a failure)"; fi
   say "  PAUSE: $(state_file_has PAUSE && echo present || echo absent)   rehearsal_ok: $(state_file_has rehearsal_ok && echo present || echo absent)"
   say "  setup-unattended.sh verify:"; su_ verify 2>&1 | sed 's/^/    /' || ROWS_BAD=$((ROWS_BAD + 1))
   [ "$ROWS_BAD" = 0 ] || die "$ROWS_BAD table row(s) FAIL: PAUSE is NOT released"

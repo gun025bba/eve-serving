@@ -51,13 +51,9 @@ the entrypoint rolls back by itself, and the table shows that the live version i
 Gates: 01 macOS on Apple silicon, 03 the trust chain of paths (root-owned, not group/world writable, no ACL, no symlink), 04 link swap with `mv -fh`, same volume and room to copy, 09 code signature of an existing gateway binary.
 Any gate that is FAIL **or UNKNOWN** skips the switch; the release continues over the existing root path. Contract of the script: exit 0 = switched, exit 10 = skipped itself (nothing changed), anything else stops the whole session.
 
-### The temporary-token proof is a WARN, the OAuth proof is not
+### Tokens in this session
 
-At its end `eve-oneshot.sh` makes you revoke the OAuth token of the run (you type `revoked`) and **proves it dead with HTTP 401: unchanged, a FAIL otherwise**. For the temporary token (the fine-grained token that opened the PR) it asks you to paste it, hidden:
-- GitHub answers 401: proven, nothing more to do.
-- Empty input (nothing pasted): **WARN** (the run is not stopped, exit 0). Follow-up: open the fine-grained tokens page and check that the token is gone from the list (delete it if not). `eve-session.sh` repeats it as a `WARN  temporary token revocation` row in its table (state key `oneshot_warn`, not a failure).
-- A token that was pasted but gets no clear 401 (200 still accepted, 403, 5xx, timeout, curl error): FAIL, as before.
-- A token that is already 401 when the run starts (`EVE_TEMP_TOKEN`): a WARN line instead of a stop.
+The OAuth login of the one-shot is revoked at the end of the install stage (you type `revoked`; HTTP 401 is the proof; otherwise the stage fails). The bot token that opens the PRs is **not** part of the session: it is a long-lived fine-grained token limited to the three repositories (eve-serving, eve-web, eve-ios), expiry 90 days at most (recommended: shorter), rotated by the owner. The session neither asks for it nor checks or proves its revocation. Details: `docs/runbooks/unattended-deploy.md`, section "The bot token".
 
 ### The rehearsal drill invariants (checked before and after)
 
