@@ -129,7 +129,7 @@ type Source struct {
 	URL       string `json:"url"`
 	Domain    string `json:"domain"`
 	Snippet   string `json:"snippet,omitempty"`
-	Published string `json:"published,omitempty"` // RFC 3339 (UTC), only when the search result carried a date
+	Published string `json:"published,omitempty"` // YYYY-MM-DD, only when the search result carried a plausible date (§13 Q9)
 	Fetched   bool   `json:"fetched"`
 	FinalURL  string `json:"final_url,omitempty"` // set when a fetch was redirected
 	SHA256    string `json:"-"`
@@ -340,12 +340,18 @@ func (s *Session) Allowed(rawURL string) bool { return s.allow[CanonURL(rawURL)]
 // CallsLeft reports whether another tool call is permitted.
 func (s *Session) CallsLeft() bool { return len(s.Calls) < s.d.Limits.MaxCalls }
 
-// publishedStr formats a result's publication time, "" when it has none.
-func publishedStr(t *time.Time) string {
+// publishedStr formats a result's publication date as YYYY-MM-DD. It is ""
+// when the result has none or the date is outside 2000-01-01 .. now+1 day
+// (§13 Q9): a wrong date is worse than none.
+func publishedStr(t *time.Time, now time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
 	}
-	return t.UTC().Format(time.RFC3339)
+	d := t.UTC()
+	if d.Year() < 2000 || d.After(now.Add(24*time.Hour)) {
+		return ""
+	}
+	return d.Format("2006-01-02")
 }
 
 func (s *Session) addSource(src Source) int {
@@ -616,11 +622,14 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 			}
 		}
 		s.allow[cu] = true // results of this request become fetchable
-		n := s.addSource(Source{Title: cleanText(r.Title), URL: r.URL, Snippet: cleanText(r.Snippet), Published: publishedStr(r.Published), CallSeq: c.Seq})
+		n := s.addSource(Source{Title: cleanText(r.Title), URL: r.URL, Snippet: cleanText(r.Snippet), Published: publishedStr(r.Published, s.d.Now()), CallSeq: c.Seq})
+		if containsN(c.Sources, n) {
+			continue // the same page twice in one result: one source, so count == len(sources) (§13 Q8)
+		}
 		c.Sources = append(c.Sources, n)
 		items = append(items, item{n, cleanText(r.Title), r.URL, cleanText(r.Snippet)})
 	}
-	c.Status, c.ResultCount = "ok", len(items)
+	c.Status, c.ResultCount = "ok", len(c.Sources)
 	c.Blocked = blocked
 	body := map[string]any{"results": items}
 	if blocked > 0 {
@@ -630,6 +639,15 @@ func (s *Session) search(ctx context.Context, c *Call, a map[string]any) string 
 		body["removed"] = removed // count only
 	}
 	return s.budget(WrapUntrusted("web_search", "", mustJSON(body)))
+}
+
+func containsN(a []int, n int) bool {
+	for _, x := range a {
+		if x == n {
+			return true
+		}
+	}
+	return false
 }
 
 // markSuspect records a removed result: the call keeps the rule ids, the
