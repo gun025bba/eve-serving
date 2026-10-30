@@ -27,8 +27,13 @@ MYUID=$(id -u); MYGID=$(id -g)
 # ================= 0. static: the same trust root as the entrypoint, nothing new in the privileged surface =================
 for k in OIDC_ISSUER SIGNER_IDENTITY SIGNER_TRIGGER TRUSTED_ROOT_SHA256; do eq "constant $k = the entrypoint's" "$(const $k "$PA")" "$(const $k "$D/eve-deploy")"; done
 eq "constant COSIGN_SHA256S = the entrypoint's" "$(sed -n 's/^COSIGN_SHA256S="\(.*\)"$/\1/p' "$PA")" "$(sed -n 's/^COSIGN_SHA256S="\(.*\)"$/\1/p' "$D/eve-deploy")"
-case "$(const PIM_SHA "$PA")" in ????????????????????????????????????????) ok;; *) bad "PIM_SHA is not 40 characters";; esac
-case "$(const PIM_SHA "$PA")" in *[!0123456789abcdef]*|"") bad "PIM_SHA is not lowercase hex";; *) ok;; esac
+case "$(const PIM_TREE "$PA")" in ????????????????????????????????????????) ok;; *) bad "PIM_TREE is not 40 characters";; esac
+case "$(const PIM_TREE "$PA")" in *[!0123456789abcdef]*|"") bad "PIM_TREE is not lowercase hex";; *) ok;; esac
+eq "the commit-SHA pin is gone (a commit that is not on main cannot be the pin)" "$(grep -v '^ *#' "$PA" | grep -c 'PIM_SHA\|pim_sha=')" 0
+case "$(const PIM_SIGNING_CI "$PA")" in yes|no) ok;; *) bad "PIM_SIGNING_CI must be yes or no";; esac
+eq "cosign is bound to the release commit (--certificate-github-workflow-sha)" "$(grep -c -- '--certificate-github-workflow-sha "\$3"' "$PA")" 1
+# the pin is the tree hash of pim/eve-pim at the reviewed commit, when this checkout has it
+if command -v git >/dev/null 2>&1 && git -C "$HERE" cat-file -e 19cb222a0951ba95c6c7d8b28861143feb8591b7 2>/dev/null; then eq "PIM_TREE = git tree of pim/eve-pim at the reviewed commit" "$(const PIM_TREE "$PA")" "$(git -C "$HERE" rev-parse 19cb222a0951ba95c6c7d8b28861143feb8591b7:pim/eve-pim)"; fi
 eq "no sudoers file or verb is written by the adapter installer" "$(grep -v '^ *#' "$PA" | grep -c 'sudoers')" 0
 eq "no ssh key / ssh-keygen in the adapter installer (Sigstore only)" "$(grep -v '^ *#' "$PA" | grep -c 'ssh-keygen\|allowed_signers')" 0
 eq "curl is https-only" "$(grep -c -- "--proto '=https'" "$PA")" 1
@@ -39,8 +44,23 @@ eq "flags are only ever added as false" "$(grep -v "^ *#" "$PA" | grep -c "GW_PI
 
 # shellcheck source=setup-pim-adapter.sh
 EVE_PIM_LIB_ONLY=1 . "$PA" || { echo "cannot source the adapter installer"; exit 1; }
-SHA_PIN=$PIM_SHA
+SHA_PIN=$PIM_TREE
+REL_SHA=$(printf 'd%.0s' $(seq 1 40))   # the commit the release tag points to (manifest release_sha)
+OTHER_REL=$(printf 'e%.0s' $(seq 1 40))
 VERSION=5.1.0
+# ---------------- the guard: refuse until CI signs the adapter ----------------
+SAVE_G=$PIM_SIGNING_CI
+PIM_SIGNING_CI=no; no_ "guard: PIM_SIGNING_CI=no refuses" require_signing_ci; has "guard: the reason is shown" "$(require_signing_ci 2>&1)" "CI does not sign and publish the calendar adapter yet"
+PIM_SIGNING_CI=""; no_ "guard: empty refuses" require_signing_ci
+PIM_SIGNING_CI=maybe; no_ "guard: anything but yes refuses" require_signing_ci
+PIM_SIGNING_CI=yes; yes_ "guard: yes passes" require_signing_ci
+PIM_SIGNING_CI=$SAVE_G
+# the shipped value: when it is "no", a real run (not sourced) must stop at the guard before touching anything
+if [ "$SAVE_G" = no ]; then
+  out=$(bash "$PA" --version 5.1.0 2>&1); rc=$?
+  eq "guard: the script run for real exits 3 while PIM_SIGNING_CI=no" "$rc" 3
+  has "guard: the script run for real says why" "$out" "Nothing was downloaded or changed"
+fi
 yes_ "version 5.1.0" is_ver 5.1.0
 no_ "version 5.1" is_ver 5.1
 no_ "version 5.1.0.rc1" is_ver 5.1.0.rc1
@@ -61,6 +81,8 @@ echo "$@" >"$COSARGS_FILE"
 [ "$1" = verify-blob ] || exit 2
 b=""; prev=""; for a; do [ "$prev" = --bundle ] && b=$a; prev=$a; done; for last; do :; done
 grep -q BADSIG "$b" && { echo "Error: none of the expected identities matched" >&2; exit 1; }
+w=""; prev=""; for a; do [ "$prev" = --certificate-github-workflow-sha ] && w=$a; prev=$a; done
+[ -n "$w" ] && [ "$(sed -n 's/^sha=//p' "$b")" = "$w" ] || { echo "Error: expected SHA does not match the certificate" >&2; exit 1; }
 [ "$(sed -n 's/^signed=//p' "$b")" = "$(shin <"$last")" ] || { echo "Error: invalid signature when validating ASN.1 encoded signature" >&2; exit 1; }
 exit 0
 STUB
@@ -100,11 +122,11 @@ fake() { # $1 name $2 payload [extra marker lines...]
   local n=$1 p=$2; shift 2
   { echo "NSCalendarsUsageDescription"; echo "ENT=com.apple.security.personal-information.calendars"; echo "PAYLOAD-$p"; for m in "$@"; do echo "$m"; done; } >"$T/in/$n"
 }
-bundle() { # $1 name: Sigstore bundle "signed" over exactly the bytes of $T/in/$1.MANIFEST
-  printf 'signed=%s\n' "$(sha256 "$T/in/$1.MANIFEST")" >"$T/in/$1.sigstore.json"
+bundle() { # $1 name [$2 commit the certificate carries, default REL_SHA]: Sigstore bundle "signed" over exactly the bytes of $T/in/$1.MANIFEST
+  printf 'signed=%s\nsha=%s\n' "$(sha256 "$T/in/$1.MANIFEST")" "${2:-$REL_SHA}" >"$T/in/$1.sigstore.json"
 }
-manifest() { # $1 name $2 pim_sha $3 pim_sha256 -> manifest + bundle
-  printf 'eve-pim-manifest=1\npim_sha=%s\npim_sha256=%s\n' "$2" "$3" >"$T/in/$1.MANIFEST"; bundle "$1"
+manifest() { # $1 name $2 pim_tree $3 pim_sha256 [$4 release_sha, default REL_SHA] -> manifest + bundle
+  printf 'eve-pim-manifest=1\nrelease_sha=%s\npim_tree=%s\npim_sha256=%s\n' "${4:-$REL_SHA}" "$2" "$3" >"$T/in/$1.MANIFEST"; bundle "$1"
 }
 build() { local n=$1; fake "$@"; manifest "$n" "$SHA_PIN" "$(sha256 "$T/in/$n")"; }
 point_at() { # $1 base dir: fresh installed-state directory tree
@@ -121,35 +143,40 @@ do_install() { ( newwork "$@"; verify_inputs "$WORK/in.MANIFEST" "$WORK/in.sigst
 leftovers() { ls -A "$PIM_DIR" | grep -c '\.new\.'; }
 
 # ================= 1. manifest format (parse_manifest) =================
-H40=$(printf 'a%.0s' $(seq 1 40)); H64=$(printf 'c%.0s' $(seq 1 64))
+H40=$(printf 'a%.0s' $(seq 1 40)); R40=$(printf 'f%.0s' $(seq 1 40)); H64=$(printf 'c%.0s' $(seq 1 64))
 pm() { printf "$1" >"$T/m"; parse_manifest "$T/m"; }
-yes_ "good manifest" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64\n"
-yes_ "no trailing newline" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64"
-yes_ "any order" pm "pim_sha256=$H64\neve-pim-manifest=1\npim_sha=$H40\n"
-eq "parsed pim_sha" "$P_SHA" "$H40"; eq "parsed pim_sha256" "$P_SHA256" "$H64"
-no_ "pim_sha uppercase" pm "eve-pim-manifest=1\npim_sha=$(echo $H40 | tr a A)\npim_sha256=$H64\n"
-no_ "pim_sha 39 hex" pm "eve-pim-manifest=1\npim_sha=${H40%?}\npim_sha256=$H64\n"
-no_ "pim_sha 41 hex" pm "eve-pim-manifest=1\npim_sha=${H40}a\npim_sha256=$H64\n"
-no_ "pim_sha not hex" pm "eve-pim-manifest=1\npim_sha=${H40%?}g\npim_sha256=$H64\n"
-no_ "pim_sha short ref" pm "eve-pim-manifest=1\npim_sha=6ce1993\npim_sha256=$H64\n"
-no_ "pim_sha empty" pm "eve-pim-manifest=1\npim_sha=\npim_sha256=$H64\n"
-no_ "pim_sha with space" pm "eve-pim-manifest=1\npim_sha=${H40} \npim_sha256=$H64\n"
-no_ "CR line ends" pm "eve-pim-manifest=1\r\npim_sha=$H40\r\npim_sha256=$H64\r\n"
-no_ "pim_sha256 63 hex" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=${H64%?}\n"
-no_ "pim_sha256 uppercase" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$(echo $H64 | tr c C)\n"
-no_ "pim_sha256 40 hex" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H40\n"
-no_ "missing version line" pm "pim_sha=$H40\npim_sha256=$H64\n"
-no_ "missing pim_sha256" pm "eve-pim-manifest=1\npim_sha=$H40\n"
-no_ "wrong version" pm "eve-pim-manifest=2\npim_sha=$H40\npim_sha256=$H64\n"
-no_ "extra line" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64\nnote=x\n"
-no_ "extra blank line" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64\n\n"
-no_ "duplicate key" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha=$H40\n"
-no_ "unknown key" pm "eve-pim-manifest=1\npim_sha=$H40\nsha256=$H64\n"
-no_ "line without =" pm "eve-pim-manifest=1\npim_sha=$H40\n$H64\n"
-no_ "NUL byte" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64\n\000"
+yes_ "good manifest" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n"
+yes_ "no trailing newline" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64"
+yes_ "any order" pm "pim_sha256=$H64\neve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\n"
+eq "parsed pim_tree" "$P_TREE" "$H40"; eq "parsed release_sha" "$P_REL" "$R40"; eq "parsed pim_sha256" "$P_SHA256" "$H64"
+no_ "pim_tree uppercase" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$(echo $H40 | tr a A)\npim_sha256=$H64\n"
+no_ "pim_tree 39 hex" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=${H40%?}\npim_sha256=$H64\n"
+no_ "pim_tree 41 hex" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=${H40}a\npim_sha256=$H64\n"
+no_ "pim_tree not hex" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=${H40%?}g\npim_sha256=$H64\n"
+no_ "pim_tree short ref" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=6ce1993\npim_sha256=$H64\n"
+no_ "pim_tree empty" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=\npim_sha256=$H64\n"
+no_ "pim_tree with space" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=${H40} \npim_sha256=$H64\n"
+no_ "CR line ends" pm "eve-pim-manifest=1\r\nrelease_sha=$R40\npim_tree=$H40\r\npim_sha256=$H64\r\n"
+no_ "pim_sha256 63 hex" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=${H64%?}\n"
+no_ "pim_sha256 uppercase" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$(echo $H64 | tr c C)\n"
+no_ "pim_sha256 40 hex" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H40\n"
+no_ "missing version line" pm "release_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "missing release_sha" pm "eve-pim-manifest=1\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "release_sha uppercase" pm "eve-pim-manifest=1\nrelease_sha=$(echo $R40 | tr f F)\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "release_sha 39 hex" pm "eve-pim-manifest=1\nrelease_sha=${R40%?}\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "old 3-line commit manifest (pim_sha)" pm "eve-pim-manifest=1\npim_sha=$H40\npim_sha256=$H64\n"
+no_ "duplicate release_sha" pm "eve-pim-manifest=1\nrelease_sha=$R40\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "missing pim_sha256" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\n"
+no_ "wrong version" pm "eve-pim-manifest=2\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n"
+no_ "extra line" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\nnote=x\n"
+no_ "extra blank line" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n\n"
+no_ "duplicate key" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\nrelease_sha=$R40\npim_tree=$H40\n"
+no_ "unknown key" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\nsha256=$H64\n"
+no_ "line without =" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\n$H64\n"
+no_ "NUL byte" pm "eve-pim-manifest=1\nrelease_sha=$R40\npim_tree=$H40\npim_sha256=$H64\n\000"
 no_ "empty file" pm ""
 no_ "missing file" parse_manifest "$T/nonexistent"
-printf 'eve-pim-manifest=1\npim_sha=%s\npim_sha256=%s\n' "$H40" "$H64" >"$T/m"; ln -sf "$T/m" "$T/m.link"
+printf 'eve-pim-manifest=1\nrelease_sha=%s\npim_tree=%s\npim_sha256=%s\n' "$R40" "$H40" "$H64" >"$T/m"; ln -sf "$T/m" "$T/m.link"
 no_ "symlinked manifest" parse_manifest "$T/m.link"
 head -c 2000 /dev/zero | tr '\0' 'a' >"$T/m.big"; no_ "oversized manifest" parse_manifest "$T/m.big"
 
@@ -168,7 +195,7 @@ build good one
 yes_ "good inputs verify" do_verify good
 has "good: log says signature OK and hash matched" "$(cat "$T/out")" "manifest signature OK"
 has "good: the command is cosign verify-blob" "$(cat "$T/cosargs")" "verify-blob"
-for want in "--bundle $T/work" "--trusted-root $TRUSTED_ROOT" "--certificate-oidc-issuer $OIDC_ISSUER" "--certificate-identity $SIGNER_IDENTITY" "--certificate-github-workflow-repository $REPO" "--certificate-github-workflow-ref refs/tags/v5.1.0" "--certificate-github-workflow-trigger push"; do
+for want in "--bundle $T/work" "--trusted-root $TRUSTED_ROOT" "--certificate-oidc-issuer $OIDC_ISSUER" "--certificate-identity $SIGNER_IDENTITY" "--certificate-github-workflow-repository $REPO" "--certificate-github-workflow-ref refs/tags/v5.1.0" "--certificate-github-workflow-sha $REL_SHA" "--certificate-github-workflow-trigger push"; do
   has "cosign arg: $want" "$(cat "$T/cosargs")" "$want"
 done
 eq "cosign has no key / insecure / tlog-skip flag" "$(grep -c -e '--key' -e 'insecure' -e 'skip' -e 'private-infrastructure' "$T/cosargs")" 0
@@ -177,15 +204,22 @@ VERSION=5.2.0; yes_ "verify for another tag (stub accepts)" do_verify good; has 
 # signature failures
 build badsig two; echo BADSIG >>"$T/in/badsig.sigstore.json"
 no_ "signature by another identity" do_verify badsig; has "badsig: reason shown" "$(cat "$T/out")" "manifest signature verification FAILED"
-build swapped three; printf 'eve-pim-manifest=1\npim_sha=%s\npim_sha256=%s\n' "$OTHER_SHA" "$(sha256 "$T/in/swapped")" >"$T/in/swapped.MANIFEST"
+build swapped three; printf 'eve-pim-manifest=1\nrelease_sha=%s\npim_tree=%s\npim_sha256=%s\n' "$REL_SHA" "$OTHER_SHA" "$(sha256 "$T/in/swapped")" >"$T/in/swapped.MANIFEST"
 no_ "manifest changed after signing" do_verify swapped
 build sigfail four; SAVE_CS=$COSIGN_SHA256S; COSIGN_SHA256S=$H64; no_ "unpinned cosign: nothing verified" do_verify sigfail; COSIGN_SHA256S=$SAVE_CS
 # malformed manifest (signed, but the wrong shape)
-fake mal one; printf 'eve-pim-manifest=1\npim_sha=%s\npim_sha256=%s\nnote=x\n' "$SHA_PIN" "$(sha256 "$T/in/mal")" >"$T/in/mal.MANIFEST"; bundle mal
+fake mal one; printf 'eve-pim-manifest=1\nrelease_sha=%s\npim_tree=%s\npim_sha256=%s\nnote=x\n' "$REL_SHA" "$SHA_PIN" "$(sha256 "$T/in/mal")" >"$T/in/mal.MANIFEST"; bundle mal
 no_ "signed but malformed manifest" do_verify mal; has "malformed: reason" "$(cat "$T/out")" "manifest malformed"
-# a validly signed manifest for ANOTHER source commit
-fake othercommit one; manifest othercommit "$OTHER_SHA" "$(sha256 "$T/in/othercommit")"
-no_ "signed manifest for another source commit" do_verify othercommit; has "other commit: reason" "$(cat "$T/out")" "not the pinned, security-reviewed adapter commit"
+# a validly signed manifest for ANOTHER source tree
+fake othertree one; manifest othertree "$OTHER_SHA" "$(sha256 "$T/in/othertree")"
+no_ "signed manifest for another source tree" do_verify othertree; has "other tree: reason" "$(cat "$T/out")" "not the pinned, security-reviewed pim/eve-pim source tree"
+# the certificate must be bound to the commit the manifest names: a signature made at another commit (a tag moved, or a manifest copied from another run) is refused
+fake bind one; manifest bind "$SHA_PIN" "$(sha256 "$T/in/bind")"; bundle bind "$OTHER_REL"
+no_ "certificate commit differs from the manifest's release_sha" do_verify bind; has "bind: reason" "$(cat "$T/out")" "manifest signature verification FAILED"
+fake bind2 one; manifest bind2 "$SHA_PIN" "$(sha256 "$T/in/bind2")" "$OTHER_REL"
+no_ "manifest names a commit the certificate does not carry" do_verify bind2
+fake bind3 one; manifest bind3 "$SHA_PIN" "$(sha256 "$T/in/bind3")" "$OTHER_REL"; bundle bind3 "$OTHER_REL"
+yes_ "manifest and certificate agree on another commit: verifies, and cosign got that commit" do_verify bind3; has "bind3: cosign arg follows the manifest" "$(cat "$T/cosargs")" "--certificate-github-workflow-sha $OTHER_REL"
 # hash mismatch: manifest signed for one binary, another presented
 fake other two; no_ "binary differs from the manifest" do_verify good other; has "hash mismatch message" "$(cat "$T/out")" "does not match the manifest"
 # code-signature rules

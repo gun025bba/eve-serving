@@ -8,7 +8,7 @@
 #
 #   --dry-run                 print every step and API call; change nothing, ask nothing, no login, no sudo, no network
 #   --merge-commit SHA        the commit on main that contains the reviewed files (required for a real run)
-#   --calendar-adapter X.Y.Z  install the PIM calendar adapter (eve-pim) of the signed release vX.Y.Z in the same sudo session (setup-pim-adapter.sh: verifies the Sigstore-signed manifest, installs to root-owned /opt/eve-pim/bin,
+#   --calendar-adapter X.Y.Z  [REFUSED until CI signs the adapter: the pinned setup-pim-adapter.sh carries PIM_SIGNING_CI=no] install the PIM calendar adapter (eve-pim) of the signed release vX.Y.Z in the same sudo session (setup-pim-adapter.sh: verifies the Sigstore-signed manifest, installs to root-owned /opt/eve-pim/bin,
 #                             asks YOU for one calendar prompt on the Mac screen; flags stay off; PAUSE stays). Runs after the installer and before the deploys below. Re-run the same command if the prompt was not answered in time.
 #   --gateway-deploy X.Y.Z    today's SUPERVISED gateway deploy (kind=gateway release already tagged and signed), like --web-deploy; BEFORE PAUSE is set
 #   --web-deploy X.Y.Z        today's SUPERVISED web deploy (kind=web release already tagged and signed); done inside the sudo session, BEFORE PAUSE is set
@@ -39,7 +39,7 @@ TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
 PIN_UNATTENDED_SHA256=6e946c5d18547f629e0eda8340103e32693579c38a33f0d500066d130abe12c1  # deploy/nopasswd/setup-unattended.sh
-PIN_PIMADAPTER_SHA256=31a080e1fbed4f44099bd9b4cc9df990144fbb560e2359202cedf3b016b758fc  # deploy/nopasswd/setup-pim-adapter.sh (fetched and run only with --calendar-adapter)
+PIN_PIMADAPTER_SHA256=7592219ad2781aef869a3268b6e3dedba1a21809174b1519195367e40d630d1b  # deploy/nopasswd/setup-pim-adapter.sh (fetched and run only with --calendar-adapter)
 PIN_SETTINGS_SHA256=9fc392df1c57b0df2637f5db42010340db389671e3cd10154558b6081a4a102e    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
@@ -183,7 +183,7 @@ step_pins() {
   if [ "$DRY" = 1 ]; then
     say "  DRY-RUN GET https://api.github.com/repos/{serving}/commits/<merge>, compare/<merge>...main (status identical|ahead), commits/<merge>/pulls (merged PR, base main)"
     say "  DRY-RUN download setup-deploy-nopasswd.sh, setup-unattended.sh, settings/SHA256SUMS and the settings files at <merge>; require sha256: installer=$PIN_INSTALLER_SHA256 unattended=$PIN_UNATTENDED_SHA256 settings-manifest=$PIN_SETTINGS_SHA256"
-    if [ -n "$PIM_VER" ]; then say "  DRY-RUN download setup-pim-adapter.sh at <merge>; require sha256: pim-adapter=$PIN_PIMADAPTER_SHA256"; fi
+    if [ -n "$PIM_VER" ]; then say "  DRY-RUN download setup-pim-adapter.sh at <merge>; require sha256: pim-adapter=$PIN_PIMADAPTER_SHA256; require PIM_SIGNING_CI=yes in it (a real run is refused before login/sudo otherwise)"; fi
     say "  DRY-RUN GET repos/{serving,web}: private must be false (the poller reads releases/latest without a token)"
     return 0
   fi
@@ -202,6 +202,8 @@ step_pins() {
   if [ -n "$PIM_VER" ]; then
     PIM_TEXT=$(pub_get "$RAW/$MERGE/deploy/nopasswd/setup-pim-adapter.sh")
     [ "$(printf '%s\n' "$PIM_TEXT" | sha_of)" = "$PIN_PIMADAPTER_SHA256" ] || die "setup-pim-adapter.sh sha256 does not match the pin: NOT running anything"
+    # the pinned text itself says whether CI signs the adapter yet; until it does nothing may log in, ask for sudo or download (the root script refuses too)
+    printf '%s\n' "$PIM_TEXT" | grep -qx 'PIM_SIGNING_CI=yes' || die "--calendar-adapter refused: CI does not sign and publish the calendar adapter yet (a separate, security-reviewed PR enables it). NOT running anything"
   fi
   pub_get "$RAW/$MERGE/deploy/nopasswd/settings/SHA256SUMS" >"$SETTINGS/SHA256SUMS"; [ "$(sha_of <"$SETTINGS/SHA256SUMS")" = "$PIN_SETTINGS_SHA256" ] || die "settings manifest sha256 does not match the pin"
   for f in $SETTINGS_FILES; do

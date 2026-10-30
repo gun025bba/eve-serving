@@ -231,7 +231,7 @@ PY
 }
 run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary token)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
-  ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="$D" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
+  ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="${FAKE_WT_DIR:-$D}" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
       ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
       ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
@@ -331,6 +331,24 @@ new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --reh
 eq "rehearse: rc" "$OSRC" 0; eq "rehearse: args" "$(grep -E '^ARG(7|8|9) ' "$T/fk/sudo.log" | awk '{print $3}' | tr '\n' ' ')" "- gateway 5.0.9 " 2>/dev/null || true
 eq "rehearse: unpause flag is the last argument" "$(grep '^ARG10 ' "$T/fk/sudo.log" | awk '{print $3}')" 1
 
+# calendar adapter guard: the shipped adapter installer says PIM_SIGNING_CI=no (CI cannot sign the adapter yet), so --calendar-adapter is refused BEFORE login, settings, sudo
+case "$(const PIM_SIGNING_CI "$D/setup-pim-adapter.sh")" in
+  no)
+    new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --calendar-adapter 5.1.0 --gateway-deploy 5.1.0
+    eq "pim guard: refused (rc non-zero)" "$((OSRC != 0))" 1
+    has "pim guard: the reason is shown" "$(cat "$T/out")" "--calendar-adapter refused: CI does not sign and publish the calendar adapter yet"
+    eq "pim guard: no sudo call" "$(sudo_calls)" 0
+    eq "pim guard: no GitHub call (no login, no settings)" "$(wc -l <"$T/fk/gh.log" | tr -d ' ')" 0
+    eq "pim guard: the same run without the option is not affected" "$(new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M; echo $OSRC)" 0;;
+  yes) ok;;
+  *) bad "PIM_SIGNING_CI must be yes or no";;
+esac
+# the flow tests below need the adapter ENABLED: a copy of the tree whose adapter installer says yes, with the one-shot's pin of that file recomputed
+YW=$T/yes-wt; rm -rf "$YW"; mkdir -p "$YW"; ( cd "$D" && tar --exclude=./test -cf - . ) | ( cd "$YW" && tar -xf - )
+sed 's/^PIM_SIGNING_CI=.*/PIM_SIGNING_CI=yes/' "$D/setup-pim-adapter.sh" >"$YW/setup-pim-adapter.sh.tmp" && mv "$YW/setup-pim-adapter.sh.tmp" "$YW/setup-pim-adapter.sh"; chmod 755 "$YW/setup-pim-adapter.sh"
+sed "s/^PIN_PIMADAPTER_SHA256=[0-9a-f]*/PIN_PIMADAPTER_SHA256=$(sha256 "$YW/setup-pim-adapter.sh")/" "$D/eve-oneshot.sh" >"$YW/eve-oneshot.sh.tmp" && mv "$YW/eve-oneshot.sh.tmp" "$YW/eve-oneshot.sh"
+OS_REAL=$OS; D_REAL=$D; OS=$YW/eve-oneshot.sh; FAKE_WT_DIR=$YW; D=$YW
+
 # calendar adapter + gateway deploy: the checked text and the versions reach the session; the adapter is fetched ONLY when asked for
 new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --calendar-adapter 5.1.0 --gateway-deploy 5.1.0 --web-deploy 1.10.3
 eq "pim: rc" "$OSRC" 0
@@ -348,6 +366,7 @@ new_world ok; FAKE_TAMPER=setup-pim-adapter.sh TEMP=PAT_FAKE_TEMP_TOKEN_01234567
 eq "pim: a tampered adapter file: rc non-zero" "$((OSRC != 0))" 1; has "pim: tampered adapter file named" "$(cat "$T/out")" "setup-pim-adapter.sh sha256 does not match the pin"; eq "pim: tampered adapter file: no sudo call" "$(sudo_calls)" 0
 new_world ok; FAKE_TAMPER=setup-pim-adapter.sh TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "pim: a tampered adapter file is not looked at without the option: rc" "$OSRC" 0
+OS=$OS_REAL; D=$D_REAL; unset FAKE_WT_DIR
 
 # S3-S6: revocation must be PROVEN, otherwise FAIL
 new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\n' >"$T/fk/revoked"; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M

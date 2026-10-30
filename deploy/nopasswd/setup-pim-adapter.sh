@@ -6,10 +6,12 @@
 # The adapter is NOT built on the Mac (no git clone, no swift, no toolchain as root). CI builds and signs it; this script only VERIFIES and INSTALLS it:
 #   downloads  eve-pim-X.Y.Z, eve-pim-X.Y.Z.MANIFEST, eve-pim-X.Y.Z.sigstore.json  from the release vX.Y.Z of gun025bba/eve-serving (into ONE mktemp -d, 0700; nothing downloaded is trusted yet)
 # Trust (design "a", the same trust root as the passwordless deploy, no second one, no ssh key, no new sudoers verb):
-#   1. the MANIFEST (exactly 3 lines: eve-pim-manifest=1, pim_sha=<40 lowercase hex>, pim_sha256=<64 lowercase hex>) carries a Sigstore KEYLESS signature: `cosign verify-blob` against the pinned
-#      trusted root, with the pinned CI identity (the reusable workflow deploy-sign.yml@main), issuer, repository, triggering ref refs/tags/vX.Y.Z and trigger `push`. The cosign binary and the
-#      trust root are the ones the entrypoint installed (root-owned, sha256-pinned below, re-checked here).
-#   2. pim_sha == PIM_SHA below (the security-reviewed SOURCE commit CI builds the adapter from; the pin moves only with a reviewed change of this file + a new sha256 pin in eve-oneshot.sh)
+#   1. the MANIFEST (exactly 4 lines: eve-pim-manifest=1, release_sha=<40 lowercase hex>, pim_tree=<40 lowercase hex>, pim_sha256=<64 lowercase hex>) carries a Sigstore KEYLESS signature: `cosign verify-blob`
+#      against the pinned trusted root, with the pinned CI identity (the reusable workflow deploy-sign.yml@main), issuer, repository, triggering ref refs/tags/vX.Y.Z, trigger `push`, AND the commit the tag
+#      points to (--certificate-github-workflow-sha = the manifest's release_sha, the same binding as eve-deploy). The cosign binary and the trust root are the ones the entrypoint installed (root-owned,
+#      sha256-pinned below, re-checked here).
+#   2. pim_tree == PIM_TREE below: the git TREE hash of pim/eve-pim at the release commit (the security-reviewed adapter SOURCE; a tree hash covers exactly the files, so no commit has to stay reachable
+#      and a source change always changes it). The pin moves only with a reviewed change of this file + a new sha256 pin in eve-oneshot.sh.
 #   3. sha256(adapter) == pim_sha256 of the verified manifest
 #   4. the adapter is hardened-runtime code-signed, carries only the calendars entitlement and only calendar usage strings
 # Install target: the fixed root-owned directory /opt/eve-pim/bin (root:wheel 0755, every parent root-owned and closed), temp file in the SAME directory, hash check, ONE atomic rename, re-verify
@@ -23,7 +25,10 @@
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
 
 # ===================== pinned inputs (edit only here; a change needs a new security review and a new sha256 pin in eve-oneshot.sh) =====================
-PIM_SHA=19cb222a0951ba95c6c7d8b28861143feb8591b7   # SOURCE commit CI builds the adapter from (release/5.1.0 after #154: pim/eve-pim/build-release.sh). 40 lowercase hex. Must stay reachable (keep branch) for CI rebuilds and audits.
+PIM_TREE=46a431b9c988d280fa488afd7a80a073720b7651   # git tree hash of pim/eve-pim (`git rev-parse <commit>:pim/eve-pim`) as reviewed in #154 (commit 19cb222, which is not on main). 40 lowercase hex. CI computes the same value from the tag's checkout.
+# The calendar adapter stays OFF until CI can sign it: deploy-sign.yml must publish eve-pim-X.Y.Z, .MANIFEST, .sigstore.json (separate, security-reviewed PR). Only that PR flips this to yes
+# (together with a new pin in eve-oneshot.sh). While it is "no", both eve-oneshot.sh (before any login or sudo) and this script (before any download) refuse.
+PIM_SIGNING_CI=no
 REPO=gun025bba/eve-serving
 REL_BASE=https://github.com/$REPO/releases/download
 # the SAME trust root as /usr/local/libexec/eve/deploy (eve-deploy); a test fails if any of these differ from the entrypoint's constants
@@ -76,6 +81,7 @@ die() { log "FAIL: $*"; exit 1; }
 # ----- small helpers -----
 # lowercase hex of exactly $2 chars. The digits are listed, never a range: macOS bash 3.2 in a UTF-8 locale lets [a-f] match A-F.
 is_hex_len() { case "$1" in ""|*[!0123456789abcdef]*) return 1;; esac; [ "${#1}" -eq "$2" ]; }
+require_signing_ci() { [ "$PIM_SIGNING_CI" = yes ] || { echo "setup-pim-adapter: refused: CI does not sign and publish the calendar adapter yet (PIM_SIGNING_CI=no). Nothing was downloaded or changed. See docs/runbooks/unattended-deploy.md." >&2; return 1; }; }
 is_ver() { [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
 stat_uid() { /usr/bin/stat -c %u "$1" 2>/dev/null || /usr/bin/stat -f %u "$1" 2>/dev/null; }   # GNU first: BSD stat rejects -c, GNU stat misreads -f
@@ -106,27 +112,28 @@ dir_chain_ok() {
 bin_dir_ok() { dir_chain_ok "$PIM_DIR"; }   # PIM_DIR is below SOCK_BASE: the chain covers both
 
 # ----- the signed manifest -----
-# strict: exactly the 3 lines, in any order, no duplicates, no NUL bytes, nothing else. Sets P_SHA / P_SHA256.
+# strict: exactly the 4 lines, in any order, no duplicates, no NUL bytes, nothing else. Sets P_REL / P_TREE / P_SHA256.
 parse_manifest() { # $1 file
   local f=$1 line k v n=0 seen=" "
-  P_SHA=""; P_SHA256=""
+  P_REL=""; P_TREE=""; P_SHA256=""
   file_ok "$f" || return 1
   [ "$(stat_size "$f")" -le "$MAX_MF" ] || return 1
   [ "$(/usr/bin/tr -d '\000' <"$f" | /usr/bin/wc -c | /usr/bin/tr -d ' ')" = "$(stat_size "$f")" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
-    n=$((n + 1)); [ "$n" -le 3 ] || return 1
+    n=$((n + 1)); [ "$n" -le 4 ] || return 1
     case "$line" in *=*) ;; *) return 1;; esac
     k=${line%%=*}; v=${line#*=}
     case "$seen" in *" $k "*) return 1;; esac
     seen="$seen$k "
     case "$k" in
       eve-pim-manifest) [ "$v" = 1 ] || return 1;;
-      pim_sha) is_hex_len "$v" 40 || return 1; P_SHA=$v;;
+      release_sha) is_hex_len "$v" 40 || return 1; P_REL=$v;;
+      pim_tree) is_hex_len "$v" 40 || return 1; P_TREE=$v;;
       pim_sha256) is_hex_len "$v" 64 || return 1; P_SHA256=$v;;
       *) return 1;;
     esac
   done <"$f"
-  [ "$n" = 3 ] && [ -n "$P_SHA" ] && [ -n "$P_SHA256" ] && case "$seen" in *" eve-pim-manifest "*) true;; *) false;; esac
+  [ "$n" = 4 ] && [ -n "$P_REL" ] && [ -n "$P_TREE" ] && [ -n "$P_SHA256" ] && case "$seen" in *" eve-pim-manifest "*) true;; *) false;; esac
 }
 # the pinned verifier and trust root: root-owned regular files with the pinned hashes (the same checks as the entrypoint's tool_ok)
 tool_ok() {
@@ -140,7 +147,7 @@ tool_ok() {
   [ "$(sha_of "$TRUSTED_ROOT")" = "$TRUSTED_ROOT_SHA256" ] || { log "trusted root hash is not the pinned one"; return 1; }
 }
 # No test hook here: tests re-assign the plain variables above (COSIGN, TRUSTED_ROOT, hashes, ROOT_UID, TRUST_ROOT); production has exactly one trust root.
-# $1 manifest copy, $2 Sigstore bundle copy. 0 only if the pinned CI identity signed exactly these bytes for the tag vVERSION of REPO. Offline (bundle + pinned trusted root), empty environment.
+# $1 manifest copy, $2 Sigstore bundle copy, $3 the commit the tag vVERSION must point to (the manifest's release_sha). 0 only if the pinned CI identity signed exactly these bytes for the tag vVERSION of REPO at that commit. Offline (bundle + pinned trusted root), empty environment.
 verify_manifest_sig() {
   local why
   tool_ok || return 1
@@ -149,6 +156,7 @@ verify_manifest_sig() {
       --bundle "$2" --trusted-root "$TRUSTED_ROOT" \
       --certificate-oidc-issuer "$OIDC_ISSUER" --certificate-identity "$SIGNER_IDENTITY" \
       --certificate-github-workflow-repository "$REPO" --certificate-github-workflow-ref "refs/tags/v$VERSION" \
+      --certificate-github-workflow-sha "$3" \
       --certificate-github-workflow-trigger "$SIGNER_TRIGGER" "$1" ) >"$WORK/cosign.out" 2>&1 || {
     why=$(/usr/bin/head -c 300 "$WORK/cosign.out" | /usr/bin/tr -d '\000' | /usr/bin/tr '\n' ' ')
     log "cosign said: $why"
@@ -189,15 +197,16 @@ check_signature() { # $1 binary; 0 = ok, otherwise logs why
   [ -z "$bad" ] || { log "adapter's Info.plist has usage strings beyond calendars:$bad"; return 1; }
   /usr/bin/grep -a -q 'NSCalendarsUsageDescription' "$1" || { log "adapter has no embedded calendar usage string"; return 1; }
 }
-# Sets MF_SHA / MF_SHA256. Changes nothing outside $WORK.
+# Sets MF_REL / MF_TREE / MF_SHA256. Changes nothing outside $WORK.
 verify_inputs() { # $1 manifest $2 Sigstore bundle $3 adapter binary (copies inside $WORK)
-  verify_manifest_sig "$1" "$2" || die "manifest signature verification FAILED (not signed by the pinned CI identity for v$VERSION)"
-  parse_manifest "$1" || die "manifest malformed: need exactly eve-pim-manifest=1, pim_sha=<40 lowercase hex>, pim_sha256=<64 lowercase hex>"
-  MF_SHA=$P_SHA; MF_SHA256=$P_SHA256
-  [ "$MF_SHA" = "$PIM_SHA" ] || die "manifest pim_sha is not the pinned, security-reviewed adapter commit"
+  # the manifest is parsed FIRST only to learn which commit the certificate must be bound to; nothing in it is trusted until the signature has been verified against that very commit
+  parse_manifest "$1" || die "manifest malformed: need exactly eve-pim-manifest=1, release_sha=<40 lowercase hex>, pim_tree=<40 lowercase hex>, pim_sha256=<64 lowercase hex>"
+  verify_manifest_sig "$1" "$2" "$P_REL" || die "manifest signature verification FAILED (not signed by the pinned CI identity for v$VERSION at commit $P_REL)"
+  MF_REL=$P_REL; MF_TREE=$P_TREE; MF_SHA256=$P_SHA256
+  [ "$MF_TREE" = "$PIM_TREE" ] || die "manifest pim_tree is not the pinned, security-reviewed pim/eve-pim source tree"
   [ "$(sha_of "$3")" = "$MF_SHA256" ] || die "adapter sha256 does not match the manifest pim_sha256: refusing to install"
   check_signature "$3" || die "adapter failed the code-signature checks"
-  log "PRE manifest signature OK (CI identity, tag v$VERSION); adapter sha256 matches the manifest (source commit $MF_SHA)"
+  log "PRE manifest signature OK (CI identity, tag v$VERSION); adapter sha256 matches the manifest (release commit $MF_REL, source tree $MF_TREE)"
 }
 
 # ----- install: temp file in the SAME directory (root:wheel, mode set), hash checked, then one atomic rename, hash checked again -----
@@ -294,12 +303,13 @@ if [ "$(id -u)" != 0 ] && [ "${EVE_PIM_LIB_ONLY:-}" = 1 ]; then return 0 2>/dev/
 exec </dev/null
 set -Eeuo pipefail
 umask 022
+require_signing_ci || exit 3   # first thing: before the argument, root and download checks
 [ "$#" = 2 ] && [ "$1" = --version ] && is_ver "$2" || { echo "usage: setup-pim-adapter --version X.Y.Z" >&2; exit 2; }
 VERSION=$2
 [ "$(id -u)" = 0 ] || { echo "setup-pim-adapter: run with sudo (inside the one-shot's sudo session)" >&2; exit 1; }
 [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] || { echo "setup-pim-adapter: SUDO_USER missing" >&2; exit 1; }
 { [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; } || { echo "setup-pim-adapter: macOS on Apple silicon only" >&2; exit 1; }
-is_hex_len "$PIM_SHA" 40 || { echo "setup-pim-adapter: PIM_SHA must be the full 40-character lowercase hex commit SHA" >&2; exit 1; }
+is_hex_len "$PIM_TREE" 40 || { echo "setup-pim-adapter: PIM_TREE must be the full 40-character lowercase hex tree hash" >&2; exit 1; }
 
 # =============================== main: ONE private work dir (mktemp -d, 0700), root + user context ===============================
 WORK=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/eve-pim.XXXXXX") || { echo "mktemp -d failed" >&2; exit 1; }
@@ -341,7 +351,7 @@ on_exit() { local rc=$?
 trap 'on_err $LINENO' ERR
 trap on_exit EXIT
 
-log "setup-pim-adapter start (release v$VERSION, pim source $PIM_SHA)"
+log "setup-pim-adapter start (release v$VERSION, pim source tree $PIM_TREE)"
 
 # =============================== PRECHECKS + DOWNLOAD + VERIFY (no changes outside the work dir) ===============================
 [ -f /Library/LaunchDaemons/$GWLABEL.plist ] || die "gateway LaunchDaemon missing: the gateway must be installed first"
