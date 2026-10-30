@@ -32,8 +32,8 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=1b4bcd6216c31da48a8691d44c56af62484676bcebbb5cadfc0f44f92f5d7adf   # deploy/nopasswd/eve-oneshot.sh
-PIN_MEASURE_SHA256=dc1afc202d2baf3707c0597eaac1954df1a34234af706f8cbb1e6dd6b5aa3486   # deploy/nopasswd/eve-measure.sh
+PIN_ONESHOT_SHA256=21f98cd742518a70220ae910911ca55cc98c5ab3b71ed388ecb1b5cec6c5d89a   # deploy/nopasswd/eve-oneshot.sh
+PIN_MEASURE_SHA256=d834c395261e2a126bcae271c067f3653f3236e30f4753916fb30ad0bee46052   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
 PIN_SWITCH_SHA256=   # deploy/nopasswd/switch-service-account.sh: empty until that script ships (then the switch stage is always SKIPPED)

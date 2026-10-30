@@ -20,11 +20,12 @@ emit() { # $1 number  $2 status  $3 gate(0/1)  $4 text
   if [ "$3" = 1 ] && [ "$2" != OK ]; then GATE_BAD=$((GATE_BAD + 1)); fi
 }
 have() { command -v "$1" >/dev/null 2>&1; }
-# owner uid, octal mode, file type word (BSD stat first, GNU stat second)
+# owner uid, octal mode, file type word (BSD stat first, GNU stat second). The type may have two words ("Symbolic Link"): join them with _ (awk: BSD sed has no usable s///Ng)
+stfmt() { awk '{ o = $1 " " $2 " " $3; for (i = 4; i <= NF; i++) o = o "_" $i; print o }'; }
 if stat --version >/dev/null 2>&1; then
-  st() { stat -c '%u %a %F' "$1" 2>/dev/null | sed 's/ /_/3g'; }; dev_of() { stat -c %d "$1" 2>/dev/null; }
+  st() { stat -c '%u %a %F' "$1" 2>/dev/null | stfmt; }; dev_of() { stat -c %d "$1" 2>/dev/null; }
 else
-  st() { stat -f '%u %Lp %HT' "$1" 2>/dev/null | sed 's/ /_/3g'; }; dev_of() { stat -f %d "$1" 2>/dev/null; }
+  st() { stat -f '%u %Lp %HT' "$1" 2>/dev/null | stfmt; }; dev_of() { stat -f %d "$1" 2>/dev/null; }
 fi
 vendor_mask() { sed -e 's#/Users/[^/ ]*#/Users/<user>#g'; }
 
@@ -49,7 +50,7 @@ done
 bad=0; seen=0
 for p in / /opt /opt/eve-gw /opt/eve-gw/bin /opt/eve-gw/web /usr /usr/local /usr/local/libexec /usr/local/libexec/eve /Library /Library/LaunchDaemons /Library/LaunchDaemons/com.llmserving.evepoll.plist /opt/eve-pim; do
   if [ ! -e "$p" ] && [ ! -L "$p" ]; then emit 03 INFO 0 "chain $p: absent (created by the install)"; continue; fi
-  seen=$((seen + 1)); s=$(st "$p") || { emit 03 UNKNOWN 1 "chain $p: not readable"; bad=1; continue; }
+  seen=$((seen + 1)); s=$(st "$p"); [ -n "$s" ] || { emit 03 UNKNOWN 1 "chain $p: not readable"; bad=1; continue; }
   set -- $s; uid=$1; mode=$2; kind=$3
   acl=$(ls -ledO@ "$p" 2>/dev/null | sed -n '2,$p' | grep -c '^ *[0-9]*:' || true); [ -n "$acl" ] || acl=0
   problem=""
@@ -121,7 +122,7 @@ if have fdesetup; then emit 13 INFO 0 "filevault: $(fdesetup status 2>/dev/null 
 else emit 13 UNKNOWN 0 "filevault: fdesetup missing"; fi
 
 # 14 tailscale serve and pf (pfctl needs root: recorded as UNKNOWN)
-if have tailscale; then emit 14 INFO 0 "tailscale serve: $(tailscale serve status 2>&1 | sed -e 's#https\?://[^ ]*#<url>#g' | head -3 | tr '\n' ' ' | cut -c1-100)"; else emit 14 UNKNOWN 0 "tailscale: not installed or not on PATH"; fi
+if have tailscale; then emit 14 INFO 0 "tailscale serve: $(tailscale serve status 2>&1 | sed -E -e 's#https?://[^ ]*#<url>#g' | head -3 | tr '\n' ' ' | cut -c1-100)"; else emit 14 UNKNOWN 0 "tailscale: not installed or not on PATH"; fi
 if [ -e /etc/pf.conf ]; then emit 14 INFO 0 "pf.conf: $(st /etc/pf.conf); pfctl rules: not measurable without root"; else emit 14 INFO 0 "pf.conf: absent"; fi
 
 if [ "$GATE_BAD" = 0 ]; then echo "GATES OK: the switch step may run"; else echo "GATES NOT OK ($GATE_BAD): the switch step is SKIPPED, the deploy uses the existing root path"; fi

@@ -250,7 +250,7 @@ preflight_keys() { # $1 repo: READ-ONLY. A write deploy key other than the expec
   done <<EOF2
 $rows
 EOF2
-  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than '$title' on $r: the DeployKey bypass would cover them. Aborting with NO change; delete them or make them read-only, then re-run"
+  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than '$title' on $r: the DeployKey bypass would cover them. Aborting with NO change. Open https://github.com/$r/settings/keys : if the key is NOT yours, delete it; if its SHA256 fingerprint equals that of your tagger key (ssh-keygen -lf <the .pub file>), delete it and add the same public key again with the title '$title' (or make it read-only). Then re-run"
   [ "$ours" -le 1 ] || die "$ours write deploy keys titled '$title' on $r: aborting with no change"
   if [ "$ours" = 1 ]; then eval "KEYMODE_$s=key"; say "  $r: exactly one write deploy key '$title': release-tags keeps the DeployKey bypass"
   else eval "KEYMODE_$s=nokey"; say "  $r: NO write deploy key '$title': release-tags is applied WITHOUT the DeployKey bypass (admin only) and the table shows it"; fi

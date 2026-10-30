@@ -39,6 +39,13 @@ Options: `--web-only` (shortest path: preflight, deploy key, one-shot, web tag, 
 `eve-oneshot.sh` gives the `release-tags` ruleset its DeployKey bypass only if exactly one write key titled `release-tagger` (and `eve-web-release-tagger`) exists at that moment. With the key added afterwards the
 ruleset would be applied in its no-key form and no tag could be pushed.
 
+### "FOREIGN WRITE deploy key" stops the one-shot
+
+Any write deploy key with another title (for example `eve-release-tagger`: that name is only the git committer name and the key directory, never a key title this procedure creates) would inherit the DeployKey bypass, so the
+one-shot aborts with no change and names the key (id, title). Open `https://github.com/gun025bba/<repo>/settings/keys`. A key that is not yours: delete it. Your own tagger key under a wrong title: compare its SHA256 fingerprint
+with `ssh-keygen -lf ~/.eve-release-tagger/id_ed25519.pub`; if equal, delete it and add the same public key again with the exact title (`release-tagger` for eve-serving, `eve-web-release-tagger` for eve-web), or make it read-only. Then re-run.
+The exact-title rule is never relaxed: no other write key is accepted.
+
 ### The rehearsal is not a manual rollback
 
 A manual `rollback` is a brake release in reverse: it blocklists the rolled-back version for ever, sets PAUSE and removes `rehearsal_ok`, and a version can never be rolled forward again. A sequence
