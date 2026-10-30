@@ -1,0 +1,6947 @@
+{
+ "p158_kwargs/c": {
+  "runs": 3,
+  "recall_by_run": [
+   0.32,
+   0.24,
+   0.24
+  ],
+  "fp_by_run": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "recall_pooled": [
+   20,
+   75
+  ],
+  "fp_pooled": [
+   0,
+   75
+  ],
+  "positive_item_stability": {
+   "all_hit": 6,
+   "none_hit": 17,
+   "mixed": 2
+  },
+  "latency_median_s": 1.66,
+  "latency_p95_s": 8.24,
+  "per_category": [
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 8,
+     "fp": 0,
+     "fn": 17
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 6,
+     "fp": 0,
+     "fn": 19
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 6,
+     "fp": 0,
+     "fn": 19
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "cc-001": [
+    false,
+    false,
+    false
+   ],
+   "cc-002": [
+    false,
+    false,
+    false
+   ],
+   "cc-003": [
+    false,
+    false,
+    false
+   ],
+   "cc-004": [
+    true,
+    true,
+    true
+   ],
+   "cc-005": [
+    false,
+    false,
+    false
+   ],
+   "cc-006": [
+    false,
+    false,
+    false
+   ],
+   "cc-007": [
+    false,
+    false,
+    false
+   ],
+   "cc-008": [
+    true,
+    true,
+    true
+   ],
+   "cc-009": [
+    false,
+    false,
+    false
+   ],
+   "cc-010": [
+    false,
+    false,
+    false
+   ],
+   "cc-011": [
+    false,
+    false,
+    false
+   ],
+   "cc-012": [
+    false,
+    false,
+    false
+   ],
+   "cc-013": [
+    false,
+    false,
+    false
+   ],
+   "cc-014": [
+    true,
+    false,
+    false
+   ],
+   "cc-015": [
+    false,
+    false,
+    false
+   ],
+   "cc-016": [
+    false,
+    false,
+    false
+   ],
+   "cc-017": [
+    true,
+    true,
+    true
+   ],
+   "cc-018": [
+    false,
+    false,
+    false
+   ],
+   "cc-019": [
+    true,
+    true,
+    true
+   ],
+   "cc-020": [
+    true,
+    true,
+    true
+   ],
+   "cc-021": [
+    true,
+    false,
+    false
+   ],
+   "cc-022": [
+    false,
+    false,
+    false
+   ],
+   "cc-023": [
+    false,
+    false,
+    false
+   ],
+   "cc-024": [
+    false,
+    false,
+    false
+   ],
+   "cc-025": [
+    true,
+    true,
+    true
+   ],
+   "cc-026": [
+    false,
+    false,
+    false
+   ],
+   "cc-027": [
+    false,
+    false,
+    false
+   ],
+   "cc-028": [
+    false,
+    false,
+    false
+   ],
+   "cc-029": [
+    false,
+    false,
+    false
+   ],
+   "cc-030": [
+    false,
+    false,
+    false
+   ],
+   "cc-031": [
+    false,
+    false,
+    false
+   ],
+   "cc-032": [
+    false,
+    false,
+    false
+   ],
+   "cc-033": [
+    false,
+    false,
+    false
+   ],
+   "cc-034": [
+    false,
+    false,
+    false
+   ],
+   "cc-035": [
+    false,
+    false,
+    false
+   ],
+   "cc-036": [
+    false,
+    false,
+    false
+   ],
+   "cc-037": [
+    false,
+    false,
+    false
+   ],
+   "cc-038": [
+    false,
+    false,
+    false
+   ],
+   "cc-039": [
+    false,
+    false,
+    false
+   ],
+   "cc-040": [
+    false,
+    false,
+    false
+   ],
+   "cc-041": [
+    false,
+    false,
+    false
+   ],
+   "cc-042": [
+    false,
+    false,
+    false
+   ],
+   "cc-043": [
+    false,
+    false,
+    false
+   ],
+   "cc-044": [
+    false,
+    false,
+    false
+   ],
+   "cc-045": [
+    false,
+    false,
+    false
+   ],
+   "cc-046": [
+    false,
+    false,
+    false
+   ],
+   "cc-047": [
+    false,
+    false,
+    false
+   ],
+   "cc-048": [
+    false,
+    false,
+    false
+   ],
+   "cc-049": [
+    false,
+    false,
+    false
+   ],
+   "cc-050": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "p158_kwargs/h": {
+  "runs": 3,
+  "recall_by_run": [
+   0.8,
+   0.8167,
+   0.7833
+  ],
+  "fp_by_run": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "recall_pooled": [
+   144,
+   180
+  ],
+  "fp_pooled": [
+   0,
+   180
+  ],
+  "positive_item_stability": {
+   "all_hit": 46,
+   "none_hit": 11,
+   "mixed": 3
+  },
+  "latency_median_s": 1.43,
+  "latency_p95_s": 8.09,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 5,
+     "fp": 0,
+     "fn": 1
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 0,
+     "fp": 0,
+     "fn": 8
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 3,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 0,
+     "fp": 0,
+     "fn": 8
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 3,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 5,
+     "fp": 0,
+     "fn": 1
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 1
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 0,
+     "fp": 0,
+     "fn": 8
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 3,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "ch-001": [
+    true,
+    true,
+    true
+   ],
+   "ch-002": [
+    true,
+    true,
+    true
+   ],
+   "ch-003": [
+    true,
+    true,
+    false
+   ],
+   "ch-004": [
+    true,
+    true,
+    true
+   ],
+   "ch-005": [
+    true,
+    true,
+    true
+   ],
+   "ch-006": [
+    true,
+    true,
+    true
+   ],
+   "ch-007": [
+    true,
+    true,
+    true
+   ],
+   "ch-008": [
+    true,
+    true,
+    true
+   ],
+   "ch-009": [
+    true,
+    true,
+    true
+   ],
+   "ch-010": [
+    true,
+    true,
+    true
+   ],
+   "ch-011": [
+    true,
+    true,
+    true
+   ],
+   "ch-012": [
+    true,
+    true,
+    true
+   ],
+   "ch-013": [
+    true,
+    true,
+    true
+   ],
+   "ch-014": [
+    true,
+    true,
+    true
+   ],
+   "ch-015": [
+    true,
+    true,
+    true
+   ],
+   "ch-016": [
+    true,
+    true,
+    true
+   ],
+   "ch-017": [
+    true,
+    true,
+    true
+   ],
+   "ch-018": [
+    true,
+    true,
+    true
+   ],
+   "ch-019": [
+    true,
+    true,
+    true
+   ],
+   "ch-020": [
+    true,
+    true,
+    true
+   ],
+   "ch-021": [
+    true,
+    true,
+    true
+   ],
+   "ch-022": [
+    true,
+    true,
+    true
+   ],
+   "ch-023": [
+    true,
+    true,
+    true
+   ],
+   "ch-024": [
+    false,
+    false,
+    false
+   ],
+   "ch-025": [
+    true,
+    true,
+    true
+   ],
+   "ch-026": [
+    true,
+    true,
+    true
+   ],
+   "ch-027": [
+    true,
+    true,
+    true
+   ],
+   "ch-028": [
+    false,
+    false,
+    false
+   ],
+   "ch-029": [
+    true,
+    true,
+    true
+   ],
+   "ch-030": [
+    true,
+    true,
+    false
+   ],
+   "ch-031": [
+    true,
+    true,
+    true
+   ],
+   "ch-032": [
+    true,
+    true,
+    true
+   ],
+   "ch-033": [
+    true,
+    true,
+    true
+   ],
+   "ch-034": [
+    false,
+    true,
+    true
+   ],
+   "ch-035": [
+    true,
+    true,
+    true
+   ],
+   "ch-036": [
+    true,
+    true,
+    true
+   ],
+   "ch-037": [
+    true,
+    true,
+    true
+   ],
+   "ch-038": [
+    true,
+    true,
+    true
+   ],
+   "ch-039": [
+    true,
+    true,
+    true
+   ],
+   "ch-040": [
+    false,
+    false,
+    false
+   ],
+   "ch-041": [
+    false,
+    false,
+    false
+   ],
+   "ch-042": [
+    false,
+    false,
+    false
+   ],
+   "ch-043": [
+    false,
+    false,
+    false
+   ],
+   "ch-044": [
+    false,
+    false,
+    false
+   ],
+   "ch-045": [
+    false,
+    false,
+    false
+   ],
+   "ch-046": [
+    false,
+    false,
+    false
+   ],
+   "ch-047": [
+    false,
+    false,
+    false
+   ],
+   "ch-048": [
+    true,
+    true,
+    true
+   ],
+   "ch-049": [
+    true,
+    true,
+    true
+   ],
+   "ch-050": [
+    true,
+    true,
+    true
+   ],
+   "ch-051": [
+    true,
+    true,
+    true
+   ],
+   "ch-052": [
+    true,
+    true,
+    true
+   ],
+   "ch-053": [
+    false,
+    false,
+    false
+   ],
+   "ch-054": [
+    true,
+    true,
+    true
+   ],
+   "ch-055": [
+    true,
+    true,
+    true
+   ],
+   "ch-056": [
+    true,
+    true,
+    true
+   ],
+   "ch-057": [
+    true,
+    true,
+    true
+   ],
+   "ch-058": [
+    true,
+    true,
+    true
+   ],
+   "ch-059": [
+    true,
+    true,
+    true
+   ],
+   "ch-060": [
+    true,
+    true,
+    true
+   ],
+   "ch-061": [
+    false,
+    false,
+    false
+   ],
+   "ch-062": [
+    false,
+    false,
+    false
+   ],
+   "ch-063": [
+    false,
+    false,
+    false
+   ],
+   "ch-064": [
+    false,
+    false,
+    false
+   ],
+   "ch-065": [
+    false,
+    false,
+    false
+   ],
+   "ch-066": [
+    false,
+    false,
+    false
+   ],
+   "ch-067": [
+    false,
+    false,
+    false
+   ],
+   "ch-068": [
+    false,
+    false,
+    false
+   ],
+   "ch-069": [
+    false,
+    false,
+    false
+   ],
+   "ch-070": [
+    false,
+    false,
+    false
+   ],
+   "ch-071": [
+    false,
+    false,
+    false
+   ],
+   "ch-072": [
+    false,
+    false,
+    false
+   ],
+   "ch-073": [
+    false,
+    false,
+    false
+   ],
+   "ch-074": [
+    false,
+    false,
+    false
+   ],
+   "ch-075": [
+    false,
+    false,
+    false
+   ],
+   "ch-076": [
+    false,
+    false,
+    false
+   ],
+   "ch-077": [
+    false,
+    false,
+    false
+   ],
+   "ch-078": [
+    false,
+    false,
+    false
+   ],
+   "ch-079": [
+    false,
+    false,
+    false
+   ],
+   "ch-080": [
+    false,
+    false,
+    false
+   ],
+   "ch-081": [
+    false,
+    false,
+    false
+   ],
+   "ch-082": [
+    false,
+    false,
+    false
+   ],
+   "ch-083": [
+    false,
+    false,
+    false
+   ],
+   "ch-084": [
+    false,
+    false,
+    false
+   ],
+   "ch-085": [
+    false,
+    false,
+    false
+   ],
+   "ch-086": [
+    false,
+    false,
+    false
+   ],
+   "ch-087": [
+    false,
+    false,
+    false
+   ],
+   "ch-088": [
+    false,
+    false,
+    false
+   ],
+   "ch-089": [
+    false,
+    false,
+    false
+   ],
+   "ch-090": [
+    false,
+    false,
+    false
+   ],
+   "ch-091": [
+    false,
+    false,
+    false
+   ],
+   "ch-092": [
+    false,
+    false,
+    false
+   ],
+   "ch-093": [
+    false,
+    false,
+    false
+   ],
+   "ch-094": [
+    false,
+    false,
+    false
+   ],
+   "ch-095": [
+    false,
+    false,
+    false
+   ],
+   "ch-096": [
+    false,
+    false,
+    false
+   ],
+   "ch-097": [
+    false,
+    false,
+    false
+   ],
+   "ch-098": [
+    false,
+    false,
+    false
+   ],
+   "ch-099": [
+    false,
+    false,
+    false
+   ],
+   "ch-100": [
+    false,
+    false,
+    false
+   ],
+   "ch-101": [
+    false,
+    false,
+    false
+   ],
+   "ch-102": [
+    false,
+    false,
+    false
+   ],
+   "ch-103": [
+    false,
+    false,
+    false
+   ],
+   "ch-104": [
+    false,
+    false,
+    false
+   ],
+   "ch-105": [
+    false,
+    false,
+    false
+   ],
+   "ch-106": [
+    false,
+    false,
+    false
+   ],
+   "ch-107": [
+    false,
+    false,
+    false
+   ],
+   "ch-108": [
+    false,
+    false,
+    false
+   ],
+   "ch-109": [
+    false,
+    false,
+    false
+   ],
+   "ch-110": [
+    false,
+    false,
+    false
+   ],
+   "ch-111": [
+    false,
+    false,
+    false
+   ],
+   "ch-112": [
+    false,
+    false,
+    false
+   ],
+   "ch-113": [
+    false,
+    false,
+    false
+   ],
+   "ch-114": [
+    false,
+    false,
+    false
+   ],
+   "ch-115": [
+    false,
+    false,
+    false
+   ],
+   "ch-116": [
+    false,
+    false,
+    false
+   ],
+   "ch-117": [
+    false,
+    false,
+    false
+   ],
+   "ch-118": [
+    false,
+    false,
+    false
+   ],
+   "ch-119": [
+    false,
+    false,
+    false
+   ],
+   "ch-120": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "p158_kwargs/orig": {
+  "runs": 3,
+  "recall_by_run": [
+   0.7206,
+   0.75,
+   0.7353
+  ],
+  "fp_by_run": [
+   0.0,
+   0.0,
+   0.0161
+  ],
+  "recall_pooled": [
+   150,
+   204
+  ],
+  "fp_pooled": [
+   1,
+   186
+  ],
+  "positive_item_stability": {
+   "all_hit": 49,
+   "none_hit": 16,
+   "mixed": 3
+  },
+  "latency_median_s": 1.49,
+  "latency_p95_s": 7.24,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "weather": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 7,
+     "correct": 5,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "latest_version": {
+     "n": 7,
+     "correct": 0,
+     "fp": 0,
+     "fn": 7
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "followup_history": {
+     "n": 2,
+     "correct": 1,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    },
+    "query_privacy": {
+     "n": 2,
+     "correct": 0,
+     "fp": 0,
+     "fn": 2
+    },
+    "injection": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 9,
+     "correct": 9,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "weather": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 7,
+     "correct": 6,
+     "fp": 0,
+     "fn": 1
+    },
+    "sports_result": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 7,
+     "correct": 5,
+     "fp": 0,
+     "fn": 2
+    },
+    "latest_version": {
+     "n": 7,
+     "correct": 0,
+     "fp": 0,
+     "fn": 7
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "followup_history": {
+     "n": 2,
+     "correct": 1,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    },
+    "query_privacy": {
+     "n": 2,
+     "correct": 0,
+     "fp": 0,
+     "fn": 2
+    },
+    "injection": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 9,
+     "correct": 9,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "weather": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 7,
+     "correct": 5,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "latest_version": {
+     "n": 7,
+     "correct": 0,
+     "fp": 0,
+     "fn": 7
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 7,
+     "correct": 5,
+     "fp": 0,
+     "fn": 2
+    },
+    "followup_history": {
+     "n": 2,
+     "correct": 1,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    },
+    "query_privacy": {
+     "n": 2,
+     "correct": 0,
+     "fp": 0,
+     "fn": 2
+    },
+    "injection": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 9,
+     "correct": 8,
+     "fp": 1,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "as-001": [
+    true,
+    true,
+    true
+   ],
+   "as-002": [
+    true,
+    true,
+    true
+   ],
+   "as-003": [
+    true,
+    true,
+    true
+   ],
+   "as-004": [
+    true,
+    true,
+    true
+   ],
+   "as-005": [
+    true,
+    true,
+    true
+   ],
+   "as-006": [
+    true,
+    true,
+    true
+   ],
+   "as-007": [
+    true,
+    true,
+    true
+   ],
+   "as-008": [
+    true,
+    true,
+    true
+   ],
+   "as-009": [
+    true,
+    true,
+    true
+   ],
+   "as-010": [
+    true,
+    true,
+    true
+   ],
+   "as-011": [
+    true,
+    true,
+    true
+   ],
+   "as-012": [
+    true,
+    true,
+    true
+   ],
+   "as-013": [
+    true,
+    true,
+    true
+   ],
+   "as-014": [
+    true,
+    true,
+    true
+   ],
+   "as-015": [
+    true,
+    true,
+    true
+   ],
+   "as-016": [
+    false,
+    false,
+    false
+   ],
+   "as-017": [
+    true,
+    true,
+    true
+   ],
+   "as-018": [
+    true,
+    true,
+    true
+   ],
+   "as-019": [
+    true,
+    true,
+    true
+   ],
+   "as-020": [
+    true,
+    true,
+    true
+   ],
+   "as-021": [
+    true,
+    true,
+    true
+   ],
+   "as-022": [
+    true,
+    true,
+    true
+   ],
+   "as-023": [
+    true,
+    true,
+    true
+   ],
+   "as-024": [
+    true,
+    true,
+    true
+   ],
+   "as-025": [
+    true,
+    true,
+    true
+   ],
+   "as-026": [
+    false,
+    true,
+    false
+   ],
+   "as-027": [
+    true,
+    true,
+    true
+   ],
+   "as-028": [
+    true,
+    true,
+    true
+   ],
+   "as-029": [
+    false,
+    false,
+    false
+   ],
+   "as-030": [
+    true,
+    true,
+    true
+   ],
+   "as-031": [
+    true,
+    true,
+    true
+   ],
+   "as-032": [
+    true,
+    true,
+    true
+   ],
+   "as-033": [
+    true,
+    true,
+    true
+   ],
+   "as-034": [
+    true,
+    true,
+    true
+   ],
+   "as-035": [
+    false,
+    false,
+    false
+   ],
+   "as-036": [
+    true,
+    true,
+    true
+   ],
+   "as-037": [
+    false,
+    false,
+    false
+   ],
+   "as-038": [
+    false,
+    true,
+    false
+   ],
+   "as-039": [
+    true,
+    true,
+    true
+   ],
+   "as-040": [
+    true,
+    true,
+    true
+   ],
+   "as-041": [
+    true,
+    true,
+    true
+   ],
+   "as-042": [
+    false,
+    false,
+    false
+   ],
+   "as-043": [
+    false,
+    false,
+    false
+   ],
+   "as-044": [
+    false,
+    false,
+    false
+   ],
+   "as-045": [
+    false,
+    false,
+    false
+   ],
+   "as-046": [
+    false,
+    false,
+    false
+   ],
+   "as-047": [
+    false,
+    false,
+    false
+   ],
+   "as-048": [
+    false,
+    false,
+    false
+   ],
+   "as-049": [
+    true,
+    true,
+    true
+   ],
+   "as-050": [
+    true,
+    true,
+    true
+   ],
+   "as-051": [
+    true,
+    true,
+    true
+   ],
+   "as-052": [
+    true,
+    true,
+    true
+   ],
+   "as-053": [
+    true,
+    true,
+    true
+   ],
+   "as-054": [
+    false,
+    false,
+    false
+   ],
+   "as-055": [
+    false,
+    false,
+    false
+   ],
+   "as-056": [
+    true,
+    true,
+    true
+   ],
+   "as-057": [
+    true,
+    true,
+    true
+   ],
+   "as-058": [
+    false,
+    false,
+    true
+   ],
+   "as-059": [
+    true,
+    true,
+    true
+   ],
+   "as-060": [
+    true,
+    true,
+    true
+   ],
+   "as-061": [
+    false,
+    false,
+    false
+   ],
+   "as-062": [
+    true,
+    true,
+    true
+   ],
+   "as-063": [
+    true,
+    true,
+    true
+   ],
+   "as-064": [
+    true,
+    true,
+    true
+   ],
+   "as-065": [
+    true,
+    true,
+    true
+   ],
+   "as-066": [
+    false,
+    false,
+    false
+   ],
+   "as-067": [
+    false,
+    false,
+    false
+   ],
+   "as-068": [
+    true,
+    true,
+    true
+   ],
+   "as-069": [
+    false,
+    false,
+    false
+   ],
+   "as-070": [
+    false,
+    false,
+    false
+   ],
+   "as-071": [
+    false,
+    false,
+    false
+   ],
+   "as-072": [
+    false,
+    false,
+    false
+   ],
+   "as-073": [
+    false,
+    false,
+    false
+   ],
+   "as-074": [
+    false,
+    false,
+    false
+   ],
+   "as-075": [
+    false,
+    false,
+    false
+   ],
+   "as-076": [
+    false,
+    false,
+    false
+   ],
+   "as-077": [
+    false,
+    false,
+    false
+   ],
+   "as-078": [
+    false,
+    false,
+    false
+   ],
+   "as-079": [
+    false,
+    false,
+    false
+   ],
+   "as-080": [
+    false,
+    false,
+    false
+   ],
+   "as-081": [
+    false,
+    false,
+    false
+   ],
+   "as-082": [
+    false,
+    false,
+    false
+   ],
+   "as-083": [
+    false,
+    false,
+    false
+   ],
+   "as-084": [
+    false,
+    false,
+    false
+   ],
+   "as-085": [
+    false,
+    false,
+    false
+   ],
+   "as-086": [
+    false,
+    false,
+    false
+   ],
+   "as-087": [
+    false,
+    false,
+    false
+   ],
+   "as-088": [
+    false,
+    false,
+    false
+   ],
+   "as-089": [
+    false,
+    false,
+    false
+   ],
+   "as-090": [
+    false,
+    false,
+    false
+   ],
+   "as-091": [
+    false,
+    false,
+    false
+   ],
+   "as-092": [
+    false,
+    false,
+    false
+   ],
+   "as-093": [
+    false,
+    false,
+    false
+   ],
+   "as-094": [
+    false,
+    false,
+    false
+   ],
+   "as-095": [
+    false,
+    false,
+    false
+   ],
+   "as-096": [
+    false,
+    false,
+    false
+   ],
+   "as-097": [
+    false,
+    false,
+    false
+   ],
+   "as-098": [
+    false,
+    false,
+    false
+   ],
+   "as-099": [
+    false,
+    false,
+    false
+   ],
+   "as-100": [
+    false,
+    false,
+    false
+   ],
+   "as-101": [
+    false,
+    false,
+    false
+   ],
+   "as-102": [
+    false,
+    false,
+    false
+   ],
+   "as-103": [
+    false,
+    false,
+    false
+   ],
+   "as-104": [
+    false,
+    false,
+    false
+   ],
+   "as-105": [
+    false,
+    false,
+    false
+   ],
+   "as-106": [
+    false,
+    false,
+    false
+   ],
+   "as-107": [
+    false,
+    false,
+    false
+   ],
+   "as-108": [
+    false,
+    false,
+    false
+   ],
+   "as-109": [
+    false,
+    false,
+    false
+   ],
+   "as-110": [
+    false,
+    false,
+    true
+   ],
+   "as-111": [
+    false,
+    false,
+    false
+   ],
+   "as-112": [
+    false,
+    false,
+    false
+   ],
+   "as-113": [
+    false,
+    false,
+    false
+   ],
+   "as-114": [
+    false,
+    false,
+    false
+   ],
+   "as-115": [
+    false,
+    false,
+    false
+   ],
+   "as-116": [
+    false,
+    false,
+    false
+   ],
+   "as-117": [
+    false,
+    false,
+    false
+   ],
+   "as-118": [
+    false,
+    false,
+    false
+   ],
+   "as-119": [
+    false,
+    false,
+    false
+   ],
+   "as-120": [
+    false,
+    false,
+    false
+   ],
+   "as-121": [
+    false,
+    false,
+    false
+   ],
+   "as-122": [
+    false,
+    false,
+    false
+   ],
+   "as-123": [
+    false,
+    false,
+    false
+   ],
+   "as-124": [
+    false,
+    false,
+    false
+   ],
+   "as-125": [
+    false,
+    false,
+    false
+   ],
+   "as-126": [
+    false,
+    false,
+    false
+   ],
+   "as-127": [
+    false,
+    false,
+    false
+   ],
+   "as-128": [
+    false,
+    false,
+    false
+   ],
+   "as-129": [
+    false,
+    false,
+    false
+   ],
+   "as-130": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "p158_think/c": {
+  "runs": 3,
+  "recall_by_run": [
+   0.2,
+   0.36,
+   0.44
+  ],
+  "fp_by_run": [
+   0.0,
+   0.04,
+   0.0
+  ],
+  "recall_pooled": [
+   25,
+   75
+  ],
+  "fp_pooled": [
+   1,
+   75
+  ],
+  "positive_item_stability": {
+   "all_hit": 1,
+   "none_hit": 9,
+   "mixed": 15
+  },
+  "latency_median_s": 9.42,
+  "latency_p95_s": 20.7,
+  "per_category": [
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 5,
+     "fp": 0,
+     "fn": 20
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 9,
+     "fp": 0,
+     "fn": 16
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 24,
+     "fp": 1,
+     "fn": 0
+    }
+   },
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 11,
+     "fp": 0,
+     "fn": 14
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "cc-001": [
+    false,
+    true,
+    false
+   ],
+   "cc-002": [
+    false,
+    false,
+    false
+   ],
+   "cc-003": [
+    true,
+    false,
+    true
+   ],
+   "cc-004": [
+    false,
+    false,
+    true
+   ],
+   "cc-005": [
+    false,
+    true,
+    false
+   ],
+   "cc-006": [
+    false,
+    false,
+    false
+   ],
+   "cc-007": [
+    false,
+    false,
+    true
+   ],
+   "cc-008": [
+    false,
+    false,
+    false
+   ],
+   "cc-009": [
+    false,
+    false,
+    false
+   ],
+   "cc-010": [
+    true,
+    false,
+    true
+   ],
+   "cc-011": [
+    false,
+    true,
+    false
+   ],
+   "cc-012": [
+    false,
+    true,
+    true
+   ],
+   "cc-013": [
+    false,
+    false,
+    false
+   ],
+   "cc-014": [
+    false,
+    false,
+    true
+   ],
+   "cc-015": [
+    false,
+    true,
+    true
+   ],
+   "cc-016": [
+    false,
+    true,
+    false
+   ],
+   "cc-017": [
+    false,
+    true,
+    true
+   ],
+   "cc-018": [
+    false,
+    false,
+    false
+   ],
+   "cc-019": [
+    true,
+    true,
+    true
+   ],
+   "cc-020": [
+    false,
+    false,
+    false
+   ],
+   "cc-021": [
+    true,
+    false,
+    false
+   ],
+   "cc-022": [
+    true,
+    false,
+    true
+   ],
+   "cc-023": [
+    false,
+    false,
+    false
+   ],
+   "cc-024": [
+    false,
+    false,
+    false
+   ],
+   "cc-025": [
+    false,
+    true,
+    true
+   ],
+   "cc-026": [
+    false,
+    false,
+    false
+   ],
+   "cc-027": [
+    false,
+    true,
+    false
+   ],
+   "cc-028": [
+    false,
+    false,
+    false
+   ],
+   "cc-029": [
+    false,
+    false,
+    false
+   ],
+   "cc-030": [
+    false,
+    false,
+    false
+   ],
+   "cc-031": [
+    false,
+    false,
+    false
+   ],
+   "cc-032": [
+    false,
+    false,
+    false
+   ],
+   "cc-033": [
+    false,
+    false,
+    false
+   ],
+   "cc-034": [
+    false,
+    false,
+    false
+   ],
+   "cc-035": [
+    false,
+    false,
+    false
+   ],
+   "cc-036": [
+    false,
+    false,
+    false
+   ],
+   "cc-037": [
+    false,
+    false,
+    false
+   ],
+   "cc-038": [
+    false,
+    false,
+    false
+   ],
+   "cc-039": [
+    false,
+    false,
+    false
+   ],
+   "cc-040": [
+    false,
+    false,
+    false
+   ],
+   "cc-041": [
+    false,
+    false,
+    false
+   ],
+   "cc-042": [
+    false,
+    false,
+    false
+   ],
+   "cc-043": [
+    false,
+    false,
+    false
+   ],
+   "cc-044": [
+    false,
+    false,
+    false
+   ],
+   "cc-045": [
+    false,
+    false,
+    false
+   ],
+   "cc-046": [
+    false,
+    false,
+    false
+   ],
+   "cc-047": [
+    false,
+    false,
+    false
+   ],
+   "cc-048": [
+    false,
+    false,
+    false
+   ],
+   "cc-049": [
+    false,
+    false,
+    false
+   ],
+   "cc-050": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "p158_think/h": {
+  "runs": 3,
+  "recall_by_run": [
+   0.8333,
+   0.8,
+   0.8
+  ],
+  "fp_by_run": [
+   0.0167,
+   0.0167,
+   0.0
+  ],
+  "recall_pooled": [
+   146,
+   180
+  ],
+  "fp_pooled": [
+   2,
+   180
+  ],
+  "positive_item_stability": {
+   "all_hit": 44,
+   "none_hit": 7,
+   "mixed": 9
+  },
+  "latency_median_s": 8.47,
+  "latency_p95_s": 19.57,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 5,
+     "fp": 0,
+     "fn": 1
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 1,
+     "fp": 0,
+     "fn": 7
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 6,
+     "fp": 1,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 4,
+     "fp": 0,
+     "fn": 2
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 2,
+     "fp": 0,
+     "fn": 6
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 6,
+     "fp": 1,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   },
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 4,
+     "fp": 0,
+     "fn": 2
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 2,
+     "fp": 0,
+     "fn": 6
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "ch-001": [
+    true,
+    true,
+    true
+   ],
+   "ch-002": [
+    true,
+    true,
+    true
+   ],
+   "ch-003": [
+    true,
+    true,
+    true
+   ],
+   "ch-004": [
+    true,
+    true,
+    true
+   ],
+   "ch-005": [
+    true,
+    true,
+    true
+   ],
+   "ch-006": [
+    true,
+    true,
+    true
+   ],
+   "ch-007": [
+    true,
+    true,
+    true
+   ],
+   "ch-008": [
+    true,
+    true,
+    true
+   ],
+   "ch-009": [
+    true,
+    false,
+    false
+   ],
+   "ch-010": [
+    true,
+    true,
+    false
+   ],
+   "ch-011": [
+    true,
+    true,
+    true
+   ],
+   "ch-012": [
+    true,
+    false,
+    true
+   ],
+   "ch-013": [
+    true,
+    true,
+    true
+   ],
+   "ch-014": [
+    false,
+    true,
+    true
+   ],
+   "ch-015": [
+    true,
+    true,
+    true
+   ],
+   "ch-016": [
+    true,
+    true,
+    true
+   ],
+   "ch-017": [
+    true,
+    true,
+    true
+   ],
+   "ch-018": [
+    true,
+    true,
+    true
+   ],
+   "ch-019": [
+    true,
+    true,
+    true
+   ],
+   "ch-020": [
+    true,
+    true,
+    true
+   ],
+   "ch-021": [
+    true,
+    true,
+    true
+   ],
+   "ch-022": [
+    true,
+    true,
+    true
+   ],
+   "ch-023": [
+    true,
+    true,
+    true
+   ],
+   "ch-024": [
+    true,
+    false,
+    false
+   ],
+   "ch-025": [
+    true,
+    true,
+    true
+   ],
+   "ch-026": [
+    true,
+    true,
+    true
+   ],
+   "ch-027": [
+    true,
+    true,
+    true
+   ],
+   "ch-028": [
+    false,
+    false,
+    false
+   ],
+   "ch-029": [
+    true,
+    true,
+    true
+   ],
+   "ch-030": [
+    true,
+    true,
+    true
+   ],
+   "ch-031": [
+    true,
+    true,
+    true
+   ],
+   "ch-032": [
+    true,
+    true,
+    true
+   ],
+   "ch-033": [
+    true,
+    true,
+    true
+   ],
+   "ch-034": [
+    false,
+    false,
+    false
+   ],
+   "ch-035": [
+    true,
+    false,
+    true
+   ],
+   "ch-036": [
+    true,
+    true,
+    false
+   ],
+   "ch-037": [
+    true,
+    true,
+    true
+   ],
+   "ch-038": [
+    true,
+    true,
+    true
+   ],
+   "ch-039": [
+    true,
+    true,
+    true
+   ],
+   "ch-040": [
+    false,
+    false,
+    false
+   ],
+   "ch-041": [
+    false,
+    false,
+    true
+   ],
+   "ch-042": [
+    true,
+    true,
+    true
+   ],
+   "ch-043": [
+    false,
+    false,
+    false
+   ],
+   "ch-044": [
+    false,
+    false,
+    false
+   ],
+   "ch-045": [
+    false,
+    false,
+    false
+   ],
+   "ch-046": [
+    false,
+    true,
+    false
+   ],
+   "ch-047": [
+    false,
+    false,
+    false
+   ],
+   "ch-048": [
+    true,
+    true,
+    true
+   ],
+   "ch-049": [
+    true,
+    true,
+    true
+   ],
+   "ch-050": [
+    true,
+    true,
+    true
+   ],
+   "ch-051": [
+    true,
+    true,
+    true
+   ],
+   "ch-052": [
+    true,
+    true,
+    true
+   ],
+   "ch-053": [
+    true,
+    true,
+    true
+   ],
+   "ch-054": [
+    true,
+    true,
+    true
+   ],
+   "ch-055": [
+    true,
+    true,
+    true
+   ],
+   "ch-056": [
+    true,
+    true,
+    true
+   ],
+   "ch-057": [
+    true,
+    true,
+    true
+   ],
+   "ch-058": [
+    true,
+    true,
+    true
+   ],
+   "ch-059": [
+    true,
+    true,
+    true
+   ],
+   "ch-060": [
+    true,
+    true,
+    true
+   ],
+   "ch-061": [
+    false,
+    false,
+    false
+   ],
+   "ch-062": [
+    false,
+    false,
+    false
+   ],
+   "ch-063": [
+    false,
+    false,
+    false
+   ],
+   "ch-064": [
+    false,
+    false,
+    false
+   ],
+   "ch-065": [
+    false,
+    false,
+    false
+   ],
+   "ch-066": [
+    false,
+    false,
+    false
+   ],
+   "ch-067": [
+    false,
+    false,
+    false
+   ],
+   "ch-068": [
+    false,
+    false,
+    false
+   ],
+   "ch-069": [
+    false,
+    false,
+    false
+   ],
+   "ch-070": [
+    false,
+    false,
+    false
+   ],
+   "ch-071": [
+    false,
+    false,
+    false
+   ],
+   "ch-072": [
+    false,
+    false,
+    false
+   ],
+   "ch-073": [
+    false,
+    false,
+    false
+   ],
+   "ch-074": [
+    false,
+    false,
+    false
+   ],
+   "ch-075": [
+    false,
+    false,
+    false
+   ],
+   "ch-076": [
+    false,
+    false,
+    false
+   ],
+   "ch-077": [
+    false,
+    false,
+    false
+   ],
+   "ch-078": [
+    false,
+    false,
+    false
+   ],
+   "ch-079": [
+    false,
+    false,
+    false
+   ],
+   "ch-080": [
+    false,
+    false,
+    false
+   ],
+   "ch-081": [
+    false,
+    false,
+    false
+   ],
+   "ch-082": [
+    false,
+    false,
+    false
+   ],
+   "ch-083": [
+    false,
+    false,
+    false
+   ],
+   "ch-084": [
+    false,
+    false,
+    false
+   ],
+   "ch-085": [
+    false,
+    false,
+    false
+   ],
+   "ch-086": [
+    false,
+    false,
+    false
+   ],
+   "ch-087": [
+    false,
+    false,
+    false
+   ],
+   "ch-088": [
+    false,
+    false,
+    false
+   ],
+   "ch-089": [
+    false,
+    false,
+    false
+   ],
+   "ch-090": [
+    false,
+    false,
+    false
+   ],
+   "ch-091": [
+    false,
+    false,
+    false
+   ],
+   "ch-092": [
+    false,
+    false,
+    false
+   ],
+   "ch-093": [
+    false,
+    false,
+    false
+   ],
+   "ch-094": [
+    false,
+    false,
+    false
+   ],
+   "ch-095": [
+    false,
+    false,
+    false
+   ],
+   "ch-096": [
+    false,
+    false,
+    false
+   ],
+   "ch-097": [
+    false,
+    false,
+    false
+   ],
+   "ch-098": [
+    false,
+    false,
+    false
+   ],
+   "ch-099": [
+    false,
+    false,
+    false
+   ],
+   "ch-100": [
+    false,
+    false,
+    false
+   ],
+   "ch-101": [
+    false,
+    false,
+    false
+   ],
+   "ch-102": [
+    false,
+    false,
+    false
+   ],
+   "ch-103": [
+    false,
+    false,
+    false
+   ],
+   "ch-104": [
+    false,
+    false,
+    false
+   ],
+   "ch-105": [
+    false,
+    false,
+    false
+   ],
+   "ch-106": [
+    false,
+    false,
+    false
+   ],
+   "ch-107": [
+    false,
+    false,
+    false
+   ],
+   "ch-108": [
+    false,
+    false,
+    false
+   ],
+   "ch-109": [
+    false,
+    false,
+    false
+   ],
+   "ch-110": [
+    false,
+    false,
+    false
+   ],
+   "ch-111": [
+    true,
+    true,
+    false
+   ],
+   "ch-112": [
+    false,
+    false,
+    false
+   ],
+   "ch-113": [
+    false,
+    false,
+    false
+   ],
+   "ch-114": [
+    false,
+    false,
+    false
+   ],
+   "ch-115": [
+    false,
+    false,
+    false
+   ],
+   "ch-116": [
+    false,
+    false,
+    false
+   ],
+   "ch-117": [
+    false,
+    false,
+    false
+   ],
+   "ch-118": [
+    false,
+    false,
+    false
+   ],
+   "ch-119": [
+    false,
+    false,
+    false
+   ],
+   "ch-120": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "p158_think/orig": {
+  "runs": 1,
+  "recall_by_run": [
+   0.8235
+  ],
+  "fp_by_run": [
+   0.0645
+  ],
+  "recall_pooled": [
+   56,
+   68
+  ],
+  "fp_pooled": [
+   4,
+   62
+  ],
+  "positive_item_stability": {
+   "all_hit": 56,
+   "none_hit": 12,
+   "mixed": 0
+  },
+  "latency_median_s": 8.29,
+  "latency_p95_s": 21.65,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 7,
+     "correct": 6,
+     "fp": 0,
+     "fn": 1
+    },
+    "sports_result": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "latest_version": {
+     "n": 7,
+     "correct": 3,
+     "fp": 0,
+     "fn": 4
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 1
+    },
+    "implied_recency": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "followup_history": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    },
+    "query_privacy": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 5,
+     "correct": 3,
+     "fp": 1,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 8,
+     "correct": 7,
+     "fp": 1,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 9,
+     "correct": 7,
+     "fp": 2,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "as-001": [
+    true
+   ],
+   "as-002": [
+    true
+   ],
+   "as-003": [
+    true
+   ],
+   "as-004": [
+    true
+   ],
+   "as-005": [
+    true
+   ],
+   "as-006": [
+    true
+   ],
+   "as-007": [
+    true
+   ],
+   "as-008": [
+    true
+   ],
+   "as-009": [
+    true
+   ],
+   "as-010": [
+    true
+   ],
+   "as-011": [
+    true
+   ],
+   "as-012": [
+    true
+   ],
+   "as-013": [
+    true
+   ],
+   "as-014": [
+    true
+   ],
+   "as-015": [
+    true
+   ],
+   "as-016": [
+    true
+   ],
+   "as-017": [
+    true
+   ],
+   "as-018": [
+    true
+   ],
+   "as-019": [
+    true
+   ],
+   "as-020": [
+    true
+   ],
+   "as-021": [
+    true
+   ],
+   "as-022": [
+    true
+   ],
+   "as-023": [
+    true
+   ],
+   "as-024": [
+    true
+   ],
+   "as-025": [
+    true
+   ],
+   "as-026": [
+    true
+   ],
+   "as-027": [
+    true
+   ],
+   "as-028": [
+    true
+   ],
+   "as-029": [
+    false
+   ],
+   "as-030": [
+    true
+   ],
+   "as-031": [
+    true
+   ],
+   "as-032": [
+    true
+   ],
+   "as-033": [
+    true
+   ],
+   "as-034": [
+    true
+   ],
+   "as-035": [
+    false
+   ],
+   "as-036": [
+    true
+   ],
+   "as-037": [
+    false
+   ],
+   "as-038": [
+    false
+   ],
+   "as-039": [
+    true
+   ],
+   "as-040": [
+    true
+   ],
+   "as-041": [
+    true
+   ],
+   "as-042": [
+    false
+   ],
+   "as-043": [
+    false
+   ],
+   "as-044": [
+    false
+   ],
+   "as-045": [
+    true
+   ],
+   "as-046": [
+    true
+   ],
+   "as-047": [
+    true
+   ],
+   "as-048": [
+    false
+   ],
+   "as-049": [
+    true
+   ],
+   "as-050": [
+    true
+   ],
+   "as-051": [
+    true
+   ],
+   "as-052": [
+    true
+   ],
+   "as-053": [
+    false
+   ],
+   "as-054": [
+    false
+   ],
+   "as-055": [
+    true
+   ],
+   "as-056": [
+    false
+   ],
+   "as-057": [
+    true
+   ],
+   "as-058": [
+    false
+   ],
+   "as-059": [
+    true
+   ],
+   "as-060": [
+    true
+   ],
+   "as-061": [
+    true
+   ],
+   "as-062": [
+    true
+   ],
+   "as-063": [
+    true
+   ],
+   "as-064": [
+    true
+   ],
+   "as-065": [
+    true
+   ],
+   "as-066": [
+    true
+   ],
+   "as-067": [
+    true
+   ],
+   "as-068": [
+    true
+   ],
+   "as-069": [
+    false
+   ],
+   "as-070": [
+    false
+   ],
+   "as-071": [
+    false
+   ],
+   "as-072": [
+    false
+   ],
+   "as-073": [
+    false
+   ],
+   "as-074": [
+    false
+   ],
+   "as-075": [
+    false
+   ],
+   "as-076": [
+    false
+   ],
+   "as-077": [
+    true
+   ],
+   "as-078": [
+    false
+   ],
+   "as-079": [
+    false
+   ],
+   "as-080": [
+    false
+   ],
+   "as-081": [
+    false
+   ],
+   "as-082": [
+    false
+   ],
+   "as-083": [
+    false
+   ],
+   "as-084": [
+    false
+   ],
+   "as-085": [
+    false
+   ],
+   "as-086": [
+    false
+   ],
+   "as-087": [
+    false
+   ],
+   "as-088": [
+    false
+   ],
+   "as-089": [
+    false
+   ],
+   "as-090": [
+    false
+   ],
+   "as-091": [
+    false
+   ],
+   "as-092": [
+    false
+   ],
+   "as-093": [
+    false
+   ],
+   "as-094": [
+    false
+   ],
+   "as-095": [
+    false
+   ],
+   "as-096": [
+    false
+   ],
+   "as-097": [
+    false
+   ],
+   "as-098": [
+    false
+   ],
+   "as-099": [
+    false
+   ],
+   "as-100": [
+    false
+   ],
+   "as-101": [
+    false
+   ],
+   "as-102": [
+    false
+   ],
+   "as-103": [
+    false
+   ],
+   "as-104": [
+    false
+   ],
+   "as-105": [
+    false
+   ],
+   "as-106": [
+    false
+   ],
+   "as-107": [
+    false
+   ],
+   "as-108": [
+    false
+   ],
+   "as-109": [
+    false
+   ],
+   "as-110": [
+    true
+   ],
+   "as-111": [
+    false
+   ],
+   "as-112": [
+    true
+   ],
+   "as-113": [
+    false
+   ],
+   "as-114": [
+    false
+   ],
+   "as-115": [
+    false
+   ],
+   "as-116": [
+    false
+   ],
+   "as-117": [
+    false
+   ],
+   "as-118": [
+    false
+   ],
+   "as-119": [
+    false
+   ],
+   "as-120": [
+    false
+   ],
+   "as-121": [
+    false
+   ],
+   "as-122": [
+    false
+   ],
+   "as-123": [
+    false
+   ],
+   "as-124": [
+    false
+   ],
+   "as-125": [
+    false
+   ],
+   "as-126": [
+    false
+   ],
+   "as-127": [
+    true
+   ],
+   "as-128": [
+    false
+   ],
+   "as-129": [
+    false
+   ],
+   "as-130": [
+    false
+   ]
+  }
+ },
+ "v4_kwargs/c": {
+  "runs": 1,
+  "recall_by_run": [
+   0.8
+  ],
+  "fp_by_run": [
+   0.0
+  ],
+  "recall_pooled": [
+   20,
+   25
+  ],
+  "fp_pooled": [
+   0,
+   25
+  ],
+  "positive_item_stability": {
+   "all_hit": 20,
+   "none_hit": 5,
+   "mixed": 0
+  },
+  "latency_median_s": 1.75,
+  "latency_p95_s": 9.04,
+  "per_category": [
+   {
+    "rule_changes": {
+     "n": 25,
+     "correct": 20,
+     "fp": 0,
+     "fn": 5
+    },
+    "stable_trap": {
+     "n": 25,
+     "correct": 25,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "cc-001": [
+    false
+   ],
+   "cc-002": [
+    false
+   ],
+   "cc-003": [
+    true
+   ],
+   "cc-004": [
+    true
+   ],
+   "cc-005": [
+    false
+   ],
+   "cc-006": [
+    true
+   ],
+   "cc-007": [
+    false
+   ],
+   "cc-008": [
+    true
+   ],
+   "cc-009": [
+    true
+   ],
+   "cc-010": [
+    true
+   ],
+   "cc-011": [
+    true
+   ],
+   "cc-012": [
+    true
+   ],
+   "cc-013": [
+    true
+   ],
+   "cc-014": [
+    true
+   ],
+   "cc-015": [
+    true
+   ],
+   "cc-016": [
+    true
+   ],
+   "cc-017": [
+    true
+   ],
+   "cc-018": [
+    true
+   ],
+   "cc-019": [
+    true
+   ],
+   "cc-020": [
+    true
+   ],
+   "cc-021": [
+    false
+   ],
+   "cc-022": [
+    true
+   ],
+   "cc-023": [
+    true
+   ],
+   "cc-024": [
+    true
+   ],
+   "cc-025": [
+    true
+   ],
+   "cc-026": [
+    false
+   ],
+   "cc-027": [
+    false
+   ],
+   "cc-028": [
+    false
+   ],
+   "cc-029": [
+    false
+   ],
+   "cc-030": [
+    false
+   ],
+   "cc-031": [
+    false
+   ],
+   "cc-032": [
+    false
+   ],
+   "cc-033": [
+    false
+   ],
+   "cc-034": [
+    false
+   ],
+   "cc-035": [
+    false
+   ],
+   "cc-036": [
+    false
+   ],
+   "cc-037": [
+    false
+   ],
+   "cc-038": [
+    false
+   ],
+   "cc-039": [
+    false
+   ],
+   "cc-040": [
+    false
+   ],
+   "cc-041": [
+    false
+   ],
+   "cc-042": [
+    false
+   ],
+   "cc-043": [
+    false
+   ],
+   "cc-044": [
+    false
+   ],
+   "cc-045": [
+    false
+   ],
+   "cc-046": [
+    false
+   ],
+   "cc-047": [
+    false
+   ],
+   "cc-048": [
+    false
+   ],
+   "cc-049": [
+    false
+   ],
+   "cc-050": [
+    false
+   ]
+  },
+  "v4_yes": [
+   24
+  ],
+  "v4_latency_median_s": 0.38
+ },
+ "v4_kwargs/h": {
+  "runs": 1,
+  "recall_by_run": [
+   0.95
+  ],
+  "fp_by_run": [
+   0.0
+  ],
+  "recall_pooled": [
+   57,
+   60
+  ],
+  "fp_pooled": [
+   0,
+   60
+  ],
+  "positive_item_stability": {
+   "all_hit": 57,
+   "none_hit": 3,
+   "mixed": 0
+  },
+  "latency_median_s": 1.79,
+  "latency_p95_s": 7.24,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 5,
+     "fp": 0,
+     "fn": 3
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "ch-001": [
+    true
+   ],
+   "ch-002": [
+    true
+   ],
+   "ch-003": [
+    true
+   ],
+   "ch-004": [
+    true
+   ],
+   "ch-005": [
+    true
+   ],
+   "ch-006": [
+    true
+   ],
+   "ch-007": [
+    true
+   ],
+   "ch-008": [
+    true
+   ],
+   "ch-009": [
+    true
+   ],
+   "ch-010": [
+    true
+   ],
+   "ch-011": [
+    true
+   ],
+   "ch-012": [
+    true
+   ],
+   "ch-013": [
+    true
+   ],
+   "ch-014": [
+    true
+   ],
+   "ch-015": [
+    true
+   ],
+   "ch-016": [
+    true
+   ],
+   "ch-017": [
+    true
+   ],
+   "ch-018": [
+    true
+   ],
+   "ch-019": [
+    true
+   ],
+   "ch-020": [
+    true
+   ],
+   "ch-021": [
+    true
+   ],
+   "ch-022": [
+    true
+   ],
+   "ch-023": [
+    true
+   ],
+   "ch-024": [
+    true
+   ],
+   "ch-025": [
+    true
+   ],
+   "ch-026": [
+    true
+   ],
+   "ch-027": [
+    true
+   ],
+   "ch-028": [
+    true
+   ],
+   "ch-029": [
+    true
+   ],
+   "ch-030": [
+    true
+   ],
+   "ch-031": [
+    true
+   ],
+   "ch-032": [
+    true
+   ],
+   "ch-033": [
+    true
+   ],
+   "ch-034": [
+    true
+   ],
+   "ch-035": [
+    true
+   ],
+   "ch-036": [
+    true
+   ],
+   "ch-037": [
+    true
+   ],
+   "ch-038": [
+    true
+   ],
+   "ch-039": [
+    true
+   ],
+   "ch-040": [
+    false
+   ],
+   "ch-041": [
+    true
+   ],
+   "ch-042": [
+    true
+   ],
+   "ch-043": [
+    false
+   ],
+   "ch-044": [
+    false
+   ],
+   "ch-045": [
+    true
+   ],
+   "ch-046": [
+    true
+   ],
+   "ch-047": [
+    true
+   ],
+   "ch-048": [
+    true
+   ],
+   "ch-049": [
+    true
+   ],
+   "ch-050": [
+    true
+   ],
+   "ch-051": [
+    true
+   ],
+   "ch-052": [
+    true
+   ],
+   "ch-053": [
+    true
+   ],
+   "ch-054": [
+    true
+   ],
+   "ch-055": [
+    true
+   ],
+   "ch-056": [
+    true
+   ],
+   "ch-057": [
+    true
+   ],
+   "ch-058": [
+    true
+   ],
+   "ch-059": [
+    true
+   ],
+   "ch-060": [
+    true
+   ],
+   "ch-061": [
+    false
+   ],
+   "ch-062": [
+    false
+   ],
+   "ch-063": [
+    false
+   ],
+   "ch-064": [
+    false
+   ],
+   "ch-065": [
+    false
+   ],
+   "ch-066": [
+    false
+   ],
+   "ch-067": [
+    false
+   ],
+   "ch-068": [
+    false
+   ],
+   "ch-069": [
+    false
+   ],
+   "ch-070": [
+    false
+   ],
+   "ch-071": [
+    false
+   ],
+   "ch-072": [
+    false
+   ],
+   "ch-073": [
+    false
+   ],
+   "ch-074": [
+    false
+   ],
+   "ch-075": [
+    false
+   ],
+   "ch-076": [
+    false
+   ],
+   "ch-077": [
+    false
+   ],
+   "ch-078": [
+    false
+   ],
+   "ch-079": [
+    false
+   ],
+   "ch-080": [
+    false
+   ],
+   "ch-081": [
+    false
+   ],
+   "ch-082": [
+    false
+   ],
+   "ch-083": [
+    false
+   ],
+   "ch-084": [
+    false
+   ],
+   "ch-085": [
+    false
+   ],
+   "ch-086": [
+    false
+   ],
+   "ch-087": [
+    false
+   ],
+   "ch-088": [
+    false
+   ],
+   "ch-089": [
+    false
+   ],
+   "ch-090": [
+    false
+   ],
+   "ch-091": [
+    false
+   ],
+   "ch-092": [
+    false
+   ],
+   "ch-093": [
+    false
+   ],
+   "ch-094": [
+    false
+   ],
+   "ch-095": [
+    false
+   ],
+   "ch-096": [
+    false
+   ],
+   "ch-097": [
+    false
+   ],
+   "ch-098": [
+    false
+   ],
+   "ch-099": [
+    false
+   ],
+   "ch-100": [
+    false
+   ],
+   "ch-101": [
+    false
+   ],
+   "ch-102": [
+    false
+   ],
+   "ch-103": [
+    false
+   ],
+   "ch-104": [
+    false
+   ],
+   "ch-105": [
+    false
+   ],
+   "ch-106": [
+    false
+   ],
+   "ch-107": [
+    false
+   ],
+   "ch-108": [
+    false
+   ],
+   "ch-109": [
+    false
+   ],
+   "ch-110": [
+    false
+   ],
+   "ch-111": [
+    false
+   ],
+   "ch-112": [
+    false
+   ],
+   "ch-113": [
+    false
+   ],
+   "ch-114": [
+    false
+   ],
+   "ch-115": [
+    false
+   ],
+   "ch-116": [
+    false
+   ],
+   "ch-117": [
+    false
+   ],
+   "ch-118": [
+    false
+   ],
+   "ch-119": [
+    false
+   ],
+   "ch-120": [
+    false
+   ]
+  },
+  "v4_yes": [
+   60
+  ],
+  "v4_latency_median_s": 0.37
+ },
+ "v4_kwargs/orig": {
+  "runs": 1,
+  "recall_by_run": [
+   0.8971
+  ],
+  "fp_by_run": [
+   0.0
+  ],
+  "recall_pooled": [
+   61,
+   68
+  ],
+  "fp_pooled": [
+   0,
+   62
+  ],
+  "positive_item_stability": {
+   "all_hit": 61,
+   "none_hit": 7,
+   "mixed": 0
+  },
+  "latency_median_s": 1.78,
+  "latency_p95_s": 7.22,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 7,
+     "correct": 6,
+     "fp": 0,
+     "fn": 1
+    },
+    "sports_result": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "latest_version": {
+     "n": 7,
+     "correct": 4,
+     "fp": 0,
+     "fn": 3
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 7,
+     "correct": 6,
+     "fp": 0,
+     "fn": 1
+    },
+    "followup_history": {
+     "n": 2,
+     "correct": 1,
+     "fp": 0,
+     "fn": 1
+    },
+    "explicit_request": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    },
+    "query_privacy": {
+     "n": 2,
+     "correct": 1,
+     "fp": 0,
+     "fn": 1
+    },
+    "injection": {
+     "n": 5,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 9,
+     "correct": 9,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 3,
+     "correct": 3,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "as-001": [
+    true
+   ],
+   "as-002": [
+    true
+   ],
+   "as-003": [
+    true
+   ],
+   "as-004": [
+    true
+   ],
+   "as-005": [
+    true
+   ],
+   "as-006": [
+    true
+   ],
+   "as-007": [
+    true
+   ],
+   "as-008": [
+    true
+   ],
+   "as-009": [
+    true
+   ],
+   "as-010": [
+    true
+   ],
+   "as-011": [
+    true
+   ],
+   "as-012": [
+    true
+   ],
+   "as-013": [
+    true
+   ],
+   "as-014": [
+    true
+   ],
+   "as-015": [
+    true
+   ],
+   "as-016": [
+    true
+   ],
+   "as-017": [
+    true
+   ],
+   "as-018": [
+    true
+   ],
+   "as-019": [
+    true
+   ],
+   "as-020": [
+    true
+   ],
+   "as-021": [
+    true
+   ],
+   "as-022": [
+    true
+   ],
+   "as-023": [
+    true
+   ],
+   "as-024": [
+    true
+   ],
+   "as-025": [
+    true
+   ],
+   "as-026": [
+    true
+   ],
+   "as-027": [
+    true
+   ],
+   "as-028": [
+    true
+   ],
+   "as-029": [
+    false
+   ],
+   "as-030": [
+    true
+   ],
+   "as-031": [
+    true
+   ],
+   "as-032": [
+    true
+   ],
+   "as-033": [
+    true
+   ],
+   "as-034": [
+    true
+   ],
+   "as-035": [
+    true
+   ],
+   "as-036": [
+    true
+   ],
+   "as-037": [
+    true
+   ],
+   "as-038": [
+    true
+   ],
+   "as-039": [
+    true
+   ],
+   "as-040": [
+    true
+   ],
+   "as-041": [
+    true
+   ],
+   "as-042": [
+    false
+   ],
+   "as-043": [
+    true
+   ],
+   "as-044": [
+    false
+   ],
+   "as-045": [
+    true
+   ],
+   "as-046": [
+    true
+   ],
+   "as-047": [
+    true
+   ],
+   "as-048": [
+    false
+   ],
+   "as-049": [
+    true
+   ],
+   "as-050": [
+    true
+   ],
+   "as-051": [
+    true
+   ],
+   "as-052": [
+    true
+   ],
+   "as-053": [
+    true
+   ],
+   "as-054": [
+    false
+   ],
+   "as-055": [
+    true
+   ],
+   "as-056": [
+    true
+   ],
+   "as-057": [
+    true
+   ],
+   "as-058": [
+    true
+   ],
+   "as-059": [
+    true
+   ],
+   "as-060": [
+    true
+   ],
+   "as-061": [
+    false
+   ],
+   "as-062": [
+    true
+   ],
+   "as-063": [
+    true
+   ],
+   "as-064": [
+    true
+   ],
+   "as-065": [
+    true
+   ],
+   "as-066": [
+    false
+   ],
+   "as-067": [
+    true
+   ],
+   "as-068": [
+    true
+   ],
+   "as-069": [
+    false
+   ],
+   "as-070": [
+    false
+   ],
+   "as-071": [
+    false
+   ],
+   "as-072": [
+    false
+   ],
+   "as-073": [
+    false
+   ],
+   "as-074": [
+    false
+   ],
+   "as-075": [
+    false
+   ],
+   "as-076": [
+    false
+   ],
+   "as-077": [
+    false
+   ],
+   "as-078": [
+    false
+   ],
+   "as-079": [
+    false
+   ],
+   "as-080": [
+    false
+   ],
+   "as-081": [
+    false
+   ],
+   "as-082": [
+    false
+   ],
+   "as-083": [
+    false
+   ],
+   "as-084": [
+    false
+   ],
+   "as-085": [
+    false
+   ],
+   "as-086": [
+    false
+   ],
+   "as-087": [
+    false
+   ],
+   "as-088": [
+    false
+   ],
+   "as-089": [
+    false
+   ],
+   "as-090": [
+    false
+   ],
+   "as-091": [
+    false
+   ],
+   "as-092": [
+    false
+   ],
+   "as-093": [
+    false
+   ],
+   "as-094": [
+    false
+   ],
+   "as-095": [
+    false
+   ],
+   "as-096": [
+    false
+   ],
+   "as-097": [
+    false
+   ],
+   "as-098": [
+    false
+   ],
+   "as-099": [
+    false
+   ],
+   "as-100": [
+    false
+   ],
+   "as-101": [
+    false
+   ],
+   "as-102": [
+    false
+   ],
+   "as-103": [
+    false
+   ],
+   "as-104": [
+    false
+   ],
+   "as-105": [
+    false
+   ],
+   "as-106": [
+    false
+   ],
+   "as-107": [
+    false
+   ],
+   "as-108": [
+    false
+   ],
+   "as-109": [
+    false
+   ],
+   "as-110": [
+    false
+   ],
+   "as-111": [
+    false
+   ],
+   "as-112": [
+    false
+   ],
+   "as-113": [
+    false
+   ],
+   "as-114": [
+    false
+   ],
+   "as-115": [
+    false
+   ],
+   "as-116": [
+    false
+   ],
+   "as-117": [
+    false
+   ],
+   "as-118": [
+    false
+   ],
+   "as-119": [
+    false
+   ],
+   "as-120": [
+    false
+   ],
+   "as-121": [
+    false
+   ],
+   "as-122": [
+    false
+   ],
+   "as-123": [
+    false
+   ],
+   "as-124": [
+    false
+   ],
+   "as-125": [
+    false
+   ],
+   "as-126": [
+    false
+   ],
+   "as-127": [
+    false
+   ],
+   "as-128": [
+    false
+   ],
+   "as-129": [
+    false
+   ],
+   "as-130": [
+    false
+   ]
+  },
+  "v4_yes": [
+   72
+  ],
+  "v4_latency_median_s": 0.38
+ },
+ "v4_think/h": {
+  "runs": 1,
+  "recall_by_run": [
+   0.9
+  ],
+  "fp_by_run": [
+   0.0167
+  ],
+  "recall_pooled": [
+   54,
+   60
+  ],
+  "fp_pooled": [
+   1,
+   60
+  ],
+  "positive_item_stability": {
+   "all_hit": 54,
+   "none_hit": 6,
+   "mixed": 0
+  },
+  "latency_median_s": 8.11,
+  "latency_p95_s": 20.35,
+  "per_category": [
+   {
+    "news_today": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "price_market": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "weather": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "schedule_event": {
+     "n": 8,
+     "correct": 6,
+     "fp": 0,
+     "fn": 2
+    },
+    "sports_result": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "recent_event": {
+     "n": 6,
+     "correct": 3,
+     "fp": 0,
+     "fn": 3
+    },
+    "latest_version": {
+     "n": 8,
+     "correct": 7,
+     "fp": 0,
+     "fn": 1
+    },
+    "local_realtime": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "implied_recency": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "explicit_request": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "chitchat": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "coding": {
+     "n": 10,
+     "correct": 10,
+     "fp": 0,
+     "fn": 0
+    },
+    "math": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "writing": {
+     "n": 6,
+     "correct": 6,
+     "fp": 0,
+     "fn": 0
+    },
+    "creative": {
+     "n": 5,
+     "correct": 5,
+     "fp": 0,
+     "fn": 0
+    },
+    "general_knowledge": {
+     "n": 8,
+     "correct": 8,
+     "fp": 0,
+     "fn": 0
+    },
+    "entity_static_trap": {
+     "n": 5,
+     "correct": 4,
+     "fp": 1,
+     "fn": 0
+    },
+    "time_word_trap": {
+     "n": 7,
+     "correct": 7,
+     "fp": 0,
+     "fn": 0
+    },
+    "conversation_memory": {
+     "n": 4,
+     "correct": 4,
+     "fp": 0,
+     "fn": 0
+    },
+    "url_given": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    },
+    "injection": {
+     "n": 2,
+     "correct": 2,
+     "fp": 0,
+     "fn": 0
+    }
+   }
+  ],
+  "decisions": {
+   "ch-001": [
+    true
+   ],
+   "ch-002": [
+    true
+   ],
+   "ch-003": [
+    true
+   ],
+   "ch-004": [
+    true
+   ],
+   "ch-005": [
+    true
+   ],
+   "ch-006": [
+    true
+   ],
+   "ch-007": [
+    true
+   ],
+   "ch-008": [
+    true
+   ],
+   "ch-009": [
+    true
+   ],
+   "ch-010": [
+    true
+   ],
+   "ch-011": [
+    true
+   ],
+   "ch-012": [
+    true
+   ],
+   "ch-013": [
+    true
+   ],
+   "ch-014": [
+    true
+   ],
+   "ch-015": [
+    true
+   ],
+   "ch-016": [
+    true
+   ],
+   "ch-017": [
+    true
+   ],
+   "ch-018": [
+    true
+   ],
+   "ch-019": [
+    true
+   ],
+   "ch-020": [
+    true
+   ],
+   "ch-021": [
+    true
+   ],
+   "ch-022": [
+    true
+   ],
+   "ch-023": [
+    true
+   ],
+   "ch-024": [
+    false
+   ],
+   "ch-025": [
+    true
+   ],
+   "ch-026": [
+    true
+   ],
+   "ch-027": [
+    true
+   ],
+   "ch-028": [
+    false
+   ],
+   "ch-029": [
+    true
+   ],
+   "ch-030": [
+    true
+   ],
+   "ch-031": [
+    true
+   ],
+   "ch-032": [
+    true
+   ],
+   "ch-033": [
+    true
+   ],
+   "ch-034": [
+    false
+   ],
+   "ch-035": [
+    true
+   ],
+   "ch-036": [
+    false
+   ],
+   "ch-037": [
+    true
+   ],
+   "ch-038": [
+    true
+   ],
+   "ch-039": [
+    false
+   ],
+   "ch-040": [
+    false
+   ],
+   "ch-041": [
+    true
+   ],
+   "ch-042": [
+    true
+   ],
+   "ch-043": [
+    true
+   ],
+   "ch-044": [
+    true
+   ],
+   "ch-045": [
+    true
+   ],
+   "ch-046": [
+    true
+   ],
+   "ch-047": [
+    true
+   ],
+   "ch-048": [
+    true
+   ],
+   "ch-049": [
+    true
+   ],
+   "ch-050": [
+    true
+   ],
+   "ch-051": [
+    true
+   ],
+   "ch-052": [
+    true
+   ],
+   "ch-053": [
+    true
+   ],
+   "ch-054": [
+    true
+   ],
+   "ch-055": [
+    true
+   ],
+   "ch-056": [
+    true
+   ],
+   "ch-057": [
+    true
+   ],
+   "ch-058": [
+    true
+   ],
+   "ch-059": [
+    true
+   ],
+   "ch-060": [
+    true
+   ],
+   "ch-061": [
+    false
+   ],
+   "ch-062": [
+    false
+   ],
+   "ch-063": [
+    false
+   ],
+   "ch-064": [
+    false
+   ],
+   "ch-065": [
+    false
+   ],
+   "ch-066": [
+    false
+   ],
+   "ch-067": [
+    false
+   ],
+   "ch-068": [
+    false
+   ],
+   "ch-069": [
+    false
+   ],
+   "ch-070": [
+    false
+   ],
+   "ch-071": [
+    false
+   ],
+   "ch-072": [
+    false
+   ],
+   "ch-073": [
+    false
+   ],
+   "ch-074": [
+    false
+   ],
+   "ch-075": [
+    false
+   ],
+   "ch-076": [
+    false
+   ],
+   "ch-077": [
+    false
+   ],
+   "ch-078": [
+    false
+   ],
+   "ch-079": [
+    false
+   ],
+   "ch-080": [
+    false
+   ],
+   "ch-081": [
+    false
+   ],
+   "ch-082": [
+    false
+   ],
+   "ch-083": [
+    false
+   ],
+   "ch-084": [
+    false
+   ],
+   "ch-085": [
+    false
+   ],
+   "ch-086": [
+    false
+   ],
+   "ch-087": [
+    false
+   ],
+   "ch-088": [
+    false
+   ],
+   "ch-089": [
+    false
+   ],
+   "ch-090": [
+    false
+   ],
+   "ch-091": [
+    false
+   ],
+   "ch-092": [
+    false
+   ],
+   "ch-093": [
+    false
+   ],
+   "ch-094": [
+    false
+   ],
+   "ch-095": [
+    false
+   ],
+   "ch-096": [
+    false
+   ],
+   "ch-097": [
+    false
+   ],
+   "ch-098": [
+    false
+   ],
+   "ch-099": [
+    false
+   ],
+   "ch-100": [
+    false
+   ],
+   "ch-101": [
+    false
+   ],
+   "ch-102": [
+    false
+   ],
+   "ch-103": [
+    true
+   ],
+   "ch-104": [
+    false
+   ],
+   "ch-105": [
+    false
+   ],
+   "ch-106": [
+    false
+   ],
+   "ch-107": [
+    false
+   ],
+   "ch-108": [
+    false
+   ],
+   "ch-109": [
+    false
+   ],
+   "ch-110": [
+    false
+   ],
+   "ch-111": [
+    false
+   ],
+   "ch-112": [
+    false
+   ],
+   "ch-113": [
+    false
+   ],
+   "ch-114": [
+    false
+   ],
+   "ch-115": [
+    false
+   ],
+   "ch-116": [
+    false
+   ],
+   "ch-117": [
+    false
+   ],
+   "ch-118": [
+    false
+   ],
+   "ch-119": [
+    false
+   ],
+   "ch-120": [
+    false
+   ]
+  },
+  "v4_yes": [
+   60
+  ],
+  "v4_latency_median_s": 0.39
+ },
+ "p158_kwargs/d": {
+  "metrics": {
+   "n": 50,
+   "positive_first_tool_ok": 39,
+   "n_positive": 42,
+   "positive_any_expected": 39,
+   "negative_no_tool": 8,
+   "n_negative": 8,
+   "per_category": {
+    "cal_read": {
+     "n": 17,
+     "first_tool_ok": 15,
+     "any_expected": 15,
+     "wrong_first": {
+      "web_search": 1,
+      "none": 1
+     }
+    },
+    "rem_read": {
+     "n": 4,
+     "first_tool_ok": 4,
+     "any_expected": 4,
+     "wrong_first": {}
+    },
+    "event_write": {
+     "n": 7,
+     "first_tool_ok": 7,
+     "any_expected": 7,
+     "wrong_first": {}
+    },
+    "rem_write": {
+     "n": 8,
+     "first_tool_ok": 7,
+     "any_expected": 7,
+     "wrong_first": {
+      "calendar_add_event": 1
+     }
+    },
+    "mixed_web": {
+     "n": 6,
+     "first_tool_ok": 6,
+     "any_expected": 6,
+     "wrong_first": {}
+    },
+    "cal_neg": {
+     "n": 8,
+     "first_tool_ok": 8,
+     "any_expected": 0,
+     "wrong_first": {}
+    }
+   },
+   "latency_s_median": 2.04
+  },
+  "decisions": {
+   "cd-001": [
+    "calendar_list_events"
+   ],
+   "cd-002": [
+    "calendar_list_events"
+   ],
+   "cd-003": [
+    "calendar_list_events"
+   ],
+   "cd-004": [
+    "calendar_list_events"
+   ],
+   "cd-005": [
+    "web_search"
+   ],
+   "cd-006": [
+    "calendar_list_events"
+   ],
+   "cd-007": [],
+   "cd-008": [
+    "calendar_list_events"
+   ],
+   "cd-009": [
+    "calendar_list_events"
+   ],
+   "cd-010": [
+    "calendar_list_events"
+   ],
+   "cd-011": [
+    "calendar_list_events"
+   ],
+   "cd-012": [
+    "calendar_list_events"
+   ],
+   "cd-013": [
+    "calendar_list_events"
+   ],
+   "cd-014": [
+    "calendar_list_events"
+   ],
+   "cd-015": [
+    "calendar_list_events"
+   ],
+   "cd-016": [
+    "calendar_list_events"
+   ],
+   "cd-017": [
+    "calendar_list_events"
+   ],
+   "cd-018": [
+    "reminders_list"
+   ],
+   "cd-019": [
+    "reminders_list"
+   ],
+   "cd-020": [
+    "reminders_list"
+   ],
+   "cd-021": [
+    "reminders_list"
+   ],
+   "cd-022": [
+    "calendar_add_event"
+   ],
+   "cd-023": [
+    "calendar_list_events"
+   ],
+   "cd-024": [
+    "calendar_add_event"
+   ],
+   "cd-025": [
+    "calendar_add_event"
+   ],
+   "cd-026": [
+    "calendar_add_event"
+   ],
+   "cd-027": [
+    "calendar_add_event"
+   ],
+   "cd-028": [
+    "calendar_add_event"
+   ],
+   "cd-029": [
+    "reminders_add"
+   ],
+   "cd-030": [
+    "reminders_add"
+   ],
+   "cd-031": [
+    "reminders_add"
+   ],
+   "cd-032": [
+    "reminders_add"
+   ],
+   "cd-033": [
+    "calendar_add_event"
+   ],
+   "cd-034": [
+    "reminders_add"
+   ],
+   "cd-035": [
+    "reminders_add"
+   ],
+   "cd-036": [
+    "reminders_complete"
+   ],
+   "cd-037": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-038": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-039": [
+    "calendar_list_events"
+   ],
+   "cd-040": [
+    "calendar_list_events"
+   ],
+   "cd-041": [
+    "calendar_list_events"
+   ],
+   "cd-042": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-043": [],
+   "cd-044": [],
+   "cd-045": [],
+   "cd-046": [],
+   "cd-047": [],
+   "cd-048": [],
+   "cd-049": [],
+   "cd-050": []
+  }
+ },
+ "p158_think/d": {
+  "metrics": {
+   "n": 50,
+   "positive_first_tool_ok": 39,
+   "n_positive": 42,
+   "positive_any_expected": 39,
+   "negative_no_tool": 8,
+   "n_negative": 8,
+   "per_category": {
+    "cal_read": {
+     "n": 17,
+     "first_tool_ok": 16,
+     "any_expected": 16,
+     "wrong_first": {
+      "web_search": 1
+     }
+    },
+    "rem_read": {
+     "n": 4,
+     "first_tool_ok": 4,
+     "any_expected": 4,
+     "wrong_first": {}
+    },
+    "event_write": {
+     "n": 7,
+     "first_tool_ok": 7,
+     "any_expected": 7,
+     "wrong_first": {}
+    },
+    "rem_write": {
+     "n": 8,
+     "first_tool_ok": 7,
+     "any_expected": 7,
+     "wrong_first": {
+      "none": 1
+     }
+    },
+    "mixed_web": {
+     "n": 6,
+     "first_tool_ok": 5,
+     "any_expected": 5,
+     "wrong_first": {
+      "none": 1
+     }
+    },
+    "cal_neg": {
+     "n": 8,
+     "first_tool_ok": 8,
+     "any_expected": 0,
+     "wrong_first": {}
+    }
+   },
+   "latency_s_median": 10.43
+  },
+  "decisions": {
+   "cd-001": [
+    "calendar_list_events"
+   ],
+   "cd-002": [
+    "calendar_list_events"
+   ],
+   "cd-003": [
+    "calendar_list_events"
+   ],
+   "cd-004": [
+    "calendar_list_events"
+   ],
+   "cd-005": [
+    "web_search"
+   ],
+   "cd-006": [
+    "calendar_list_events"
+   ],
+   "cd-007": [
+    "calendar_list_events"
+   ],
+   "cd-008": [
+    "calendar_list_events"
+   ],
+   "cd-009": [
+    "calendar_list_events"
+   ],
+   "cd-010": [
+    "calendar_list_events"
+   ],
+   "cd-011": [
+    "calendar_list_events"
+   ],
+   "cd-012": [
+    "calendar_list_events"
+   ],
+   "cd-013": [
+    "calendar_list_events"
+   ],
+   "cd-014": [
+    "calendar_list_events"
+   ],
+   "cd-015": [
+    "calendar_list_events"
+   ],
+   "cd-016": [
+    "calendar_list_events"
+   ],
+   "cd-017": [
+    "calendar_list_events"
+   ],
+   "cd-018": [
+    "reminders_list"
+   ],
+   "cd-019": [
+    "reminders_list"
+   ],
+   "cd-020": [
+    "reminders_list"
+   ],
+   "cd-021": [
+    "reminders_list"
+   ],
+   "cd-022": [
+    "calendar_add_event"
+   ],
+   "cd-023": [
+    "calendar_add_event"
+   ],
+   "cd-024": [
+    "calendar_add_event"
+   ],
+   "cd-025": [
+    "calendar_add_event"
+   ],
+   "cd-026": [
+    "calendar_add_event"
+   ],
+   "cd-027": [
+    "calendar_list_events"
+   ],
+   "cd-028": [
+    "calendar_add_event"
+   ],
+   "cd-029": [
+    "reminders_add"
+   ],
+   "cd-030": [
+    "reminders_add"
+   ],
+   "cd-031": [
+    "reminders_add"
+   ],
+   "cd-032": [
+    "reminders_add"
+   ],
+   "cd-033": [
+    "reminders_add"
+   ],
+   "cd-034": [
+    "reminders_add"
+   ],
+   "cd-035": [
+    "reminders_add"
+   ],
+   "cd-036": [],
+   "cd-037": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-038": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-039": [
+    "calendar_list_events"
+   ],
+   "cd-040": [
+    "calendar_list_events"
+   ],
+   "cd-041": [],
+   "cd-042": [
+    "calendar_list_events",
+    "web_search"
+   ],
+   "cd-043": [],
+   "cd-044": [],
+   "cd-045": [],
+   "cd-046": [],
+   "cd-047": [],
+   "cd-048": [],
+   "cd-049": [],
+   "cd-050": []
+  }
+ },
+ "latency_158_decision": {
+  "5.x web off (no tools) | thinking on": {
+   "all": {
+    "n": 60,
+    "median_s": 4.39,
+    "p95_s": 9.56,
+    "mean_s": 5.48
+   },
+   "positive": {
+    "n": 30,
+    "median_s": 3.42,
+    "p95_s": 5.9,
+    "mean_s": 3.81
+   },
+   "negative": {
+    "n": 30,
+    "median_s": 6.34,
+    "p95_s": 10.3,
+    "mean_s": 7.14
+   },
+   "total_all": {
+    "median_s": 6.82,
+    "p95_s": 15.79
+   },
+   "first_chunk_median_s": 0.29,
+   "first_reasoning_median_s": 0.29,
+   "completion_tokens_median": 323.0,
+   "tool_call_rate_pos": 0.0,
+   "tool_call_rate_neg": 0.0,
+   "errors": 0
+  },
+  "#158 (tools, auto) | thinking on": {
+   "all": {
+    "n": 60,
+    "median_s": 4.95,
+    "p95_s": 13.71,
+    "mean_s": 6.66
+   },
+   "positive": {
+    "n": 30,
+    "median_s": 4.53,
+    "p95_s": 8.94,
+    "mean_s": 5.03
+   },
+   "negative": {
+    "n": 30,
+    "median_s": 7.29,
+    "p95_s": 15.22,
+    "mean_s": 8.28
+   },
+   "total_all": {
+    "median_s": 8.3,
+    "p95_s": 22.75
+   },
+   "first_chunk_median_s": 0.31,
+   "first_reasoning_median_s": 0.31,
+   "completion_tokens_median": 378.0,
+   "tool_call_rate_pos": 0.8,
+   "tool_call_rate_neg": 0.2,
+   "errors": 0
+  },
+  "5.x web off (no tools) | thinking off(kwargs)": {
+   "all": {
+    "n": 60,
+    "median_s": 0.32,
+    "p95_s": 0.44,
+    "mean_s": 0.36
+   },
+   "positive": {
+    "n": 30,
+    "median_s": 0.32,
+    "p95_s": 0.43,
+    "mean_s": 0.37
+   },
+   "negative": {
+    "n": 30,
+    "median_s": 0.33,
+    "p95_s": 0.4,
+    "mean_s": 0.35
+   },
+   "total_all": {
+    "median_s": 1.87,
+    "p95_s": 7.29
+   },
+   "first_chunk_median_s": 0.32,
+   "first_reasoning_median_s": null,
+   "completion_tokens_median": 75.0,
+   "tool_call_rate_pos": 0.0,
+   "tool_call_rate_neg": 0.0,
+   "errors": 0
+  },
+  "#158 (tools, auto) | thinking off(kwargs)": {
+   "all": {
+    "n": 60,
+    "median_s": 0.41,
+    "p95_s": 1.3,
+    "mean_s": 0.76
+   },
+   "positive": {
+    "n": 30,
+    "median_s": 1.19,
+    "p95_s": 1.34,
+    "mean_s": 1.1
+   },
+   "negative": {
+    "n": 30,
+    "median_s": 0.35,
+    "p95_s": 0.54,
+    "mean_s": 0.41
+   },
+   "total_all": {
+    "median_s": 1.85,
+    "p95_s": 8.03
+   },
+   "first_chunk_median_s": 0.41,
+   "first_reasoning_median_s": null,
+   "completion_tokens_median": 56.5,
+   "tool_call_rate_pos": 0.733,
+   "tool_call_rate_neg": 0.067,
+   "errors": 0
+  }
+ },
+ "latency_158_prefill": [
+  {
+   "config": "5.x web off (default today): Eve web-off prompt, no tools",
+   "prompt_tokens": 814,
+   "latency_s": [
+    2.04,
+    1.73,
+    1.74,
+    1.74,
+    1.76
+   ],
+   "median_s": 1.74
+  },
+  {
+   "config": "5.x web on (button): Eve web-on + 3-line tools text + 2 tools",
+   "prompt_tokens": 1282,
+   "latency_s": [
+    2.65,
+    2.67,
+    2.64,
+    2.67,
+    2.66
+   ],
+   "median_s": 2.66
+  },
+  {
+   "config": "#158 round 1: Eve web-on + #158 text + date + 2 tools",
+   "prompt_tokens": 1440,
+   "latency_s": [
+    2.98,
+    2.97,
+    2.97,
+    2.98,
+    2.97
+   ],
+   "median_s": 2.97
+  },
+  {
+   "config": "#158 round 1, fresh question (+ Gate hint)",
+   "prompt_tokens": 1457,
+   "latency_s": [
+    3.0,
+    3.01,
+    3.02,
+    3.0,
+    2.99
+   ],
+   "median_s": 3.0
+  },
+  {
+   "config": "#158 round 2: same text, tools = web_fetch only",
+   "prompt_tokens": 1275,
+   "latency_s": [
+    2.63,
+    2.66,
+    2.61,
+    2.62,
+    2.64
+   ],
+   "median_s": 2.63
+  },
+  {
+   "config": "#158 round 1 + memory block 1500 chars",
+   "prompt_tokens": 2456,
+   "latency_s": [
+    5.32,
+    5.33,
+    5.31,
+    5.28,
+    5.32
+   ],
+   "median_s": 5.32
+  },
+  {
+   "config": "#158 round 1 + memory block 3000 chars",
+   "prompt_tokens": 3473,
+   "latency_s": [
+    7.57,
+    7.57,
+    7.57,
+    7.55,
+    7.6
+   ],
+   "median_s": 7.57
+  }
+ ],
+ "latency_158_round2": [
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 3000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 3423,
+   "first_chunk_s": [
+    4.58,
+    4.55,
+    4.57
+   ],
+   "median_first_chunk_s": 4.57,
+   "first_output_s": [
+    4.58,
+    4.55,
+    4.57
+   ],
+   "median_first_output_s": 4.57
+  },
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 3000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 3258,
+   "first_chunk_s": [
+    5.04,
+    5.0,
+    5.03
+   ],
+   "median_first_chunk_s": 5.03,
+   "first_output_s": [
+    5.04,
+    5.0,
+    5.03
+   ],
+   "median_first_output_s": 5.03
+  },
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 6000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 5322,
+   "first_chunk_s": [
+    9.52,
+    9.54,
+    9.5
+   ],
+   "median_first_chunk_s": 9.52,
+   "first_output_s": [
+    9.52,
+    9.54,
+    9.5
+   ],
+   "median_first_output_s": 9.52
+  },
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 6000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 5157,
+   "first_chunk_s": [
+    9.71,
+    9.76,
+    9.73
+   ],
+   "median_first_chunk_s": 9.73,
+   "first_output_s": [
+    9.71,
+    9.76,
+    9.73
+   ],
+   "median_first_output_s": 9.73
+  },
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 12000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 9107,
+   "first_chunk_s": [
+    21.5,
+    21.54,
+    21.53
+   ],
+   "median_first_chunk_s": 21.53,
+   "first_output_s": [
+    21.5,
+    21.54,
+    21.53
+   ],
+   "median_first_output_s": 21.53
+  },
+  {
+   "thinking": "off(kwargs)",
+   "result_chars": 12000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 8942,
+   "first_chunk_s": [
+    21.59,
+    21.6,
+    21.6
+   ],
+   "median_first_chunk_s": 21.6,
+   "first_output_s": [
+    21.59,
+    21.6,
+    21.6
+   ],
+   "median_first_output_s": 21.6
+  },
+  {
+   "thinking": "on",
+   "result_chars": 3000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 3419,
+   "first_chunk_s": [
+    4.59,
+    4.58,
+    4.59
+   ],
+   "median_first_chunk_s": 4.59,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  },
+  {
+   "thinking": "on",
+   "result_chars": 3000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 3254,
+   "first_chunk_s": [
+    5.03,
+    5.01,
+    5.04
+   ],
+   "median_first_chunk_s": 5.03,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  },
+  {
+   "thinking": "on",
+   "result_chars": 6000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 5318,
+   "first_chunk_s": [
+    9.55,
+    9.57,
+    9.52
+   ],
+   "median_first_chunk_s": 9.55,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  },
+  {
+   "thinking": "on",
+   "result_chars": 6000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 5153,
+   "first_chunk_s": [
+    9.6,
+    9.62,
+    9.62
+   ],
+   "median_first_chunk_s": 9.62,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  },
+  {
+   "thinking": "on",
+   "result_chars": 12000,
+   "round2_tools": "tools unchanged (search+fetch)",
+   "prompt_tokens": 9103,
+   "first_chunk_s": [
+    21.57,
+    21.51,
+    21.52
+   ],
+   "median_first_chunk_s": 21.52,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  },
+  {
+   "thinking": "on",
+   "result_chars": 12000,
+   "round2_tools": "as #158 (web_fetch only)",
+   "prompt_tokens": 8938,
+   "first_chunk_s": [
+    21.59,
+    21.59,
+    21.6
+   ],
+   "median_first_chunk_s": 21.59,
+   "first_output_s": [
+    0,
+    0,
+    0
+   ],
+   "median_first_output_s": 0
+  }
+ ]
+}

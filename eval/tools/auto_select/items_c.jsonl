@@ -1,0 +1,50 @@
+{"id": "cc-001", "query": "삼성전자 현재 CEO가 누구야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-002", "query": "서울 지하철 기본요금 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-003", "query": "올해 최저임금 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-004", "query": "넷플릭스 스탠다드 요금제 한국 가격 알려줘", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-005", "query": "ChatGPT 무료 플랜에서 쓸 수 있는 모델이 뭐야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-006", "query": "한국 기준금리 지금 몇 %야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-007", "query": "국민연금 보험료율이 몇 %야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-008", "query": "테슬라 모델 Y 한국 판매가가 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-009", "query": "유튜브 프리미엄 한국 월 요금 알려줘", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-010", "query": "현재 서울 시장이 누구야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-011", "query": "스타벅스 아메리카노 톨 사이즈 가격 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-012", "query": "KTX 서울-부산 일반실 요금 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-013", "query": "애플 최신 맥북 프로에 들어간 칩이 뭐야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-014", "query": "내년 공휴일 중 연휴가 긴 때가 언제야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-015", "query": "미국 연준 기준금리 범위가 지금 어떻게 돼?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-016", "query": "구글 픽셀 가장 최근 모델 이름이 뭐야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-017", "query": "토스증권 해외주식 매매 수수료가 지금 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-018", "query": "올해 노벨 평화상 수상자는 누구야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-019", "query": "이번 시즌 K리그1 선두 팀이 어디야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-020", "query": "카카오톡 최신 업데이트에서 바뀐 기능이 뭐야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-021", "query": "한국 총인구가 지금 몇 명이야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-022", "query": "지금 시가총액 1위 기업이 어디야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-023", "query": "PS5 프로 한국 정식 판매가가 얼마야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-024", "query": "이번 겨울 독감 무료 예방접종 대상이 누구야?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-025", "query": "배달의민족 중개 수수료 체계가 지금 어떻게 돼?", "category": "rule_changes", "group": "C", "split": "new", "tricky": true, "expected_tool": "web_search"}
+{"id": "cc-026", "query": "세종대왕이 한글을 언제 창제했어?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-027", "query": "아이폰 4는 몇 년도에 나왔어?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-028", "query": "오늘 배운 내용 복습용 퀴즈 3개 내줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-029", "query": "최근에 대한 에세이 도입부 문장을 추천해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-030", "query": "'현재완료'와 '과거' 시제 차이를 설명해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-031", "query": "지금 이 순간을 주제로 짧은 시 하나 써줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-032", "query": "시세 차익이라는 용어가 무슨 뜻이야?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-033", "query": "뉴스 헤드라인 잘 쓰는 요령 알려줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-034", "query": "날씨가 우울할 때 기분 전환하는 방법 알려줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-035", "query": "이 문장을 요즘 말투로 바꿔줘: 회의가 끝났습니다.", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-036", "query": "2008년 금융위기 원인을 설명해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-037", "query": "코스피와 코스닥의 차이가 뭐야?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-038", "query": "환율이 오르면 수입 물가에 어떤 영향이 있어?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-039", "query": "파이썬 3.8에서 추가된 walrus 연산자를 설명해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-040", "query": "1990년대 한국 대중음악 특징을 정리해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-041", "query": "내일 면접인데 긴장 푸는 호흡법 알려줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-042", "query": "올림픽은 몇 년마다 열려?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-043", "query": "이 문장 영어로 번역해줘: 오늘은 날씨가 좋네요.", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-044", "query": "인플레이션이 뭔지 중학생에게 설명하듯 알려줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-045", "query": "현재 시각을 출력하는 파이썬 코드를 짜줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-046", "query": "환율 변동을 그리는 matplotlib 예제 코드를 줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-047", "query": "삼성전자를 창업한 사람이 누구야?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-048", "query": "최근 접속 기록을 보려면 리눅스에서 어떤 명령을 써?", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "expected_tool": "none"}
+{"id": "cc-049", "query": "그럼 지금까지 우리가 나눈 얘기를 세 줄로 요약해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "history": [{"role": "user", "content": "여행 계획 짜는 걸 도와줘"}, {"role": "assistant", "content": "좋아요. 먼저 여행 기간과 예산을 알려 주세요."}, {"role": "user", "content": "3박 4일에 예산은 100만원 정도야"}, {"role": "assistant", "content": "그럼 국내 도시 위주로 일정을 짜는 게 좋겠어요."}], "expected_tool": "none"}
+{"id": "cc-050", "query": "https://example.org/notice 이 공지 내용을 요약해줘", "category": "stable_trap", "group": "C", "split": "new", "tricky": true, "ok_extra": ["web_fetch"], "expected_tool": "none"}
