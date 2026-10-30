@@ -68,6 +68,7 @@
 
 ### Contract changes (SSE and responses)
 - SSE `chat.completion.tool_call` / `tool_result`: new `selected_by` (always `"model"`), `elapsed_ms`, `error_code`, `count`, `blocked_count`.
+- `tool_result.count` of a web tool (`web_search`, `web_fetch`) always equals the length of that event's `sources` (a page repeated within one result counts once; blocked and suspect items are not counted). `sources[].published` is a `YYYY-MM-DD` string, present only for a date in 2000-01-01 .. today+1 (Asia/Seoul server clock seam: `Server.Now`); the date line of the tool prompt uses the same clock.
 - `chat.completion.persisted` and the persisted message: new `fresh` (`ok` / `unverified`) and `tools[]` (tool, status, `selected_by`; no query text).
 - `messages.metadata` carries `{fresh, tools[]}` on every assistant message written by 6.0.0 (the key `tools` is always present, possibly empty).
 - `tool_calls`: new columns `selected_by`, `error_code`, `result_count`, `args_expires_at`; status `denied` is stored as `denied`.

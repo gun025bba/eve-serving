@@ -140,7 +140,7 @@ func TestQA_SourcesPublished(t *testing.T) {
 			t.Fatalf("%s: sources %v", name, ss)
 		}
 		a, b := list[0].(map[string]any), list[1].(map[string]any)
-		if a["published"] != "2026-10-29T03:04:05Z" {
+		if a["published"] != "2026-10-29" {
 			t.Errorf("%s: dated source %v", name, a)
 		}
 		if _, has := b["published"]; has {

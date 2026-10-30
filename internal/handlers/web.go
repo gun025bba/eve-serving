@@ -124,7 +124,7 @@ func (s *Server) newSession(r *http.Request, msgs []any, pr *chatPersist, protec
 	return tools.NewSession(tools.Deps{
 		Search: wt.Search, Fetch: wt.Fetch, Rate: wt.Rate,
 		Auto: true, Protected: protected, Budget: wt.Budget, StepBudget: 15 * time.Second,
-		MAC: wt.MAC, AutoOff: s.autoOffNow, PrivateHistory: privateHistory, Private: s.personalTool, Extra: extra, Suspicious: wt.Suspicious,
+		Now: s.now, MAC: wt.MAC, AutoOff: s.autoOffNow, PrivateHistory: privateHistory, Private: s.personalTool, Extra: extra, Suspicious: wt.Suspicious,
 		OnEcho: func(tc tools.Call, rule string) {
 			s.Log.Warn("web_echo_rejected", "request_id", rid(r), "user", logUser(r), "tool", tc.Tool, "rule", rule)
 		},
@@ -399,7 +399,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	freshHint := false
 	if webTools {
 		freshHint = tools.Gate(lastUserText(clean))
-		conv = append([]any{map[string]any{"role": "system", "content": tools.Prompt(time.Now(), freshHint)}}, clean...)
+		conv = append([]any{map[string]any{"role": "system", "content": tools.Prompt(s.now(), freshHint)}}, clean...)
 	}
 	out := &sseOut{w: w, on: stream, created: time.Now().Unix()}
 	if pr != nil {
@@ -423,8 +423,8 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 		if c.ErrorCode != "" {
 			res["error_code"] = c.ErrorCode
 		}
-		if c.Status == "ok" && c.Tool == "web_search" {
-			res["count"] = c.ResultCount
+		if c.Status == "ok" && (c.Tool == "web_search" || c.Tool == "web_fetch") {
+			res["count"] = len(c.Sources) // == len(sources) of this event (§13 Q8)
 		}
 		if c.Blocked > 0 {
 			res["blocked_count"] = c.Blocked // count only (§13); the UI shows "차단 n건"
@@ -742,8 +742,8 @@ func toolsView(sess *tools.Session) []map[string]any {
 		if c.ErrorCode != "" {
 			v["error_code"] = c.ErrorCode
 		}
-		if c.Status == "ok" && c.Tool == "web_search" {
-			v["count"] = c.ResultCount
+		if c.Status == "ok" && (c.Tool == "web_search" || c.Tool == "web_fetch") {
+			v["count"] = len(c.Sources)
 		}
 		out = append(out, v)
 	}

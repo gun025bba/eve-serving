@@ -248,6 +248,7 @@ sequenceDiagram
   {"object":"chat.completion.tool_result","id":"tc_…","sources":[{"n":1,"title":"…","url":"…","domain":"example.com"}]}
   {"object":"chat.completion.sources","sources":[…]}   // [DONE] 직전, 최종 인용 목록
   ```
+- `tool_result`의 `count`는 같은 이벤트의 `sources` 길이와 같아요(웹 툴). `sources[].published`는 `YYYY-MM-DD` 문자열이고, 날짜가 있고 2000-01-01~내일 범위일 때만 있어요.
 - 비스트리밍 응답에는 `choices[0].message.sources`에 같은 배열을 넣어요(OpenAI 확장 필드).
 - 메시지를 조회할 때도 `sources`를 함께 돌려줘서 UI가 하단 출처 카드를 그릴 수 있게 해요.
 - 렌더링 채널 요구사항(7.2-2): UI는 마크다운 이미지와 외부 리소스를 자동 로드하지 않아요. 현재 `renderMarkdown`이 링크만 렌더링하고 이미지는 렌더링하지 않는 상태를 **요구사항으로 유지**해요. 출처 카드 링크에는 `rel="noopener noreferrer"`를 붙이고 실제 도메인을 표시해요.
