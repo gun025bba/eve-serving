@@ -180,8 +180,18 @@ elif all_keys_ok; then say "  the deploy key(s) exist and GitHub accepts them: n
 else
   for e in $KEYS; do
     IFS=: read -r name dir title repo <<<"$e"; kf=$(key_file "$dir")
-    if [ ! -f "$kf" ]; then mkdir -p -m 700 "$HOME/$dir"; ssh-keygen -q -t ed25519 -N '' -C "$title" -f "$kf" || die "ssh-keygen failed"; say "  created $kf"; fi
+    # the key directory: created 0700 when missing, tightened to 0700 when it exists with group/other bits (it is ours, it holds a private key)
+    [ -d "$HOME/$dir" ] || mkdir -p -m 700 "$HOME/$dir" || die "cannot create $HOME/$dir"
+    [ -d "$HOME/$dir" ] && [ ! -L "$HOME/$dir" ] || die "$HOME/$dir must be a real directory"
+    case "$(stat -c %a "$HOME/$dir" 2>/dev/null || stat -f %Lp "$HOME/$dir")" in 700) ;; *) chmod 700 "$HOME/$dir" || die "cannot set $HOME/$dir to mode 0700";; esac
+    # the private key is reused when it exists (never overwritten); only a missing one is created
+    if [ ! -f "$kf" ]; then ssh-keygen -q -t ed25519 -N '' -C "$title" -f "$kf" || die "ssh-keygen failed"; say "  created $kf"; fi
     [ "$(stat -c %a "$kf" 2>/dev/null || stat -f %Lp "$kf")" = 600 ] || die "$kf must be mode 0600"
+    # the public half is shown below: a private key WITHOUT its .pub (copied or restored alone) gets the .pub derived from it (no passphrase: the session reads it unattended)
+    if [ ! -s "$kf.pub" ]; then
+      pubtxt=$(ssh-keygen -y -P '' -f "$kf" </dev/null 2>/dev/null) && [ -n "$pubtxt" ] || die "$kf has no $kf.pub and the public half cannot be derived from it (a key with a passphrase, or not a private key). Move it away and re-run: a new key is created"
+      printf '%s\n' "$pubtxt" >"$kf.pub" || die "cannot write $kf.pub"; chmod 644 "$kf.pub"; say "  derived the missing $kf.pub from the private key"
+    fi
     say "  $name:  open  https://github.com/$repo/settings/keys/new   Title: $title   Key (public half):"; sed 's/^/      /' "$kf.pub"; say "      tick \"Allow write access\", then Add key."
   done
   ask_word "  type 'registered' when the key(s) above are added: " registered || die "no confirmation"
