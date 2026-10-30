@@ -34,6 +34,9 @@ const (
 	EvRegistryLoaded = "registry_loaded"
 	EvKillswitch     = "killswitch"
 	EvPolicyLoaded   = "policy_loaded"
+	// EvBriefingRetention records one retention pass that deleted briefing
+	// messages of a user (#73). Detail holds counts only, never content.
+	EvBriefingRetention = "briefing_retention"
 )
 
 // Genesis is the prev_hash of the first row.

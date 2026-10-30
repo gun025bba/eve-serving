@@ -330,6 +330,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
 	go srv.RunPimCardScrub(ctx, 6*time.Hour)
+	go srv.RunBriefingRetention(ctx, 24*time.Hour)
 	if pgStore != nil {
 		go runAuditVerify(ctx, pgStore, log, m, breaker, 24*time.Hour)
 	}
