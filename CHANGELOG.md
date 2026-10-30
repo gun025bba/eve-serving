@@ -1,5 +1,58 @@
 # Changelog
 
+## 5.1.0 (unreleased)
+
+> 캘린더 연동·아침 브리핑(M1). Everything is off by default. Switches and enabling order:
+> `docs/runbooks/5.1.0-calendar-briefing.md`.
+
+### Fixed
+- **`allowed_users` fails closed (#131).** An empty allowlist already admits nobody; this is now pinned by tests
+  (a valid paired session is refused and does not fall through to the API key, `eve-gw pair` refuses every login).
+  A comma- or whitespace-joined login (`a@x, b@y`) is never a login: such an entry in `allowed_users` /
+  `GW_ALLOWED_USERS` (YAML item or space-separated list) now makes the gateway refuse to start with a clear error
+  instead of silently allowlisting nothing, and `ValidLogin` rejects it in `AllowedLogin` and the session check.
+  `tailscale-identity` itself was removed in 4.0.0, so there is no header path left to harden.
+
+### Changed (security review follow-up, Low findings #146 / #107)
+- **Logins are ASCII-only (#146).** One function, `auth.NormalizeLogin`, decides every login (allowlist entries, `eve-gw pair --user`,
+  session check): `[A-Za-z0-9._@+-]`, at most 254 bytes, lower-cased. Kelvin sign U+212A / U+0130 and other look-alikes no longer match;
+  a non-ASCII `allowed_users` entry now stops the gateway at startup. An empty allowlist logs `allowed_users_empty` at startup
+  (API keys are unaffected by the allowlist, now documented). `GW_ALLOWED_USERS` set but empty is treated as unset (YAML list kept)
+  and logs `allowed_users_env_empty_ignored`.
+- **`install-calendar-adapter.sh` (#107) verifies and installs a CI-built adapter; the local build is gone.** The script takes
+  `--manifest/--sig/--adapter` (or `--rollback`) and installs only when the manifest signature verifies (the pinned release key of the
+  passwordless-deploy entrypoint, sourced; no new sudoers verb), `pim_sha` (40 lowercase hex) equals the pinned `PIM_SHA` **and**
+  `pim_sha256` (64 hex) equals the adapter's sha256. No `git clone`, no `swift`, no `EXP_PIM_SHA256`. Target is the fixed root-owned
+  `/opt/eve-pim/bin/eve-pim` (`root:wheel 0755`) via a temp file in the same directory and an atomic `mv`, with the sha256 re-verified
+  afterwards; an already-installed binary with the same sha256 is not replaced (no new TCC prompt); one previous adapter is kept with its
+  signed manifest and `--rollback` follows the same rules. The LaunchAgent now runs the binary from that directory instead of `~/eve-pim`
+  (one new TCC prompt on the first install). The hex checks list the digits instead of a range: macOS bash 3.2 in a UTF-8 locale let `[a-f]` match upper case, so the old `is_hex_len` accepted an upper-case `PIM_SHA` there. Logs and copies stay in a private `mktemp -d` (0700); the pin stays on `keep/pim-adapter-6ce1993`.
+- **PIN NOT MOVED IN THIS CHANGE (security review M-1):** `PIM_SHA` stays `6ce1993`, which predates the adapter source this change adds. The installer therefore
+  refuses every install while `PIM_PIN_READY=0`, and `sign-pim-manifest.sh` refuses without `--test-only`. The pin moves in a **separate deploy-major change**
+  after this source is merged (`PIM_SHA` to the merged commit, `PIM_PIN_READY=1`; a test then requires `PIM_SHA` to contain `pim/eve-pim/build-release.sh`).
+  The adapter **must not be signed or installed** until that change is deployed.
+- **Installer hardening (security review Lows):** the `eve_deploy_overrides` test hook is gone from the production script (tests run the real verifier against a
+  copy of the entrypoint); every parent directory of the adapter and verifier directories must be root-owned and closed to group/other writes; the work directory's
+  input copies and backups are deleted on exit; the hardened-runtime check parses the `CodeDirectory flags=` line exactly (name list and the 0x10000 bit) instead
+  of matching `runtime` anywhere in the output; install and rollback pass the expected sha256 down to the atomic swap; an upgrade without a verified signed
+  record of the installed adapter (so without a rollback) is refused instead of continuing; a refused signature logs a short reason. Runbook: unexpected TCC
+  prompt = deny, PAUSE, check path and sha256; Reminders wording removed; classify rule and the cosign constraints are documented. Deferred: same key/namespace for
+  the manifest and the deploy bundle (until the cosign switch).
+- **Adapter is calendar-only and hardened.** `pim/eve-pim/build-release.sh` builds it and signs with `codesign -s - -o runtime`;
+  `Support/eve-pim.entitlements` carries only `com.apple.security.personal-information.calendars` and `Support/eve-pim-Info.plist` only the
+  Calendar usage strings (tests, the build script and the installer reject any other key: no contacts, no full disk access).
+  **Behaviour change:** the helper no longer requests Reminders access at start-up, so the `reminders_*` tools answer `permission_denied`.
+  `deploy/nopasswd/sign-pim-manifest.sh` makes a manifest signed with a local key (**local use and tests only**; production signing is a separate protected CI job with cosign keyless, no secrets in the build job); `deploy/test-calendar-adapter.sh` (also run from `go test` and
+  `deploy/nopasswd/test/run.sh`) tests refusal, atomic install, no-op and rollback.
+- `calendar_add_event` now **requires `calendar_id`** (from `calendar_list_events`); the confirmation card always
+  names the target calendar. There is no implicit default calendar. (L-1)
+- Text fields refuse U+2028/U+2029 in addition to control and format characters; the helper applies the same rule. (L-2)
+- Titles in the model's calendar/reminder results and in the briefing are cut to 200 characters. (L-3)
+- The helper gives up on a request that has not fully arrived 3 s after connecting and backs off on accept errors. (L-5)
+- New cleanup: event/reminder text left in `pending_actions` of finished or expired pim write cards is blanked 24 h
+  after they ended (job every 6 h; hash and status stay). (I-2)
+- Docs: `GW_PIM_WRITES_ENABLED` and the four other keys, defaults and the external-sync warning for writes.
+
 ## 5.0.2 (unreleased)
 
 ### Fixed

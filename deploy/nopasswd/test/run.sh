@@ -846,5 +846,8 @@ ua_out=$(bash "$HERE/unattended-test.sh" 2>&1); ua_rc=$?
 printf '%s\n' "$ua_out" | tail -n 8
 eq "unattended tests" "$ua_rc" 0
 
+# the calendar adapter installer (sources install-calendar-adapter.sh; runs here too so the macOS job covers bash 3.2)
+if bash "$D/../test-calendar-adapter.sh" >"$T/cal-adapter.out" 2>&1; then ok; else bad "calendar adapter installer tests"; cat "$T/cal-adapter.out"; fi
+
 echo "passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]

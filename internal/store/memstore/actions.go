@@ -2,6 +2,7 @@ package memstore
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"time"
 
@@ -212,6 +213,25 @@ func (s *Store) ApproveAction(_ context.Context, user, id, tokenSHA256 string, n
 	a.Status = "approved"
 	a.TokenSHA256, a.TokenExpiresAt = nil, nil
 	return nil
+}
+
+// ScrubActionContent: see store.ActionScrubber (memstore has no updated_at, so
+// created_at stands in for it).
+func (s *Store) ScrubActionContent(_ context.Context, tools []string, cutoff time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, a := range s.actions {
+		if !slices.Contains(tools, a.Tool) || !a.CreatedAt.Before(cutoff) || (a.Status == "pending" && !a.ExpiresAt.Before(cutoff)) {
+			continue
+		}
+		if string(a.Payload) == "{}" && string(a.PayloadView) == "{}" {
+			continue
+		}
+		a.Payload, a.PayloadView = []byte(`{}`), []byte(`{}`)
+		n++
+	}
+	return n, nil
 }
 
 func (s *Store) ReleaseAction(_ context.Context, user, id string) error {
