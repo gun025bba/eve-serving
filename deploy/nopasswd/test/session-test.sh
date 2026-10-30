@@ -60,7 +60,6 @@ echo "ONESHOT \$*" >>"\$FAKE_CALLS"
 PIN_UNATTENDED_SHA256=$SUSHA   # fake
 [ ! -f "\$FAKE_FX/oneshot-fails" ] || exit 1
 for a in "\$@"; do [ "\$a" = --dry-run ] && { echo "oneshot dry run"; exit 0; }; done
-[ ! -f "\$FAKE_FX/oneshot-warn" ] || [ -z "\${EVE_ONESHOT_WARN_FILE:-}" ] || echo temp-token >>"\$EVE_ONESHOT_WARN_FILE"
 echo installed >"\$FAKE_STATE/unattended_installed"; echo 5.0.2 >"\$FAKE_STATE/current_version"; echo 1.9.0 >"\$FAKE_STATE/current_web_version"
 echo "reason=install" >"\$FAKE_STATE/PAUSE"; echo 5.0.2 >"\$FAKE_STATE/floor"; echo 1.9.0 >"\$FAKE_STATE/floor_web"
 FAKE
@@ -224,7 +223,7 @@ eq "keys: no one-shot after a key failure" "$(calls | grep -c '^ONESHOT' | tr -d
 : >"$FX/keysok"; : >"$C"; run $(ARGS_BASE) --dry-run; eq "keys: dry run does not call ssh/git" "$(calls | grep -c LSREMOTE | tr -d ' ')" 0
 
 # ---------------- fail-closed stages ----------------
-mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
+mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1;  has "fail: the stop points above the clean-up text" "$OUT" "ABOVE the"; has "fail: the exit code is shown" "$OUT" "(exit 1)"; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
 eq "fail: no state after a failed one-shot" "$(grep -c oneshot= "$H/.eve-session/state" | tr -d ' ')" 0
 mkenv f2; printf 'tag\n' >"$FX/tty"; touch "$FX/tag-refused"; run $(ARGS_BASE); eq "fail: tag refused" "$RC" 1; has "fail: tag refused" "$OUT" 'STOPPED at stage "tags"'; eq "fail: no deploy after a tag refusal" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0; eq "fail: the gateway tag is not tried after the web tag was refused" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0
 mkenv f3; echo 2222222222222222222222222222222222222222 >"$FX/tip.eve-serving"; printf 'tag\n' >"$FX/tty"; run $(ARGS_BASE); eq "main moved: the run fails at the end (table), rc 1" "$RC" 1; has "main moved: says so" "$OUT" "main moved"; eq "main moved: no gateway tag" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0
@@ -291,6 +290,39 @@ printf '#!/bin/bash\necho 15.0\n' >"$FM/sw_vers"; printf '#!/bin/bash\nif [ "$1"
 printf '#!/bin/bash\nexit 1\n' >"$FM/dscl"; chmod +x "$FM"/*
 mm "$FM"; has "measure: fake macOS passes gate 01" "$MOUT" "01  OK"
 eq "measure: SIP text is shortened and printed" "$(printf '%s' "$MOUT" | grep -c 'System Integrity')" 1
+# BSD emulation (macOS): a strict sed that rejects a number flag combined with g ("bad flag in substitute command"), a BSD stat (no --version; -f prints "Directory", "Symbolic Link"), the fake macOS above.
+# Gate 03 must stay OK (it was UNKNOWN/FAIL for every component when the type word was cut with sed 's/ /_/3g').
+BSDB=$T/bsd-bin; mkdir -p "$BSDB"; cp "$FM"/* "$BSDB"/; export REAL_SED=$(command -v sed) REAL_STAT=$(command -v stat); GNU03=
+cat >"$BSDB/sed" <<'BSDSED'
+#!/bin/bash
+for a in "$@"; do case "$a" in s?*?[0-9]g|s?*?[0-9][0-9]g) echo "sed: bad flag in substitute command" >&2; exit 1;; esac; done
+exec "$REAL_SED" "$@"
+BSDSED
+cat >"$BSDB/stat" <<'BSDSTAT'
+#!/bin/bash
+[ "$1" != --version ] || exit 1
+[ "$1" != -c ] || { echo "stat: illegal option -- c" >&2; exit 1; }
+if [ "$1" = -f ]; then
+  fmt=$2; shift 2; fmt=${fmt//%Lp/%a}; fmt=${fmt//%HT/%F}
+  out=$("$REAL_STAT" -c "$fmt" "$@") || exit 1
+  case "$out" in *"symbolic link") out="${out%symbolic link}Symbolic Link";; *"directory") out="${out%directory}Directory";; *"regular"*"file") out="${out%regular*file}Regular File";; esac
+  echo "$out"
+else exec "$REAL_STAT" "$@"; fi
+BSDSTAT
+chmod +x "$BSDB"/*
+mm "$FM"; GNU03=$(printf '%s\n' "$MOUT" | grep '^03 ' | sed 's#/tmp/[^ ]*##')
+if [ "$(uname -s)" = Darwin ]; then
+  # real BSD tools here (the CI macOS job, system bash 3.2): no chain component may be unreadable
+  eq "measure (macOS tools): no chain component is UNKNOWN" "$(printf '%s\n' "$MOUT" | grep -cE '^03  UNKNOWN')" 0
+else
+  # the environment decides which components are OK (the runner's /opt, /usr/local), so the BSD-emulated rows must equal the GNU rows
+  mm "$BSDB"; has "measure (BSD sed/stat): gate 01 still OK" "$MOUT" "01  OK"
+  eq "measure (BSD sed/stat): no chain component is UNKNOWN" "$(printf '%s\n' "$MOUT" | grep -cE '^03  UNKNOWN')" 0
+  eq "measure (BSD sed/stat): the 03 rows equal the GNU rows" "$(printf '%s\n' "$MOUT" | grep '^03 ' | sed 's#/tmp/[^ ]*##')" "$GNU03"
+  eq "measure (BSD sed/stat): the strict sed rejects the old form" "$(printf 'a b c d' | "$BSDB/sed" 's/ /_/3g' 2>/dev/null; echo "rc=$?")" "rc=1"
+  mkdir -p "$T/lnk"; ln -sfn x "$T/lnk/l"
+  eq "measure (BSD stat): the BSD stat stub prints a two-word type" "$("$BSDB/stat" -f '%HT' "$T/lnk/l")" "Symbolic Link"
+fi
 # no secrets, user names or addresses: the output never contains the user name of this run
 eq "measure: output has no user name" "$(printf '%s' "$MOUT" | grep -c "$(id -un)")" 0
 # --out writes a copy and keeps the exit status
@@ -298,11 +330,6 @@ mm "$FM" --out "$T/m.out"; eq "measure: --out copy equals the output" "$(cat "$T
 mm "$FM" --bogus; eq "measure: unknown option" "$MRC" 1
 # writes nothing outside its temp dir: the box tree is unchanged
 B1=$(find "$D" -newer "$T/m.out" -type f 2>/dev/null | wc -l | tr -d ' '); eq "measure: no repository file touched" "$B1" 0
-# a WARN of the one-shot (temporary token revocation not proven) is repeated as a WARN row; it is not a failure
-mkenv w1; echo "eve-serving v5.1.0" >"$FX/tags"; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; touch "$FX/oneshot-warn"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
-run $(ARGS_BASE) --wait-minutes 0; eq "warn: the session still finishes (rc 0)" "$RC" 0; has "warn: WARN row in the table" "$OUT" "WARN  temporary token revocation"; eq "warn: recorded in the state" "$(sed -n 's/^oneshot_warn=//p' "$H/.eve-session/state")" temp-token
-mkenv w2; run $(ARGS_BASE) --dry-run >/dev/null; mkenv w3; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
-run $(ARGS_BASE) --wait-minutes 0; eq "no warn: rc 0" "$RC" 0; hasnt "no warn: no WARN row" "$OUT" "WARN  temporary token"; eq "no warn: state says none" "$(sed -n 's/^oneshot_warn=//p' "$H/.eve-session/state")" none
 # the mapping table in the runbook covers every measured item; env values are never printed
 DOC=$D/../../docs/runbooks/release-session.md
 for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do grep -q "^| $n |" "$DOC" && ok || bad "runbook mapping table lacks item $n"; grep -q "^# $n " "$M" && ok || bad "measure script lacks item $n"; done

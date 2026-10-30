@@ -23,18 +23,15 @@
 #   2  settings:  the reviewed JSON files, applied with that login (rulesets incl. release-branches on eve-serving, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings; eve-ios: only the main-protect ruleset with the required check `compile`)
 #   3  verify:    every setting is read back (PASS/FAIL table). A FAIL row stops the run: no sudo.
 #   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [calendar adapter], [today's gateway deploy], [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
-#   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; the OAuth token is PROVEN dead with an HTTP 401 (not dead or not proven = FAIL, non-zero exit). The temporary token: 401 = proven; empty input = a WARN with a follow-up text (the run goes on, exit 0); a pasted token that is still accepted (200) or gets no clear 401 (403, 5xx, timeout, curl error) = FAIL.
-# THE TEMPORARY TOKEN (the fine-grained token that opened the PR): conditions are fixed: repositories eve-serving and eve-web only; Contents and Pull requests write only; NO Administration;
-# expiry 1 day; used from the environment only. This script NEVER changes anything with it. If EVE_TEMP_TOKEN is set when the script starts it is used for ONE read: it must be REFUSED on an
-# admin-only endpoint (a token that can read admin settings violates the conditions and stops the run before any change). At the end it is read again (EVE_TEMP_TOKEN or a hidden prompt)
-# only to prove, with a 401, that it is revoked. It is never printed, logged or put on a command line (sent to curl through stdin).
+#   5  clean-up:  local gh logout; a link to revoke the OAuth token of THIS run; you type "revoked"; it is PROVEN dead with an HTTP 401. Not dead = FAIL (non-zero exit).
+# THE BOT TOKEN (the fine-grained token that opened the PR) is NOT handled here: it is a long-lived token limited to the three repositories (eve-serving, eve-web, eve-ios), expiry 90 days at most, owned
+# and rotated by the owner. This script never uses it and does not ask for it, check it or prove its revocation. EVE_TEMP_TOKEN, if set, is only removed from the environment (below).
 # Bash 3.2 / BSD tools compatible. Needs: curl, shasum, sudo, jq, gh, git. No secret is ever printed (xtrace, SHELLOPTS, GH_DEBUG are switched off first; error text is masked).
 # shellcheck disable=SC2015  # "A && B || die" is intended: die on any failure
 set +x +v; unset BASH_XTRACEFD GH_DEBUG DEBUG 2>/dev/null || true; export -n SHELLOPTS 2>/dev/null || true; unset SHELLOPTS 2>/dev/null || true
 set -euo pipefail
-# the temporary token is taken out of the environment at once: no child process (gh, git, curl, sudo) ever inherits it
-TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
-WARN_FILE=${EVE_ONESHOT_WARN_FILE-}; unset EVE_ONESHOT_WARN_FILE 2>/dev/null || true   # eve-session.sh only: where this script leaves the word "temp-token" when the temporary token's revocation could not be proven (a WARN, not a FAIL)
+# a bot token left in the environment is taken out of it at once: no child process (gh, git, curl, sudo) ever inherits it
+unset EVE_TEMP_TOKEN 2>/dev/null || true
 
 # ---------- pins and constants (pin-unattended.sh --oneshot rewrites the four sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
@@ -49,7 +46,6 @@ TTY=${ONESHOT_TTY:-/dev/tty}
 API_VERSION=2022-11-28
 API_VERSION_ALT=2026-03-10
 OAUTH_URL=https://github.com/settings/applications
-PAT_URL=https://github.com/settings/personal-access-tokens
 SETTINGS_FILES="release-tags.json release-tags.nokey.json release-tags-lock.json main-protect.eve-serving.json main-protect.eve-web.json main-protect.eve-ios.json release-branches.eve-serving.json env-deploy.json env-deploy-major.json security-and-analysis.json actions-workflow.json actions-fork-approval.json"
 
 DRY=0; MERGE=""; PIM_VER=""; GW_VER=""; WEB_VER=""; REH_KIND=""; REH_VER=""; UNPAUSE=0; SETTINGS_ONLY=0; TTY_FD=0
@@ -58,7 +54,10 @@ GHDIR=""; WORKD=""; FAILS=0; TOKEN=""; LOGIN_OK=0; REVOKE_DONE=0; RV_OK=0; REVOK
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
-die()  { printf 'eve-oneshot: %s\n' "$*" >&2; exit 1; }
+DIED=0; ERR_LINE=""; ERR_CMD=""
+die()  { DIED=1; printf 'eve-oneshot: %s\n' "$*" >&2; exit 1; }
+# set -e would otherwise stop the script WITHOUT a word when a command fails in a place that has no explicit message. Remember where, so that the end of the run names the cause.
+set -E; trap 'ERR_LINE=$LINENO; ERR_CMD=$BASH_COMMAND' ERR
 sha_of() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1; else sha256sum | cut -d' ' -f1; fi; }
 need() { local c; for c in "$@"; do command -v "$c" >/dev/null 2>&1 || { if [ "$DRY" = 1 ]; then say "  (dry-run) missing tool: $c"; else die "missing tool: $c"; fi; }; done; }
 is_ver() { [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; }
@@ -106,34 +105,19 @@ http_code_with() { # $1 token (sent through stdin, never in a command line or th
     case "$out" in 401) echo 401;; 200) echo 200;; *) echo other;; esac
   else echo other; fi
 }
-TEMP_RESULT="not run"; TEMP_WARN=0
 revoke_flow() {
-  local confirmed=no code=other pat="" pcode=unproven
+  local confirmed=no code=other
   REVOKE_DONE=1
-  printf '\n== 5. revoke BOTH tokens (gh auth logout only deleted the LOCAL copy of the OAuth token)\n'
-  if [ "$LOGIN_OK" = 1 ]; then printf '   1) OAuth login of this run:  %s  -> "Authorized OAuth Apps" -> "GitHub CLI" -> Revoke\n' "$OAUTH_URL"; fi
-  printf '   2) the temporary fine-grained token (the one that opened the PR):  %s  -> that token -> Delete\n' "$PAT_URL"
-  if tty_open; then if ask_word '   Type "revoked" and press Enter once BOTH are revoked: ' revoked; then confirmed=yes; fi
+  printf '\n== 5. revoke the OAuth token of this run (gh auth logout only deleted the LOCAL copy of it)\n'
+  if [ "$LOGIN_OK" = 1 ]; then printf '   OAuth login of this run:  %s  -> "Authorized OAuth Apps" -> "GitHub CLI" -> Revoke\n' "$OAUTH_URL"; fi
+  if tty_open; then if ask_word '   Type "revoked" and press Enter once it is revoked: ' revoked; then confirmed=yes; fi
   else printf '   (no terminal to ask on: not confirmed)\n'; fi
   if [ -n "$TOKEN" ]; then code=$(http_code_with "$TOKEN"); elif [ "$LOGIN_OK" = 0 ]; then code=401; else code=unproven; printf '   (the OAuth token of this login could not be read: its revocation cannot be proven here)\n'; fi
   TOKEN=""
   REVOKE_RESULT="confirmed=$confirmed http=$code"
-  pat=$TEMP_TOKEN; TEMP_TOKEN=""
-  if [ -z "$pat" ] && [ "$DRY" = 0 ] && tty_open; then printf '   Paste the temporary token to PROVE it is dead (input is hidden; empty = cannot prove = FAIL): '; read -r -s pat <&3 || pat=""; printf '\n'; fi
-  if [ -n "$pat" ]; then pcode=$(http_code_with "$pat"); fi
-  pat=""
-  TEMP_RESULT="http=$pcode"
   tty_close
-  # the OAuth token of this run must be PROVEN dead (401), as before. The temporary token: 401 = proven; NO INPUT (unproven) = WARN only (the run goes on and says what to do);
-  # anything GitHub answered or failed to answer for a token that WAS pasted (200, 403, 5xx, timeout, curl error = "other") is a FAIL.
-  if [ "$pcode" = unproven ]; then TEMP_WARN=1; fi
-  if [ "$confirmed" = yes ] && [ "$code" = 401 ] && { [ "$pcode" = 401 ] || [ "$TEMP_WARN" = 1 ]; }; then RV_OK=1
-    if [ "$TEMP_WARN" = 1 ]; then
-      printf '\n   WARN  temporary token: its revocation was NOT proven by this run (%s). The OAuth token of this run is dead (401). The run is not stopped.\n' "$TEMP_RESULT"
-      printf '   WARN  follow-up: open %s, check that the fine-grained token that opened the PR is gone from the list (delete it if it is still there). eve-session.sh repeats this as a WARN row in its table.\n' "$PAT_URL"
-      if [ -n "$WARN_FILE" ]; then printf 'temp-token\n' >>"$WARN_FILE" 2>/dev/null || true; fi
-    else say "   both tokens are dead (GitHub answered 401 for each): OK"; fi
-  else printf '\n   !!!!  WARNING: a token of this run may STILL BE VALID (oauth: %s, temporary: %s).  Revoke it NOW at the links above.  !!!!\n' "$REVOKE_RESULT" "$TEMP_RESULT"; fi
+  if [ "$confirmed" = yes ] && [ "$code" = 401 ]; then RV_OK=1; say "   the OAuth token is dead (GitHub answered 401): OK"
+  else printf '\n   !!!!  WARNING: the OAuth token of this run may STILL BE VALID (%s).  Revoke it NOW at the link above.  !!!!\n' "$REVOKE_RESULT"; fi
 }
 teardown() { # idempotent: local logout + delete the throwaway dir; then the revoke flow once
   if [ -n "$GHDIR" ] && [ -d "$GHDIR" ]; then GH_CONFIG_DIR=$GHDIR gh auth logout --hostname github.com >/dev/null 2>&1 || true; rm -rf "$GHDIR"; fi
@@ -142,8 +126,10 @@ teardown() { # idempotent: local logout + delete the throwaway dir; then the rev
 }
 cleanup() {
   local rc=$?
-  trap - EXIT INT TERM HUP
+  trap - EXIT INT TERM HUP ERR
   set +e
+  if [ "$rc" != 0 ] && [ "$rc" != 130 ] && [ "$DIED" = 0 ]; then printf '\neve-oneshot: STOPPED (exit %s) by a command without its own message, line %s: %s\n' "$rc" "${ERR_LINE:-?}" "$(printf '%s' "${ERR_CMD:-?}" | head -c 200 | redact)" >&2; fi
+  if [ "$rc" != 0 ]; then printf '\neve-oneshot: the run did NOT complete (exit %s): the clean-up below only closes the login; it is not the cause of the stop.\n' "$rc" >&2; fi
   teardown
   tty_close
   [ -z "$WORKD" ] || rm -rf "$WORKD"
@@ -222,15 +208,6 @@ step_pins() {
   done
   say "  merge commit on main, merged PR, installer + setup-unattended$([ -z "$PIM_VER" ] || printf ' + setup-pim-adapter') + $(printf '%s' "$SETTINGS_FILES" | wc -w | tr -d ' ') settings files match their pins; the three repositories are public"
 }
-temp_token_precheck() { # the temporary token (if given) must NOT see admin-only settings; one read, no change
-  local c pat=$TEMP_TOKEN
-  step "0b. temporary token conditions (read-only check)"
-  if [ "$DRY" = 1 ]; then say "  DRY-RUN if EVE_TEMP_TOKEN is set: GET repos/{serving}/actions/permissions with it must be refused (403/404): a token with Administration is rejected"; return 0; fi
-  if [ -z "$pat" ]; then say "  EVE_TEMP_TOKEN not set: the conditions cannot be checked here (it is asked for at the end, to prove its revocation)"; return 0; fi
-  c=$(printf 'Authorization: Bearer %s\n' "$pat" | curl -sS -o /dev/null -w '%{http_code}' -m 30 --proto '=https' --tlsv1.2 -H @- -H 'Accept: application/vnd.github+json' -H "X-GitHub-Api-Version: $API_VERSION" https://api.github.com/repos/gun025bba/eve-serving/actions/permissions 2>/dev/null || true)
-  pat=""
-  case "$c" in 401) say "  WARN: the temporary token is already invalid (401): that is the wanted end state; its revocation is still asked for at the end (a WARN there, not a stop, if it cannot be proven)";; 403|404) say "  the token is refused on an admin-only endpoint ($c): no Administration, as required";; *) die "the temporary token can read admin-only settings (HTTP $c): it violates the conditions. Revoke it, make a new one without Administration, and re-run";; esac
-}
 
 # ---------- step 1: login ----------
 git_ok() { local v maj min; v=$(git --version 2>/dev/null | sed -n 's/^git version \([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2/p'); [ -n "$v" ] || return 1; read -r maj min <<EOF2
@@ -256,7 +233,7 @@ step_login() {
   [ -n "$TOKEN" ] || die "cannot read the token of this login (needed to prove its revocation at the end)"
   who=$(ghq user --jq .login) || die "cannot read the logged-in user"
   [ "$who" = "$GH_USER" ] || die "logged in as '$who', not $GH_USER: aborting (nothing was changed)"
-  OWNER_ID=$(ghq user --jq .id); [[ "$OWNER_ID" =~ ^[0-9]+$ ]] || die "cannot read the user id"
+  OWNER_ID=$(ghq user --jq .id) || OWNER_ID=""; [[ "$OWNER_ID" =~ ^[0-9]+$ ]] || die "cannot read the user id"
   for r in $REPOS $IOS_REPO; do admin=$(ghq "repos/$r" --jq .permissions.admin) || die "cannot read $r"; [ "$admin" = true ] || die "$GH_USER is not an admin of $r: aborting (nothing was changed)"; done
   say "  logged in as $who, admin of all three repositories"
 }
@@ -273,7 +250,7 @@ preflight_keys() { # $1 repo: READ-ONLY. A write deploy key other than the expec
   done <<EOF2
 $rows
 EOF2
-  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than '$title' on $r: the DeployKey bypass would cover them. Aborting with NO change; delete them or make them read-only, then re-run"
+  [ "$foreign" = 0 ] || die "$foreign write deploy key(s) other than '$title' on $r: the DeployKey bypass would cover them. Aborting with NO change. Open https://github.com/$r/settings/keys : if the key is NOT yours, delete it; if its SHA256 fingerprint equals that of your tagger key (ssh-keygen -lf <the .pub file>), delete it and add the same public key again with the title '$title' (or make it read-only). Then re-run"
   [ "$ours" -le 1 ] || die "$ours write deploy keys titled '$title' on $r: aborting with no change"
   if [ "$ours" = 1 ]; then eval "KEYMODE_$s=key"; say "  $r: exactly one write deploy key '$title': release-tags keeps the DeployKey bypass"
   else eval "KEYMODE_$s=nokey"; say "  $r: NO write deploy key '$title': release-tags is applied WITHOUT the DeployKey bypass (admin only) and the table shows it"; fi
@@ -294,7 +271,8 @@ EOF3
 upsert_ruleset() { # REPO NAME BODY
   local r=$1 name=$2 body=$3 ids n
   if [ "$DRY" = 1 ]; then say "  DRY-RUN create-or-update ruleset '$name' on $r: $body"; return 0; fi
-  ids=$(ghq "repos/$r/rulesets?per_page=100" --jq ".[] | select(.name==\"$name\") | .id")
+  # an unreadable list must stop here: with "creating" on a failed read a second ruleset of the same name would be attempted
+  ids=$(ghq "repos/$r/rulesets?per_page=100" --jq ".[] | select(.name==\"$name\") | .id") || { say "  API ERROR: cannot list the rulesets of $r (ruleset $name NOT written)"; return 1; }
   n=$(printf '%s' "$ids" | grep -c . || true)
   case "$n" in
     0) say "  ruleset $name: creating"; gw POST "repos/$r/rulesets" "$body";;
@@ -328,9 +306,9 @@ apply_repo() {
       upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)" || say "  CANNOT restore release-tags on $r: remove the DeployKey bypass of that ruleset BY HAND before anything else"
       die "release-tags on $r: not exactly one write deploy key (or the write failed); the ruleset was put back without the DeployKey bypass. Fix the keys and run again"
     fi
-  else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
-  upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")"
-  if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
+  else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)" || die "ruleset release-tags on $r could not be written (the API error is above)"; fi
+  upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")" || die "ruleset main-protect on $r could not be written (the API error is above)"
+  if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)" || die "ruleset release-branches on $r could not be written (the API error is above)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
   gw PUT "repos/$r/environments/deploy" "$(body_of env-deploy.json)" || say "  warning: environment deploy PUT failed; the table decides"
   sync_env_policies "$r" deploy || say "  warning: policies of deploy not synced; the table decides"
   major=$(jq -c --argjson id "${OWNER_ID:-0}" '.reviewers[0].id = $id' "$SETTINGS/env-deploy-major.json")
@@ -348,14 +326,14 @@ apply_repo() {
 }
 apply_ios() { # eve-ios: ONLY the main-protect ruleset (required status check "compile" from the Actions app, PR required, 0 approvals, squash/rebase, no force-push, no deletion)
   say "  -- $IOS_REPO (main-protect only)"
-  upsert_ruleset "$IOS_REPO" main-protect "$(body_of main-protect.eve-ios.json)"
+  upsert_ruleset "$IOS_REPO" main-protect "$(body_of main-protect.eve-ios.json)" || die "ruleset main-protect on $IOS_REPO could not be written (the API error is above)"
 }
 step_settings() {
   local r
-  step "2. settings of the repositories (idempotent; applied ONLY with the throwaway OAuth login, never with the temporary token)"
+  step "2. settings of the repositories (idempotent; applied ONLY with the throwaway OAuth login, never with a bot token)"
   for r in $REPOS; do preflight_keys "$r"; done
   # FIRST of all writes (before release-tags is rewritten and before any PUT of another setting): the lock on tags v* (no update, delete or force-push), so that a failure later in the run can never leave the tags unprotected
-  for r in $REPOS; do upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)"; done
+  for r in $REPOS; do upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)" || die "ruleset release-tags-lock on $r could not be written (the API error is above): stopped, nothing else was changed after it"; done
   for r in $REPOS; do apply_repo "$r"; done
   apply_ios
 }
@@ -432,7 +410,6 @@ step_sudo() {
 main() {
   if [ "$DRY" = 1 ]; then say "DRY-RUN: nothing is changed, no login, no sudo, no network"; fi
   step_pins
-  temp_token_precheck
   step_login
   step_settings
   step_verify || die "settings table has FAIL rows: stopped before sudo"
@@ -440,7 +417,7 @@ main() {
     if [ "$DRY" = 0 ]; then teardown_local_only; fi
     step_sudo
   fi
-  if [ "$DRY" = 1 ]; then say; say "DRY-RUN done. A real run ends by making you revoke the OAuth token and the temporary token and proving both dead with HTTP 401."; fi
+  if [ "$DRY" = 1 ]; then say; say "DRY-RUN done. A real run ends by making you revoke the OAuth token of this run and proving it dead with HTTP 401."; fi
 }
 teardown_local_only() { # the local copy of the login is gone before sudo runs; the token stays in memory for the 401 proof
   if [ -n "$GHDIR" ] && [ -d "$GHDIR" ]; then GH_CONFIG_DIR=$GHDIR gh auth logout --hostname github.com >/dev/null 2>&1 || true; rm -rf "$GHDIR"; fi
