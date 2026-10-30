@@ -4,6 +4,12 @@
 
 **Breaking (MAJOR).** Web tool use is now chosen by the model for every request, whenever the server has `web.enabled`.
 
+### Added (#159)
+- **`tools.denylist`** (`GW_TOOLS_DENYLIST`, comma separated; default empty): the only exception to automatic tool use. A tool on the list (model-facing
+  name such as `web_search`, `web_fetch`, `memory_propose` or a personal tool; `memory.propose` is accepted for `memory_propose`) is not offered to the
+  model and a call that arrives anyway is refused (`error_code: kill_switch`, `tool_unavailable` for the memory tool) and never executed. No per-user or
+  per-chat toggle, no UI. A malformed name fails start-up; an unknown name logs `tools_denylist_unknown`. Changing the list needs a restart.
+
 ### Changed
 - **Automatic tool selection is the default and the only mode.** There is no per-user allowlist, opt-in or force path. The request field
   `web_search` (any value, including `"force"` and `"off"`), the thread setting `web_search` and `web.default_mode` are accepted but ignored; the

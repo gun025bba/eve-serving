@@ -28,7 +28,7 @@ import (
 // withMemoryTool appends the memory_propose definition while memory is on;
 // otherwise defs are returned unchanged (request bodies identical to before).
 func (s *Server) withMemoryTool(defs []any, on bool) []any {
-	if !on {
+	if !on || tools.Denied(memory.ToolName) { // tools.denylist: not offered
 		return defs
 	}
 	return append(append([]any{}, defs...), memory.ToolDef())

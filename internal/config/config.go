@@ -169,8 +169,12 @@ type ToolsConfig struct {
 	// metadata.tools[] on every assistant message; empty means "no end", which
 	// is safe because 6.0.0 writes the key on every message it persists.
 	// GW_TOOLS_PIM_WINDOW_START / GW_TOOLS_PIM_WINDOW_END.
-	PIMWindowStart string `yaml:"pim_window_start" json:"-"`
-	PIMWindowEnd   string `yaml:"pim_window_end" json:"-"`
+	// Denylist is the server-side tool deny list (#159): the model-facing names
+	// of tools that are not offered and whose calls are refused. Empty by
+	// default (every tool is automatic). GW_TOOLS_DENYLIST (comma separated).
+	Denylist       []string `yaml:"denylist" json:"-"`
+	PIMWindowStart string   `yaml:"pim_window_start" json:"-"`
+	PIMWindowEnd   string   `yaml:"pim_window_end" json:"-"`
 }
 
 // PIMWindow returns the parsed window; a zero Start is "earliest", a zero End
@@ -531,6 +535,9 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	}
 	if v := getenv("GW_TOOLS_PIM_WINDOW_END"); v != "" {
 		c.Tools.PIMWindowEnd = v
+	}
+	if v := getenv("GW_TOOLS_DENYLIST"); v != "" {
+		c.Tools.Denylist = splitList(v)
 	}
 	if v := getenv("GW_TOOLS_V4_MODE"); v != "" {
 		c.Tools.V4Mode = v

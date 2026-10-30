@@ -69,7 +69,7 @@ var legacyOrder = []string{"web_search", "web_fetch"}
 func (p *Platform) Exposed() []string {
 	var out []string
 	for _, n := range legacyOrder {
-		if _, ok := p.Reg.Get(n); ok && !p.Kill.Disabled(n) {
+		if _, ok := p.Reg.Get(n); ok && !p.Kill.Disabled(n) && !Denied(n) {
 			out = append(out, n)
 		}
 	}
@@ -94,6 +94,11 @@ func SetKillswitch(k *Killswitch) { Default().Kill = k }
 func (p *Platform) exec(ctx context.Context, s *Session, c *Call, name string, args map[string]any) string {
 	if !s.CallsLeft() {
 		c.Status, c.Error, c.BlockReason = "blocked", "tool call limit reached", ReasonLimit
+		return ""
+	}
+	if Denied(name) {
+		// server deny list (tools.denylist): a gateway refusal, whichever adapter would run
+		c.Status, c.Error, c.BlockReason, c.ErrorCode = "denied", "tool disabled", ReasonDenylist, ErrCodeKill
 		return ""
 	}
 	if ex, ok := s.d.Extra[name]; ok {

@@ -319,6 +319,21 @@ func main() {
 		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "auto_select_off", cfg.Web.AutoSelectOff)
 	}
 	reg := tools.Default() // embedded manifests; invalid manifests abort startup
+	if deny, err := tools.SetDenylist(cfg.Tools.Denylist); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if len(deny) > 0 {
+		var unknown []string
+		for _, n := range deny {
+			if !tools.KnownTool(n) {
+				unknown = append(unknown, n)
+			}
+		}
+		log.Info("tools_denylist", "tools", strings.Join(deny, ","))
+		if len(unknown) > 0 {
+			log.Warn("tools_denylist_unknown", "tools", strings.Join(unknown, ","), "detail", "no such tool is registered; the entry has no effect")
+		}
+	}
 	log.Info("tool_registry_loaded", "tools", strings.Join(reg.Reg.Names(), ","))
 	sysEvent(audit.EvRegistryLoaded, "ok", map[string]string{"tools": strings.Join(reg.Reg.Names(), ",")})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

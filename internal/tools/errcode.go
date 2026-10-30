@@ -40,6 +40,7 @@ var reasonCodes = map[string]string{
 	webfetch.ReasonAllowlist:     ErrCodePerm,
 	ReasonToolsDisabled:          ErrCodeKill,
 	ReasonDisabled:               ErrCodeKill,
+	ReasonDenylist:               ErrCodeKill,
 	// budgets
 	ReasonLimit:             ErrCodeBudget,
 	ReasonRate:              ErrCodeRate,

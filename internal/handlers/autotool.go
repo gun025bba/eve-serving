@@ -37,7 +37,28 @@ func (s *Server) personalReady() bool {
 
 // personalExposed reports whether personal-data tools are offered on r.
 func (s *Server) personalExposed(r *http.Request) bool {
-	return s.personalReady() && len(s.Personal.Defs(r)) > 0
+	return s.personalReady() && len(dropDenied(s.Personal.Defs(r))) > 0
+}
+
+// defName is the function name of an OpenAI tool definition ("" if malformed).
+func defName(d any) string {
+	m, _ := d.(map[string]any)
+	f, _ := m["function"].(map[string]any)
+	n, _ := f["name"].(string)
+	return n
+}
+
+// dropDenied removes the tools on the server deny list (tools.denylist) from
+// definitions. A definition whose name cannot be read is dropped too (fail
+// closed).
+func dropDenied(defs []any) []any {
+	var out []any
+	for _, d := range defs {
+		if n := defName(d); n != "" && !tools.Denied(n) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // personalDefs are the personal tool definitions for r (nil when not offered).
@@ -45,7 +66,7 @@ func (s *Server) personalDefs(r *http.Request) []any {
 	if !s.personalExposed(r) {
 		return nil
 	}
-	return s.Personal.Defs(r)
+	return dropDenied(s.Personal.Defs(r))
 }
 
 // assistantTexts are the contents of the assistant messages of a request.

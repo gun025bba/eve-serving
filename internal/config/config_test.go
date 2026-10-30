@@ -389,3 +389,24 @@ func TestRequireKillswitch(t *testing.T) {
 		t.Fatal("web disabled: nothing to require")
 	}
 }
+
+// #159: tools.denylist defaults to empty; YAML and GW_TOOLS_DENYLIST set it.
+func TestToolsDenylist159(t *testing.T) {
+	c, err := LoadEnv(writeCfg(t, ""), noEnv)
+	if err != nil || len(c.Tools.Denylist) != 0 {
+		t.Fatal(c.Tools.Denylist, err)
+	}
+	c, err = LoadEnv(writeCfg(t, "tools:\n  denylist: [web_fetch, calendar_list_events]\n"), noEnv)
+	if err != nil || len(c.Tools.Denylist) != 2 || c.Tools.Denylist[0] != "web_fetch" {
+		t.Fatal(c.Tools.Denylist, err)
+	}
+	c, err = LoadEnv(writeCfg(t, ""), func(k string) (string, bool) {
+		if k == "GW_TOOLS_DENYLIST" {
+			return "web_search, memory_propose", true
+		}
+		return "", false
+	})
+	if err != nil || len(c.Tools.Denylist) != 2 || c.Tools.Denylist[1] != "memory_propose" {
+		t.Fatal(c.Tools.Denylist, err)
+	}
+}

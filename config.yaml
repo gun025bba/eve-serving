@@ -76,6 +76,8 @@ web:                 # web_search / web_fetch tools (docs/web-search.md). On by 
 tools:                    # 6.0.0 automatic tool selection (docs/architecture/auto-tool-selection.md)
   # log_hmac_key_file: ~/llm-serving/etc/tools_log_hmac.key   # GW_TOOLS_LOG_HMAC_KEY_FILE
   #   0600 file, 64+ hex characters. REQUIRED for automatic selection: without a usable key the web tools are off.
+  denylist: []            # GW_TOOLS_DENYLIST (comma separated). Model-facing tool names that are NOT offered and whose calls are refused,
+  #                         for example [web_fetch] or [calendar_list_events]. The only exception to automatic tool use: no per-user or per-chat switch.
   v4_mode: off            # GW_TOOLS_V4_MODE: off | shadow | on (same-model yes/no decision call, design 4.4.1)
   # pim_window_start: "2026-11-01T09:00:00+09:00"   # GW_TOOLS_PIM_WINDOW_START (RFC 3339)
   #   When 5.1.0 went live. 5.1.0 does not record personal-data (calendar/reminder) reads, so assistant messages

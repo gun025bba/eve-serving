@@ -539,6 +539,12 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
 				continue
 			}
+			if c.name == memory.ToolName && tools.Denied(memory.ToolName) {
+				// tools.denylist: never offered; a call that arrives anyway is refused, nothing is saved
+				res := toolResult(map[string]any{"status": "denied", "error_code": "tool_unavailable"})
+				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+				continue
+			}
 			if c.name == memory.ToolName && tools.Default().Kill.Disabled(memory.ToolPropose) {
 				res := toolResult(map[string]any{"status": "denied", "error_code": "kill_switch"})
 				conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
