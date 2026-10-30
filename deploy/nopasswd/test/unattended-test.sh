@@ -48,7 +48,7 @@ eq "pin: no 40-hex commit in a URL or pin in the shipped scripts and the README"
 eq "pin: installer SHA_DEPLOY = eve-deploy" "$(const SHA_DEPLOY "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-deploy")"
 eq "pin: installer SHA_FETCH = eve-fetch" "$(const SHA_FETCH "$D/setup-deploy-nopasswd.sh")" "$(sha256 "$D/eve-fetch")"
 # nothing that must never appear in the repository's new files
-for f in eve-oneshot.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
+for f in eve-oneshot.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh release-tag.eve-web.constants launchd/com.llmserving.evepoll.plist.template settings/* ../../.github/CODEOWNERS ../../docs/runbooks/unattended-deploy.md; do
   [ -f "$D/$f" ] || continue
   grep -nE 'Mac Studio|\.ts\.net|[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|gh[pousr]_[A-Za-z0-9]{20}|github_pat_[A-Za-z0-9]|BEGIN [A-Z ]*PRIVATE KEY' "$D/$f" | grep -v '127\.0\.0\.1' >/dev/null && bad "$f contains a forbidden string (product name, address, hostname or secret)" || ok
 done
@@ -63,10 +63,15 @@ eq "release-branches: only the repository admin role may bypass (always, like re
 eq "release-branches: PR required, 0 approvals, squash+rebase, code owner off" "$(jq -r '.rules[]|select(.type=="pull_request")|.parameters|"\(.required_approving_review_count) \(.require_code_owner_review) \(.allowed_merge_methods|sort|join(","))"' "$RBJ")" "0 false rebase,squash"
 eq "release-branches: required checks = those of main-protect (test, deploy-nopasswd-macos @15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|sort|join(",")' "$RBJ")" "deploy-nopasswd-macos@15368,test@15368"
 eq "release-branches: same checks as main-protect serving" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$RBJ")" "$(jq -c '[.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks]' "$SETT/main-protect.eve-serving.json")"
-for n in main-protect.eve-serving main-protect.eve-ios release-branches.eve-serving; do
+for n in main-protect.eve-serving main-protect.eve-web main-protect.eve-ios release-branches.eve-serving; do
   eq "r2 L-1: $n.json pull_request has require_extra_approval_for_unattributed_changes=true (pull_request parameters only)" "$(jq -r '[.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$SETT/$n.json")/$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))] | length' "$SETT/$n.json")" "true/1"
 done
-eq "r2 L-1: main-protect.eve-web.json has no pull_request rule, so no such parameter" "$(jq -r '[.. | objects | select(has("require_extra_approval_for_unattributed_changes"))]|length' "$SETT/main-protect.eve-web.json")" 0
+WEBJ=$SETT/main-protect.eve-web.json
+eq "main-protect web: PR required, 0 approvals (second reviewer account later: 1), squash+rebase, code owner off, stale dismissed, threads resolved" "$(jq -r '.rules[]|select(.type=="pull_request")|.parameters|"\(.required_approving_review_count) \(.require_code_owner_review) \(.dismiss_stale_reviews_on_push) \(.required_review_thread_resolution) \(.allowed_merge_methods|sort|join(","))"' "$WEBJ")" "0 false true true rebase,squash"
+eq "main-protect web: bypass list is empty, default branch, active" "$(jq -r '"\(.bypass_actors|length) \(.conditions.ref_name.include|join(",")) \(.enforcement)"' "$WEBJ")" "0 ~DEFAULT_BRANCH active"
+eq "main-protect web: no force-push, no deletion, linear history, status checks, PR (exactly these five rules)" "$(jq -r '[.rules[].type]|sort|join(",")' "$WEBJ")" "deletion,non_fast_forward,pull_request,required_linear_history,required_status_checks"
+eq "main-protect web: required check is test from the Actions app, strict" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters|"\(.strict_required_status_checks_policy) \(.required_status_checks|map("\(.context)@\(.integration_id)")|join(","))"' "$WEBJ")" "true test@15368"
+eq "main-protect web: same pull_request parameters as eve-serving" "$(jq -c '.rules[]|select(.type=="pull_request")' "$WEBJ")" "$(jq -c '.rules[]|select(.type=="pull_request")' "$SETT/main-protect.eve-serving.json")"
 has "r2 L-1: the read-back (RS_SUM) compares the parameter" "$(cat "$OS")" 'extra=\(.parameters.require_extra_approval_for_unattributed_changes)'
 IOSJ=$SETT/main-protect.eve-ios.json
 eq "main-protect ios: required check is compile from the Actions app (15368)" "$(jq -r '.rules[]|select(.type=="required_status_checks")|.parameters.required_status_checks|map("\(.context)@\(.integration_id)")|join(",")' "$IOSJ")" "compile@15368"
@@ -294,7 +299,7 @@ has "release-branches: PASS row" "$(cat "$T/out")" "PASS  gun025bba/eve-serving 
 # r2 L-2: the tag lock is the FIRST write of the whole run (before release-tags is rewritten and before any PUT of another setting)
 eq "r2 L-2: the first two writes are the release-tags-lock rulesets (serving, web)" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|.[0:2]|map(.body.name+" "+.ep)|join(",")')" "release-tags-lock repos/gun025bba/eve-serving/rulesets,release-tags-lock repos/gun025bba/eve-web/rulesets"
 eq "r2 L-2: no other write precedes a lock write" "$(glog '[.[]|select(.cmd=="api" and .method!="GET")]|(map(.body.name=="release-tags-lock")|rindex(true)) < (map(.body.name!="release-tags-lock")|index(true))')" true
-eq "r2 L-1: the applied rulesets carry the parameter" "$(jq -r '[.repos[].rulesets[]|.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$T/fk/gh.json")" "true,true,true"
+eq "r2 L-1: the applied rulesets carry the parameter" "$(jq -r '[.repos[].rulesets[]|.rules[]|select(.type=="pull_request")|.parameters.require_extra_approval_for_unattributed_changes]|join(",")' "$T/fk/gh.json")" "true,true,true,true"
 # eve-ios: ONLY the main-protect ruleset, required check compile (Actions app), verified in the PASS table
 eq "ios: the ruleset applied is the pinned file" "$(jq -S 'del(.id)' <(jq -c '.repos["gun025bba/eve-ios"].rulesets[0]' "$T/fk/gh.json"))" "$(jq -S . "$SETT/main-protect.eve-ios.json")"
 eq "ios: the only writes on eve-ios are the ruleset" "$(glog '[.[]|select(.cmd=="api" and .method!="GET" and (.ep|startswith("repos/gun025bba/eve-ios")))|.method+" "+.ep]|unique|join(",")')" "POST repos/gun025bba/eve-ios/rulesets"

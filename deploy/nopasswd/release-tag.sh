@@ -4,6 +4,9 @@
 #
 #   bash deploy/nopasswd/release-tag.sh X.Y.Z [FULL_SHA]        (run inside a clone of the repository)
 #   ... --dry-run                                                (all checks, no tag, no push)
+#   ... --repo eve-web                                           (the UI repository gun025bba/eve-web: run it inside a clean clone of eve-web, main checked out. Its repository, remote, required check and key
+#                                                                 path are NOT in this file: they are the constants of release-tag.eve-web.constants next to it, read with a strict parser, never sourced.
+#                                                                 Allowed values of --repo: eve-serving (default, the constants below) and eve-web, nothing else. The checkout of THIS script must also be a clean main.)
 #
 # FULL_SHA defaults to the tip of origin/main. NO HUMAN REVIEW BEFORE TAGGING (태그 전 사람 리뷰 없음): the script does not look for any reviewer or approval; what stands between a
 # merge and a tag is the branch protection of main (PR + required checks) and the three gates below. The tag is pushed only when ALL of this holds, otherwise the script refuses
@@ -37,22 +40,53 @@ REPO="gun025bba/eve-serving"
 REMOTE="git@github.com:${REPO}.git"
 # ================================================================================================================================================================
 
-DRY=0 VERSION="" SHA=""
-for a in "$@"; do
+DRY=0 VERSION="" SHA="" PROFILE=eve-serving WANT_PROFILE=0
+# the checks of the default profile (eve-serving); the eve-web constants file may replace the list of checks, the workflow path and the key directory (see load_constants)
+CI_PATH=".github/workflows/ci.yml"   # the workflow file the required checks must come from
+REQUIRED_CHECKS="test deploy-nopasswd-macos"
+KEY_DIRNAME=.eve-release-tagger   # the key is $HOME/$KEY_DIRNAME/id_ed25519
+while [ $# -gt 0 ]; do
+  a=$1; shift
   case "$a" in
     --dry-run) DRY=1 ;;
+    --repo) [ "$WANT_PROFILE" = 0 ] || die "--repo given twice"; [ $# -gt 0 ] || die "--repo needs a value (eve-serving or eve-web)"; PROFILE=$1; WANT_PROFILE=1; shift
+            case "$PROFILE" in eve-serving|eve-web) ;; *) die "--repo must be eve-serving or eve-web" ;; esac ;;
     -*) die "unknown option '$a'" ;;
     *) if [ -z "$VERSION" ]; then VERSION=$a; elif [ -z "$SHA" ]; then SHA=$a; else die "too many arguments"; fi ;;
   esac
 done
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+# the constants of the eve-web profile: a separate file, KEY="value" lines only (comments and blank lines allowed), parsed here and NEVER sourced or evaluated. Every key must be present exactly once.
+load_constants() { # $1 file
+  local f=$1 line k v seen=" "
+  [ -f "$f" ] && [ ! -L "$f" ] || die "the constants file is missing: ${f##*/}"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    [[ "$line" =~ ^([A-Z_]+)=\"([^\"\$\`\\]*)\"$ ]] || die "bad line in ${f##*/} (only KEY=\"value\" with no \$ \` or backslash): $line"
+    k=${BASH_REMATCH[1]} v=${BASH_REMATCH[2]}
+    case "$seen" in *" $k "*) die "duplicate key $k in ${f##*/}" ;; esac
+    seen="$seen$k "
+    case "$k" in
+      REPO) [[ "$v" =~ ^gun025bba/[a-z0-9][a-z0-9-]*$ ]] || die "REPO in ${f##*/} is not gun025bba/<name>"; REPO=$v ;;
+      REMOTE) [[ "$v" =~ ^git@github\.com:gun025bba/[a-z0-9][a-z0-9-]*\.git$ ]] || die "REMOTE in ${f##*/} is not git@github.com:gun025bba/<name>.git"; REMOTE=$v ;;
+      CI_PATH) [[ "$v" =~ ^\.github/workflows/[A-Za-z0-9_.-]+\.yml$ ]] || die "CI_PATH in ${f##*/} is not a workflow file path"; CI_PATH=$v ;;
+      REQUIRED_CHECKS) [[ "$v" =~ ^[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*$ ]] || die "REQUIRED_CHECKS in ${f##*/} is not a space-separated list of check names"; REQUIRED_CHECKS=$v ;;
+      KEY_DIRNAME) [[ "$v" =~ ^\.[a-z0-9-]+$ ]] || die "KEY_DIRNAME in ${f##*/} is not a dot-directory name (letters, digits, -)"; KEY_DIRNAME=$v ;;
+      *) die "unknown key $k in ${f##*/}" ;;
+    esac
+  done <"$f"
+  for k in REPO REMOTE CI_PATH REQUIRED_CHECKS KEY_DIRNAME; do case "$seen" in *" $k "*) ;; *) die "key $k is missing in ${f##*/}" ;; esac; done
+  [ "$REMOTE" = "git@github.com:$REPO.git" ] || die "REMOTE and REPO of ${f##*/} do not match"
+}
+if [ "$PROFILE" = eve-web ]; then load_constants "$SCRIPT_DIR/release-tag.eve-web.constants"; fi
 [ -n "$VERSION" ] || die "usage: release-tag.sh [--dry-run] X.Y.Z [FULL_SHA]"
 VERSION=${VERSION#v}
 NUM='(0|[1-9][0-9]{0,8})'
 [[ "$VERSION" =~ ^$NUM\.$NUM\.$NUM$ ]] || die "version must be X.Y.Z without leading zeros: $VERSION"
 TAG=v$VERSION
 
-KEY=${EVE_RELEASE_TAG_KEY:-$HOME/.eve-release-tagger/id_ed25519}
-KNOWN_HOSTS=$(cd "$(dirname "$0")" && pwd)/github_known_hosts
+KEY=${EVE_RELEASE_TAG_KEY:-$HOME/$KEY_DIRNAME/id_ed25519}
+KNOWN_HOSTS=$SCRIPT_DIR/github_known_hosts
 # GIT_SSH_COMMAND is parsed by a shell: keep the paths to plain characters
 [[ "$KEY" =~ ^[A-Za-z0-9_./~+@:-]+$ ]] || die "key path has characters that are not allowed (letters, digits and _ . / ~ + @ : - only)"
 [[ "$KNOWN_HOSTS" =~ ^[A-Za-z0-9_./~+@:-]+$ ]] || die "the path of the script has characters that are not allowed (letters, digits and _ . / ~ + @ : - only)"
@@ -74,6 +108,11 @@ if git config --get-regexp '^url\..*\.(insteadof|pushinsteadof)$' >/dev/null 2>&
 # a clean clone on main: no modified tracked file (this script included) and the branch checked out is main
 [ "$(git symbolic-ref -q --short HEAD 2>/dev/null || true)" = main ] || die "run this from a clone with the main branch checked out"
 [ -z "$(git status --porcelain --untracked-files=no 2>/dev/null)" ] || die "the working tree has uncommitted changes to tracked files; use a clean clone of main"
+if [ "$PROFILE" != eve-serving ]; then
+  # the script (and its constants file) live in ANOTHER checkout than the one being tagged: that checkout must be a clean main too, or it could be an edited copy
+  [ "$(git -C "$SCRIPT_DIR" symbolic-ref -q --short HEAD 2>/dev/null || true)" = main ] || die "the checkout that holds this script must be a clean clone with main checked out"
+  [ -z "$(git -C "$SCRIPT_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ] || die "the checkout that holds this script has uncommitted changes to tracked files; use a clean clone of main"
+fi
 
 command -v ssh >/dev/null 2>&1 || die "'ssh' is not installed (install openssh-client); the tag is pushed over ssh with the deploy key"
 modeof() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
@@ -143,8 +182,7 @@ check_version
 # ---- 3. required checks passed for this commit, from the pinned workflow file (every request is a plain GET) -----------------------------------------------------------------------
 ghget() { gh api --paginate "$1"; }
 RUNS=$(ghget "repos/$REPO/commits/$SHA/check-runs?per_page=100" | jq -c '.check_runs[]') || die "cannot read the check runs of $SHA"
-CI_PATH=".github/workflows/ci.yml"   # the workflow file the two required checks must come from
-for want in test deploy-nopasswd-macos; do
+for want in $REQUIRED_CHECKS; do
   # candidates: runs of that name from the GitHub Actions app, newest first, each as "<check id> <workflow run id> <status>/<conclusion>"
   cands=$(printf '%s\n' "$RUNS" | jq -rs --arg n "$want" '[.[] | select(.name == $n and (.app.slug // "") == "github-actions")] | sort_by(.id) | reverse | .[] |
           "\(.id) \((.details_url // "") | capture("/actions/runs/(?<r>[0-9]+)/") | .r // "0") \(.status)/\(.conclusion // "none")"') || die "cannot read the check runs of $SHA"
@@ -158,7 +196,7 @@ for want in test deploy-nopasswd-macos; do
   done <<<"$cands"
   [ "$got" = "completed/success" ] || die "required check '$want' is $got for $SHA from $CI_PATH (needs completed/success)"
 done
-note "checks test and deploy-nopasswd-macos passed for the commit"
+note "checks $REQUIRED_CHECKS passed for the commit"
 
 if [ "$DRY" = 1 ]; then note "dry run: every condition holds; would push refs/tags/$TAG at $SHA"; exit 0; fi
 
