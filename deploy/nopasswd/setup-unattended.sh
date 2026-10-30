@@ -157,6 +157,13 @@ cmd_rehearse() {
   local VERB CURF before rc=0 fl bad=0; kind_args "$1" "$2"; state_ok
   [ -f "$STATE/PAUSE" ] && [ -f "$STATE/unattended_installed" ] || die "no initial PAUSE: run the state step first"
   before=$(head -1 "$STATE/$CURF")
+  # security (rehearsal invariants): the test release must be STRICTLY HIGHER than what is live (monotonic: no version below or equal to the live one is ever offered, so
+  # floor and "never lower" rules stay as they are), never one that was used before, and the drill may change NOTHING in the state except ONE new blocklist line for itself.
+  [[ "$before" =~ $V_RE ]] || die "the live $1 version is unreadable: no rehearsal"
+  [ "$(ver_cmp "$2" "$before")" = 1 ] || die "the test release $2 is not higher than the live $1 version $before: refused (a rehearsal never offers an equal or lower version)"
+  ! grep -qxF "$1 $2" "$STATE/blocklist" 2>/dev/null || die "$1 $2 is already on the blocklist: a test release is used once"
+  snap_state() { local f; for f in current_version current_web_version floor floor_web; do printf '%s=%s\n' "$f" "$(head -1 "$STATE/$f" 2>/dev/null || true)"; done; }
+  snap_before=$(snap_state); bl_before=$(cat "$STATE/blocklist" 2>/dev/null || true)
   trap '[ -e "$STATE/PAUSE" ] || [ -L "$STATE/PAUSE" ] || printf "reason=rehearsal-safety at=%s\n" "$(date +%s)" >"$STATE/PAUSE"; cleanup' EXIT
   say "rehearsal: $1 $2 must FAIL its health check and be rolled back (installed now: $before)"
   rm -f "$STATE/rehearsal_ok"
@@ -175,6 +182,9 @@ cmd_rehearse() {
   chk "$1 $2 is on the blocklist" yes "$(grep -qxF "$1 $2" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
   fl=floor; [ "$1" = web ] && fl=floor_web
   chk "the floor is intact (valid version, not above the live one)" yes "$({ f=$(head -1 "$STATE/$fl" 2>/dev/null); [[ "$f" =~ $V_RE ]] && echo yes; } || echo no)"
+  chk "state unchanged by the drill: both live versions and both floors (nothing was promoted, the floor did not move)" "$snap_before" "$(snap_state)"
+  chk "the blocklist gained exactly one line (the test release) and lost none" "$bl_before" "$(grep -vxF "$1 $2" "$STATE/blocklist" 2>/dev/null || true)"
+  chk "the test release is on the blocklist exactly once" 1 "$(grep -cxF "$1 $2" "$STATE/blocklist" 2>/dev/null || true)"
   chk "the entrypoint log shows an automatic restore" yes "$(tail -40 "$LOGF" 2>/dev/null | grep -Eq 'automatic (web )?rollback OK' && echo yes || echo no)"
   if [ "$bad" = 0 ]; then ( umask 077; date '+%Y-%m-%dT%H:%M:%S%z' >"$STATE/rehearsal_ok" ); say "REHEARSAL PASS (PAUSE stays set; remove it with: unpause, or sudo rm $STATE/PAUSE)"
   else die "REHEARSAL FAIL: PAUSE stays set, nothing was unpaused"; fi
