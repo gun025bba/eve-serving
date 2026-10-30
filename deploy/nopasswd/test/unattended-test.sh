@@ -139,6 +139,9 @@ if not rest:
         done()
 if rest == ["keys"]: out(rp["keys"])
 if rest[0] == "rulesets":
+    if method in ("POST", "PUT") and body.get("name") == "release-tags" and any(x.get("actor_type") == "DeployKey" for x in body.get("bypass_actors", [])):
+        if os.environ.get("FAKE_RT_FAIL"): nf()
+        if os.environ.get("FAKE_KEY_RACE"): rp["keys"].append({"id": 99, "read_only": False, "title": "someone-else", "key": "ssh-ed25519 BBBB"})
     if method in ("POST", "PUT") and os.environ.get("FAKE_EXTRA_DROP"):
         for r in body["rules"]:
             if r["type"] == "pull_request": r["parameters"].pop("require_extra_approval_for_unattributed_changes", None)
@@ -236,7 +239,7 @@ PY
 run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary token)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
   ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="$D" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
-      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
+      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
       ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
@@ -349,6 +352,14 @@ eq "no key: release-tags applied without the DeployKey bypass" "$(jq -r '.repos[
 # S8: a foreign write deploy key: abort with NO change at all
 new_world foreign; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "foreign key: rc non-zero" "$((OSRC != 0))" 1; eq "foreign key: not a single write call" "$(writes)" 0; eq "foreign key: NO sudo" "$(sudo_calls)" 0; has "foreign key: says so" "$(cat "$T/out")" "NO change"
+# S8a: the DeployKey bypass is FAIL-CLOSED: a write key that appears after the preflight, or a failed write, puts the ruleset back WITHOUT the bypass and stops the run
+RTBYP='.repos["gun025bba/eve-serving"].rulesets[]|select(.name=="release-tags")|[.bypass_actors[].actor_type]|join(",")'
+new_world ok; FAKE_KEY_RACE=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "key race: rc non-zero" "$((OSRC != 0))" 1; has "key race: says fail-closed" "$(cat "$T/out")" "FAIL-CLOSED"; eq "key race: release-tags restored WITHOUT the DeployKey bypass" "$(jq -r "$RTBYP" "$T/fk/gh.json")" "RepositoryRole"; eq "key race: NO sudo" "$(sudo_calls)" 0
+new_world ok; FAKE_RT_FAIL=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "bypass write fails: rc non-zero" "$((OSRC != 0))" 1; has "bypass write fails: says fail-closed" "$(cat "$T/out")" "FAIL-CLOSED"; eq "bypass write fails: ruleset without the bypass" "$(jq -r "$RTBYP" "$T/fk/gh.json")" "RepositoryRole"
+new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "one key: the bypass stays" "$(jq -r "$RTBYP" "$T/fk/gh.json" | tr ',' '\n' | sort | tr '\n' ',')" "DeployKey,RepositoryRole,"
 # S8b: the eve-ios ruleset did not stick -> FAIL row, no sudo
 new_world ok; FAKE_IOS_NOAPPLY=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "ios not applied: rc non-zero" "$((OSRC != 0))" 1; has "ios not applied: FAIL row names eve-ios" "$(cat "$T/out")" "FAIL  gun025bba/eve-ios ruleset main-protect"; eq "ios not applied: NO sudo" "$(sudo_calls)" 0
@@ -426,7 +437,7 @@ cat >"$S/libexec/deploy" <<'FAKE'
 # stub entrypoint with the brake semantics (the real one is tested in run.sh): PAUSE refuses; version ending .99 = failing release (restore, blocklist, PAUSE)
 echo "deploy $*" >>"$SULOG"; st=$SUSTATE; v=$(cat "$SUSTATE_STAGED"); kind=gateway; cf=current_version; [ "$1" != deploy-web ] || { kind=web; cf=current_web_version; }
 [ ! -e "$st/PAUSE" ] || { echo "eve-deploy: deploys are PAUSED ($st/PAUSE exists)" >&2; exit 1; }
-case "$v" in *.99) echo "kind=$kind version=$v" >"$st/PAUSE"; echo "$kind $v" >>"$st/blocklist"; [ "${SU_STUB_NOLOG:-}" = 1 ] || echo "automatic rollback OK" >>"$SULOG_LOGF"; exit 1;; esac
+case "$v" in *.99) case "${SU_STUB_MUTATE:-}" in floor) echo 9.9.9 >"$st/floor";; blextra) echo "gateway 5.0.1" >>"$st/blocklist";; blwipe) : >"$st/blocklist";; esac; echo "kind=$kind version=$v" >"$st/PAUSE"; echo "$kind $v" >>"$st/blocklist"; [ "${SU_STUB_NOLOG:-}" = 1 ] || echo "automatic rollback OK" >>"$SULOG_LOGF"; exit 1;; esac
 [ "${SU_STUB_NOHOLD:-}" = 1 ] || true
 echo "$v" >"$st/$cf"
 FAKE
@@ -440,7 +451,7 @@ ME=$(id -un); MEG=$(id -gn)
 # a copy of the script whose pins match the sandbox sources
 cp "$SU" "$S/su.sh"; sed -i.bak -e "s/^SHA_POLL=.*/SHA_POLL=$(sha256 "$S/src/eve-poll")/" -e "s/^SHA_PLIST=.*/SHA_PLIST=$(sha256 "$S/src/com.llmserving.evepoll.plist.template")/" "$S/su.sh" && rm -f "$S/su.sh.bak"
 su_dbg() { [ -z "${UT_DEBUG:-}" ] || { echo "--- su out (rc $SURC)"; cat "$S/out"; }; }
-su_run() { ( env -i SU_STUB_NOLOG="${SU_STUB_NOLOG:-}" SU_SUDOERS_FILE="$S/sudoers/eve-deploy" PATH="$S/bin:/usr/bin:/bin" SUDB="$S/udb" SULOG="$S/log" SULOG_LOGF="$S/logf" SUSTATE="$S/state" SUSTATE_STAGED="$S/staged" SUSTATE_LOADED="$S/loaded" HOME="$S/home" TMPDIR="$T" \
+su_run() { ( env -i SU_STUB_NOLOG="${SU_STUB_NOLOG:-}" SU_STUB_MUTATE="${SU_STUB_MUTATE:-}" SU_SUDOERS_FILE="$S/sudoers/eve-deploy" PATH="$S/bin:/usr/bin:/bin" SUDB="$S/udb" SULOG="$S/log" SULOG_LOGF="$S/logf" SUSTATE="$S/state" SUSTATE_STAGED="$S/staged" SUSTATE_LOADED="$S/loaded" HOME="$S/home" TMPDIR="$T" \
     EVE_SKIP_ROOT=1 EVE_SKIP_OS=1 EVE_LIBEXEC="$S/libexec" EVE_STATE="$S/state" EVE_HOME_BASE="$S/home" EVE_LAUNCHD_DIR="$S/launchd" EVE_LOGF="$S/logf" EVE_OWNER="$ME:$MEG" \
     EVE_DSCL="$S/dscl" EVE_LAUNCHCTL="$S/launchctl" EVE_SUDO="$S/sudo" EVE_SRC_DIR="${SU_SRC_DIR-$S/src}" EVE_SUDOERS_D="$S/sudoers" bash "$S/su.sh" "$@" ) >"$S/out" 2>&1; SURC=$?; }
 : >"$S/log"
@@ -520,7 +531,7 @@ su_run unpause; eq "unpause after PASS: rc" "$SURC" 0; eq "unpause: PAUSE gone" 
 eq "low: unpause consumes rehearsal_ok" "$([ -f "$S/state/rehearsal_ok" ] && echo y || echo n)" n
 # low: the drill also checks both rollback verbs and the poller; a missing verb fails it BEFORE the test release
 echo "reason=initial" >"$S/state/PAUSE"; cp "$S/sudoers/eve-deploy" "$S/sudoers.keep"; sed -i.bak 's#, [^ ]*/deploy rollback-web##' "$S/sudoers/eve-deploy"; rm -f "$S/sudoers/eve-deploy.bak"; : >"$S/log"
-su_run rehearse gateway 5.0.99; eq "drill: no rollback-web verb for the deploy user: FAIL" "$SURC" 1; has "drill: says which" "$(cat "$S/out")" "rollback-web"
+: >"$S/state/blocklist"; su_run rehearse gateway 5.0.99; eq "drill: no rollback-web verb for the deploy user: FAIL" "$SURC" 1; has "drill: says which" "$(cat "$S/out")" "rollback-web"
 eq "drill FAIL: the test release was never run" "$(grep -c '^deploy' "$S/log")" 0; [ -e "$S/state/PAUSE" ] && ok || bad "drill FAIL: PAUSE stays"
 cp "$S/sudoers.keep" "$S/sudoers/eve-deploy"; rm -f "$S/sudoers.keep"
 echo "reason=initial" >"$S/state/PAUSE"; rm -f "$S/state/rehearsal_ok"; : >"$S/logf"
@@ -528,6 +539,21 @@ SU_STUB_NOLOG=1 su_run rehearse gateway 5.0.99; eq "rehearse: FAIL when the log 
 rm -f "$S/state/blocklist"; touch "$S/state/blocklist"
 echo "automatic rollback OK" >>"$S/logf"; su_run rehearse gateway 5.0.5; eq "rehearse: a release that DEPLOYS fine is a FAIL (it must fail its health check)" "$SURC" 1; eq "rehearse FAIL: PAUSE recreated by the safety trap" "$([ -f "$S/state/PAUSE" ] && echo y)" y
 rm -f "$S/state/rehearsal_ok"
+# security: rehearsal invariants (monotonic version, floor / live versions / blocklist unchanged except the one new line; a failed rehearsal never writes rehearsal_ok)
+cur_now=$(cat "$S/state/current_version"); echo "reason=initial" >"$S/state/PAUSE"; rm -f "$S/state/rehearsal_ok"; rm -f "$S/state/blocklist"; touch "$S/state/blocklist"; : >"$S/log"
+su_run rehearse gateway "$cur_now"; eq "rehearse inv: a test release EQUAL to the live version is refused" "$SURC" 1; has "rehearse inv: says why" "$(cat "$S/out")" "not higher than the live"
+su_run rehearse gateway 5.0.1; eq "rehearse inv: a LOWER test release is refused" "$SURC" 1; eq "rehearse inv: nothing was fetched or deployed" "$(grep -c . "$S/log")" 0
+echo "gateway 5.0.99" >"$S/state/blocklist"; su_run rehearse gateway 5.0.99; eq "rehearse inv: an already used test release is refused" "$SURC" 1; has "rehearse inv: says why" "$(cat "$S/out")" "already on the blocklist"
+echo "web 1.10.9" >"$S/state/blocklist"; echo "gateway 5.0.1" >>"$S/state/blocklist"; echo "automatic rollback OK" >>"$S/logf"
+SU_STUB_MUTATE=floor su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that moved the floor FAILS" "$SURC" 1; has "rehearse inv: says so" "$(cat "$S/out")" "state unchanged by the drill"; eq "rehearse inv: no rehearsal_ok" "$([ -f "$S/state/rehearsal_ok" ] && echo y || echo n)" n; echo 5.0.2 >"$S/state/floor"
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; rm -f "$S/state/PAUSE"; echo "reason=initial" >"$S/state/PAUSE"
+SU_STUB_MUTATE=blextra su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that added another blocklist line FAILS" "$SURC" 1; has "rehearse inv: says so" "$(cat "$S/out")" "gained exactly one line"
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; echo "reason=initial" >"$S/state/PAUSE"
+SU_STUB_MUTATE=blwipe su_run rehearse gateway 5.0.99; eq "rehearse inv: a drill that emptied the blocklist FAILS" "$SURC" 1
+printf 'web 1.10.9\ngateway 5.0.1\n' >"$S/state/blocklist"; echo "reason=initial" >"$S/state/PAUSE"; : >"$S/log"
+su_run rehearse gateway 5.0.99; eq "rehearse inv: clean drill passes with existing blocklist lines" "$SURC" 0; eq "rehearse inv: old blocklist lines kept" "$(grep -cxE 'web 1.10.9|gateway 5.0.1' "$S/state/blocklist")" 2
+eq "rehearse inv: live version, floor untouched" "$(cat "$S/state/current_version")/$(cat "$S/state/floor")" "$cur_now/5.0.2"
+rm -f "$S/state/rehearsal_ok"; rm -f "$S/state/blocklist"; touch "$S/state/blocklist"
 su_run load; eq "load: rc" "$SURC" 0; eq "load: bootstrapped" "$([ -f "$S/loaded" ] && echo y)" y; su_run load; eq "load: idempotent" "$SURC" 0
 su_run verify; eq "verify: rc" "$SURC" 0; has "verify: INFO about PAUSE" "$(cat "$S/out")" "PAUSED"; hasnt "verify: no FAIL row" "$(cat "$S/out")" "  FAIL  "
 rm -f "$S/loaded"; su_run verify; eq "verify: not loaded is a FAIL" "$SURC" 1; has "verify: says poller loaded" "$(cat "$S/out")" "poller loaded"

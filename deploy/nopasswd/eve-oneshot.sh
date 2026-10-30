@@ -35,7 +35,7 @@ TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 # ---------- pins and constants (pin-unattended.sh --oneshot rewrites the three sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
-PIN_UNATTENDED_SHA256=6e946c5d18547f629e0eda8340103e32693579c38a33f0d500066d130abe12c1  # deploy/nopasswd/setup-unattended.sh
+PIN_UNATTENDED_SHA256=6f48d83ad84055ae45cf29780ff28e0d4a0f45cb97d16bbfe2f1957db54af90c  # deploy/nopasswd/setup-unattended.sh
 PIN_SETTINGS_SHA256=fa20a942cfa642a790625d88f39f650fdb0d15fd5f8949a3f68e8f99b8462f56    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
@@ -254,6 +254,19 @@ EOF2
   if [ "$ours" = 1 ]; then eval "KEYMODE_$s=key"; say "  $r: exactly one write deploy key '$title': release-tags keeps the DeployKey bypass"
   else eval "KEYMODE_$s=nokey"; say "  $r: NO write deploy key '$title': release-tags is applied WITHOUT the DeployKey bypass (admin only) and the table shows it"; fi
 }
+keys_exact_one() { # $1 repo: READ-ONLY re-check AFTER the ruleset with the DeployKey bypass was written: exactly ONE write key with the expected title and NO other write key (also: the list must be readable)
+  local r=$1 title rows id rk t foreign=0 ours=0
+  [ "$DRY" = 1 ] && return 0
+  title=$(keytitle_of "$r")
+  rows=$(ghq "repos/$r/keys?per_page=100" --jq '.[] | "\(.id)\t\(.read_only)\t\(.title)"') || return 1
+  while IFS=$'\t' read -r id rk t; do
+    [ -n "${id:-}" ] || continue
+    if [ "$rk" = false ]; then if [ "$t" = "$title" ]; then ours=$((ours + 1)); else foreign=$((foreign + 1)); fi; fi
+  done <<EOF3
+$rows
+EOF3
+  [ "$foreign" = 0 ] && [ "$ours" = 1 ]
+}
 upsert_ruleset() { # REPO NAME BODY
   local r=$1 name=$2 body=$3 ids n
   if [ "$DRY" = 1 ]; then say "  DRY-RUN create-or-update ruleset '$name' on $r: $body"; return 0; fi
@@ -282,7 +295,16 @@ apply_repo() {
   local r=$1 s cur major
   s=$(short_of "$r")
   say "  -- $r"
-  if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then upsert_ruleset "$r" release-tags "$(body_of release-tags.json)"; else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
+  if [ "$(eval "echo \$KEYMODE_$s")" = key ]; then
+    # the DeployKey bypass is granted only while exactly one write key exists. A write key added between the preflight and now, an unreadable key list or a failed
+    # write FAIL CLOSED: the ruleset is put back WITHOUT the bypass (admin only) and the run stops.
+    if upsert_ruleset "$r" release-tags "$(body_of release-tags.json)" && keys_exact_one "$r"; then :
+    else
+      say "  FAIL-CLOSED on $r: the release-tags ruleset with the DeployKey bypass could not be written, or the write keys are not exactly one: restoring it WITHOUT the bypass"
+      upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)" || say "  CANNOT restore release-tags on $r: remove the DeployKey bypass of that ruleset BY HAND before anything else"
+      die "release-tags on $r: not exactly one write deploy key (or the write failed); the ruleset was put back without the DeployKey bypass. Fix the keys and run again"
+    fi
+  else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
   upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")"
   if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
   gw PUT "repos/$r/environments/deploy" "$(body_of env-deploy.json)" || say "  warning: environment deploy PUT failed; the table decides"

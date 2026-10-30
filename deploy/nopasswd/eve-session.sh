@@ -3,6 +3,9 @@
 # recognised from the real state of the world and skipped). Written for macOS /bin/bash 3.2; start it with `bash`, from a clean clone of eve-serving main that is checked out at the merge commit (see docs/runbooks/release-session.md):
 #
 #   bash deploy/nopasswd/eve-session.sh --merge-commit <40-hex> --gateway 5.1.0 --web 2.0.0 [--rehearse-gateway X.Y.Z --rehearse-web X.Y.Z] [--switch] [--unpause] [--dry-run]
+#   bash deploy/nopasswd/eve-session.sh --merge-commit <40-hex> --web-only --web 2.0.0 [--rehearse-web X.Y.Z] [--dry-run]     SHORTEST PATH for the web release only:
+#       preflight -> eve-web deploy key (the gateway key is not needed) -> one-shot -> tag eve-web vX -> wait for the signed release -> deploy web -> rehearse web (if given) -> table.
+#       No gateway tag/release/deploy, no switch stage; PAUSE is never released by this mode (--unpause/--switch/--gateway are refused with it).
 #
 # STAGES (estimates in hours of wall time; most of it is waiting for CI and for you):
 #   0 preflight  0.1  pins (sha256) of every script used, the clone, tools, and the READ-ONLY measurement (eve-measure.sh, 14 items): its gates decide whether the switch stage may run. Nothing is changed.
@@ -12,7 +15,9 @@
 #   3 install    0.3  eve-oneshot.sh (re-install of the entrypoint, settings of all rulesets incl. the eve-web pull_request rule, PAUSE). Its own checks and clean-up run as documented there.
 #   4 switch     0.5  OPTIONAL (--switch): the root-free service-account switch. Runs only if every gate of the measurement is OK and the switch script is shipped and pinned; otherwise it is SKIPPED and the deploy below uses the
 #                     existing root path (fail-safe: nothing about the switch can stop the release). Contract of the switch script: exit 0 = switched, exit 10 = skipped itself (nothing changed), anything else = STOP.
-#   5 tags       0.1  release-tag.sh for gateway vX (this clone) and web vY (a clone of eve-web, --repo eve-web): both tips are shown and you type `tag`. A tag that exists is not touched.
+#   5 tags       0.1  release-tag.sh for web vY (a clone of eve-web, --repo eve-web) FIRST and gateway vX (this clone): both tips are shown and you type `tag` once. A tag that exists is not touched.
+#                     THE WEB PATH COMES FIRST AND IS INDEPENDENT OF THE GATEWAY: stages 5-8 do web, then the gateway steps as a separate branch. A gateway failure (main moved after the merge commit,
+#                     no signed release, deploy refused) is reported, skips only the remaining gateway steps, fails the table at the end (PAUSE stays) and NEVER blocks or undoes the web release.
 #   6 releases   0.4  waits (default 30 min) until each release has exactly its three signed files (MANIFEST, sigstore.json, tar) and is published.
 #   7 deploy     0.3  `setup-unattended.sh deploy` gateway, then web (supervised: the install PAUSE is lifted for the deploy and put back).
 #   8 rehearse   0.5  only with --rehearse-gateway/--rehearse-web (BOTH): `setup-unattended.sh rehearse KIND X.Y.Z` with a signed release that is built to FAIL its health check. It proves the automatic rollback and sets rehearsal_ok.
@@ -27,7 +32,7 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=b4e3d6162796fc4d4c801e429d3132f39ce15719eb736f0d38e12969e832bee6   # deploy/nopasswd/eve-oneshot.sh
+PIN_ONESHOT_SHA256=8e0eb5e92e288c2d06f4f990ea8887734b26719e891e9eec2fcff9cb3e252424   # deploy/nopasswd/eve-oneshot.sh
 PIN_MEASURE_SHA256=dc1afc202d2baf3707c0597eaac1954df1a34234af706f8cbb1e6dd6b5aa3486   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
@@ -40,7 +45,11 @@ POLL_SEC=${EVE_SESSION_POLL_SEC:-20}; TTY_FILE=${EVE_SESSION_TTY:-/dev/tty}
 SESS_DIR=$HOME/.eve-session; SESS_STATE=$SESS_DIR/state
 say() { printf '%s\n' "$*"; }
 STAGE="start"
-die() { printf '\nSTOPPED at stage "%s": %s\nNothing after this stage ran. Fix the cause and run the SAME command again: finished stages are recognised and skipped.\n' "$STAGE" "$*" >&2; exit 1; }
+SOFT=0
+die() {
+  if [ "$SOFT" = 1 ]; then printf '\nGATEWAY step failed at stage "%s": %s\n' "$STAGE" "$*" >&2; exit 1; fi
+  printf '\nSTOPPED at stage "%s": %s\nNothing after this stage ran. Fix the cause and run the SAME command again: finished stages are recognised and skipped.\n' "$STAGE" "$*" >&2; exit 1
+}
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 V_RE='^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'
 is_ver() { [[ "$1" =~ $V_RE ]]; }
@@ -48,20 +57,29 @@ is_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]]; }
 ver_cmp() { local a=$1 b=$2 i x y; for i in 1 2 3; do x=${a%%.*}; y=${b%%.*}; a=${a#*.}; b=${b#*.}; if [ "$x" -lt "$y" ]; then echo -1; return 0; elif [ "$x" -gt "$y" ]; then echo 1; return 0; fi; done; echo 0; }
 
 [ "$(id -u)" != 0 ] || die "run this as your own user, not as root: it asks for sudo once itself, and a root run would put every state file under root"
-DRY=0 MERGE="" GW="" WV="" REH_GW="" REH_WV="" SWITCH=0 UNPAUSE=0 WAIT_MIN=30 FORCE_INSTALL=0
+DRY=0 MERGE="" GW="" WV="" REH_GW="" REH_WV="" SWITCH=0 UNPAUSE=0 WAIT_MIN=30 FORCE_INSTALL=0 WEBONLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dry-run) DRY=1;; --switch) SWITCH=1;; --unpause) UNPAUSE=1;; --force-install) FORCE_INSTALL=1;;
+    --dry-run) DRY=1;; --switch) SWITCH=1;; --unpause) UNPAUSE=1;; --force-install) FORCE_INSTALL=1;; --web-only) WEBONLY=1;;
     --merge-commit) MERGE=${2:-}; shift;; --gateway) GW=${2:-}; shift;; --web) WV=${2:-}; shift;;
     --rehearse-gateway) REH_GW=${2:-}; shift;; --rehearse-web) REH_WV=${2:-}; shift;; --wait-minutes) WAIT_MIN=${2:-}; shift;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0;;
+    -h|--help) sed -n "2,36p" "$0"; exit 0;;
     *) die "unknown argument: $1 (see --help)";;
   esac; shift
 done
 [[ "$WAIT_MIN" =~ ^[0-9]{1,3}$ ]] || die "--wait-minutes must be a number"
-is_ver "$GW" || die "--gateway X.Y.Z is required"; is_ver "$WV" || die "--web X.Y.Z is required"
+is_ver "$WV" || die "--web X.Y.Z is required"
+if [ "$WEBONLY" = 1 ]; then
+  # the shortest path for the web release: no gateway tag, release, deploy or rehearsal, no switch stage, and PAUSE is never released (it also guards the gateway, which is not rehearsed here)
+  [ -z "$GW" ] && [ -z "$REH_GW" ] || die "--web-only takes no --gateway and no --rehearse-gateway"
+  [ "$SWITCH" = 0 ] || die "--web-only takes no --switch"
+  [ "$UNPAUSE" = 0 ] || die "--web-only never releases PAUSE (it guards the gateway too): run the full session later for that"
+else
+  is_ver "$GW" || die "--gateway X.Y.Z is required (or --web-only)"
+fi
 is_sha "$MERGE" || die "--merge-commit needs the full 40-hex sha of the merge commit on main"
-if [ -n "$REH_GW$REH_WV" ]; then is_ver "$REH_GW" && is_ver "$REH_WV" || die "the rehearsal needs BOTH --rehearse-gateway X.Y.Z and --rehearse-web X.Y.Z (signed test releases built to fail their health check)"; fi
+if [ "$WEBONLY" = 1 ]; then [ -z "$REH_WV" ] || is_ver "$REH_WV" || die "--rehearse-web needs X.Y.Z"
+elif [ -n "$REH_GW$REH_WV" ]; then is_ver "$REH_GW" && is_ver "$REH_WV" || die "the rehearsal needs BOTH --rehearse-gateway X.Y.Z and --rehearse-web X.Y.Z (signed test releases built to fail their health check)"; fi
 [ "$UNPAUSE" = 0 ] || [ -n "$REH_GW" ] || [ "$DRY" = 1 ] || true   # --unpause also works in a later run (rehearsal_ok is checked then)
 
 # ---- state file: values are validated, never sourced ----
@@ -135,8 +153,9 @@ SWITCH_GATES=0
 if bash "$D/eve-measure.sh" >"${TMPDIR:-/tmp}/.eve-measure.$$" 2>&1; then SWITCH_GATES=1; fi
 sed 's/^/    /' "${TMPDIR:-/tmp}/.eve-measure.$$"; rm -f "${TMPDIR:-/tmp}/.eve-measure.$$"
 if [ "$SWITCH_GATES" = 1 ]; then say "  gates OK: the switch stage may run (if --switch)"; else say "  gates NOT OK: the switch stage will be SKIPPED; the deploy uses the existing root path"; fi
-PLAN="install"; [ "$SWITCH" = 1 ] && PLAN="$PLAN, switch"; PLAN="$PLAN, tag gateway v$GW and web v$WV, wait for the signed releases, deploy gateway $GW and web $WV"
-[ -z "$REH_GW" ] || PLAN="$PLAN, rehearse (test releases $REH_GW / $REH_WV)"
+PLAN="install"; [ "$SWITCH" = 1 ] && PLAN="$PLAN, switch"
+if [ "$WEBONLY" = 1 ]; then PLAN="$PLAN, tag web v$WV, wait for the signed release, deploy web $WV (WEB ONLY: no gateway)"; [ -z "$REH_WV" ] || PLAN="$PLAN, rehearse web (test release $REH_WV)"
+else PLAN="$PLAN, tag gateway v$GW and web v$WV, wait for the signed releases, deploy gateway $GW and web $WV"; [ -z "$REH_GW" ] || PLAN="$PLAN, rehearse (test releases $REH_GW / $REH_WV)"; fi
 say "  plan: $PLAN, table, unpause only on your word"
 ensure_state_dir
 
@@ -147,6 +166,7 @@ sudo_start
 # =========================================================== 2 keys
 stage keys 0.2
 KEYS="eve-serving:.eve-release-tagger:release-tagger:$SERVING eve-web:.eve-web-release-tagger:eve-web-release-tagger:$WEB"
+[ "$WEBONLY" = 0 ] || KEYS="eve-web:.eve-web-release-tagger:eve-web-release-tagger:$WEB"
 key_file() { printf '%s/%s/id_ed25519' "$HOME" "$1"; }
 key_ok() { # DIRNAME REPO : the key exists and GitHub accepts it for that repository (read access over ssh)
   local kf; kf=$(key_file "$1"); [ -f "$kf" ] || return 1
@@ -156,7 +176,7 @@ key_ok() { # DIRNAME REPO : the key exists and GitHub accepts it for that reposi
 all_keys_ok() { local e name dir title repo; for e in $KEYS; do IFS=: read -r name dir title repo <<<"$e"; key_ok "$dir" "$repo" || return 1; done; }
 if [ "$DRY" = 1 ]; then
   for e in $KEYS; do IFS=: read -r name dir title repo <<<"$e"; say "  DRY-RUN: ensure $HOME/$dir/id_ed25519 (ed25519, no passphrase); title \"$title\"; github.com/$repo/settings/keys/new with Allow write access"; done
-elif all_keys_ok; then say "  both deploy keys exist and GitHub accepts them: nothing to do"
+elif all_keys_ok; then say "  the deploy key(s) exist and GitHub accepts them: nothing to do"
 else
   for e in $KEYS; do
     IFS=: read -r name dir title repo <<<"$e"; kf=$(key_file "$dir")
@@ -164,9 +184,9 @@ else
     [ "$(stat -c %a "$kf" 2>/dev/null || stat -f %Lp "$kf")" = 600 ] || die "$kf must be mode 0600"
     say "  $name:  open  https://github.com/$repo/settings/keys/new   Title: $title   Key (public half):"; sed 's/^/      /' "$kf.pub"; say "      tick \"Allow write access\", then Add key."
   done
-  ask_word "  type 'registered' when BOTH keys are added: " registered || die "no confirmation"
+  ask_word "  type 'registered' when the key(s) above are added: " registered || die "no confirmation"
   all_keys_ok || die "GitHub does not accept one of the keys yet (title, repository and the key text must match exactly)"
-  say "  both keys accepted"
+  say "  key(s) accepted"
 fi
 
 # =========================================================== 3 install
@@ -192,27 +212,46 @@ else
 fi
 
 # =========================================================== 5 tags
+# ORDER AND INDEPENDENCE: the web release comes FIRST and its stages are fatal as before. The gateway steps (tag, wait, deploy, rehearsal) run AFTER the web ones as an
+# independent branch: a failure there is reported, sets GW_FAIL, skips the rest of the gateway steps and fails the table at the end, but it never undoes or blocks the web release.
 stage tags 0.1
 WEBDIR=$SESS_DIR/eve-web
-tags_needed=0
-if [ "$DRY" = 1 ]; then say "  DRY-RUN: release-tag.sh $GW (this clone, tip must equal $MERGE) and release-tag.sh --repo eve-web $WV (clone of $WEB in $WEBDIR); you type 'tag'"
+GW_ON=1; [ "$WEBONLY" = 0 ] || GW_ON=0
+GW_FAIL=0; GW_TAG=1; WV_TAG=1
+soft() { # run a gateway step in a subshell with SOFT=1 (die then prints a gateway-only message and leaves just the subshell): a failure sets GW_FAIL and never stops the web path
+  local rc=0; ( SOFT=1; "$@" ) || rc=$?
+  if [ "$rc" != 0 ]; then GW_FAIL=1; say "  GATEWAY $GW: this step failed (see above). The web path is not affected; the remaining gateway steps are skipped and the table will show a FAIL row."; fi
+  return 0
+}
+gw_tag_push() { ( bash "$D/release-tag.sh" "$GW" "$MERGE" ) || die "release-tag.sh refused gateway v$GW (its reason is above)"; }
+if [ "$DRY" = 1 ]; then
+  if [ "$WEBONLY" = 1 ]; then say "  DRY-RUN: release-tag.sh --repo eve-web $WV (clone of $WEB in $WEBDIR); you type 'tag'"
+  else say "  DRY-RUN: release-tag.sh --repo eve-web $WV (clone of $WEB in $WEBDIR) FIRST, then release-tag.sh $GW (this clone, tip must equal $MERGE; if main moved the gateway steps are skipped and reported); you type 'tag' once"; fi
 else
-  GW_TAG=0; WV_TAG=0; tag_exists "$SERVING" "$GW" && GW_TAG=1; tag_exists "$WEB" "$WV" && WV_TAG=1
-  [ "$GW_TAG" = 1 ] && say "  v$GW exists in eve-serving: not touched" || tags_needed=1
-  [ "$WV_TAG" = 1 ] && say "  v$WV exists in eve-web: not touched" || tags_needed=1
-  if [ "$tags_needed" = 1 ]; then
-    if [ "$GW_TAG" = 0 ]; then tip=$(remote_tip "$SERVING"); [ "$tip" = "$MERGE" ] || die "the tip of eve-serving main is ${tip:-unknown}, not the merge commit $MERGE: main moved; start again with the new merge commit (the pins renew)"; fi
+  if tag_exists "$WEB" "$WV"; then WV_TAG=1; else WV_TAG=0; fi
+  if [ "$GW_ON" = 1 ]; then if tag_exists "$SERVING" "$GW"; then GW_TAG=1; else GW_TAG=0; fi; fi
+  if [ "$WV_TAG" = 1 ]; then say "  v$WV exists in eve-web: not touched"; fi
+  if [ "$GW_ON" = 1 ] && [ "$GW_TAG" = 1 ]; then say "  v$GW exists in eve-serving: not touched"; fi
+  if [ "$GW_ON" = 1 ] && [ "$GW_TAG" = 0 ]; then
+    tip=$(remote_tip "$SERVING")
+    if [ "$tip" != "$MERGE" ]; then
+      GW_FAIL=1; GW_TAG=1
+      say "  GATEWAY $GW: the tip of eve-serving main is ${tip:-unknown}, not the merge commit $MERGE (main moved): the gateway steps are SKIPPED, the web path continues."
+      say "  To tag the gateway later run the SAME command again with the new merge commit (finished web stages are recognised and skipped; the pins renew)."
+    fi
+  fi
+  if [ "$WV_TAG" = 0 ] || [ "$GW_TAG" = 0 ]; then
     if [ "$WV_TAG" = 0 ]; then
       [ -d "$WEBDIR/.git" ] || git clone -q "https://github.com/$WEB.git" "$WEBDIR" || die "cannot clone $WEB"
       ( cd "$WEBDIR" && git checkout -q main && git pull -q --ff-only ) || die "cannot bring the eve-web clone to main"
       [ "$(git -C "$WEBDIR" rev-parse HEAD)" = "$(remote_tip "$WEB")" ] || die "the eve-web clone is not at the tip of its main"
     fi
-    say "  about to tag:"
-    [ "$GW_TAG" = 1 ] || say "    eve-serving v$GW at $MERGE  ($(git log -1 --format=%s "$MERGE" | cut -c1-70))"
+    say "  about to tag (web first):"
     [ "$WV_TAG" = 1 ] || say "    eve-web     v$WV at $(git -C "$WEBDIR" rev-parse --short=12 HEAD)  ($(git -C "$WEBDIR" log -1 --format=%s | cut -c1-70))"
+    [ "$GW_TAG" = 1 ] || say "    eve-serving v$GW at $MERGE  ($(git log -1 --format=%s "$MERGE" | cut -c1-70))"
     ask_word "  type 'tag' to push the tag(s): " tag || die "no confirmation"
-    if [ "$GW_TAG" = 0 ]; then ( bash "$D/release-tag.sh" "$GW" "$MERGE" ) || die "release-tag.sh refused gateway v$GW (its reason is above)"; fi
     if [ "$WV_TAG" = 0 ]; then ( cd "$WEBDIR" && bash "$D/release-tag.sh" --repo eve-web "$WV" ) || die "release-tag.sh refused web v$WV (its reason is above)"; fi
+    if [ "$GW_TAG" = 0 ]; then soft gw_tag_push; fi
   fi
 fi
 
@@ -228,8 +267,12 @@ wait_release() { # KIND REPO VER
     printf '  waiting for the signed %s v%s release (%s)\n' "$1" "$3" "${got:-no files yet}"; sleep "$POLL_SEC"
   done
 }
-if [ "$DRY" = 1 ]; then say "  DRY-RUN: wait for gateway v$GW and web v$WV$( [ -n "$REH_GW" ] && echo " and the test releases $REH_GW / $REH_WV" )"
-else wait_release gateway "$SERVING" "$GW"; wait_release web "$WEB" "$WV"; if [ -n "$REH_GW" ]; then wait_release gateway "$SERVING" "$REH_GW"; wait_release web "$WEB" "$REH_WV"; fi; fi
+gw_wait() { wait_release gateway "$SERVING" "$GW"; if [ -n "$REH_GW" ]; then wait_release gateway "$SERVING" "$REH_GW"; fi; }
+if [ "$DRY" = 1 ]; then say "  DRY-RUN: wait for web v$WV$( [ -n "$REH_WV" ] && echo " and the test release $REH_WV" )$( [ "$GW_ON" = 1 ] && echo "; then (independent) gateway v$GW$( [ -n "$REH_GW" ] && echo " and the test release $REH_GW" )" )"
+else
+  wait_release web "$WEB" "$WV"; if [ -n "$REH_WV" ]; then wait_release web "$WEB" "$REH_WV"; fi
+  if [ "$GW_ON" = 1 ] && [ "$GW_FAIL" = 0 ]; then soft gw_wait; fi
+fi
 
 # =========================================================== 7 deploy
 stage deploy 0.3
@@ -240,7 +283,12 @@ deploy_kind() { # KIND VER
   say "  deploying $1 $2 (live now: ${cur:-none})"; su_ deploy "$1" "$2" || die "the deploy of $1 $2 failed (output above; the install PAUSE was put back)"
   [ "$(live_ver "$1")" = "$2" ] || die "after the deploy $1 $2 is not the live version"
 }
-if [ "$DRY" = 1 ]; then say "  DRY-RUN: setup-unattended.sh deploy gateway $GW ; deploy web $WV"; else deploy_kind gateway "$GW"; deploy_kind web "$WV"; fi
+gw_deploy() { deploy_kind gateway "$GW"; }
+if [ "$DRY" = 1 ]; then say "  DRY-RUN: setup-unattended.sh deploy web $WV$( [ "$GW_ON" = 1 ] && echo "; then (independent) deploy gateway $GW" )"
+else
+  deploy_kind web "$WV"
+  if [ "$GW_ON" = 1 ] && [ "$GW_FAIL" = 0 ]; then soft gw_deploy; fi
+fi
 
 # =========================================================== 8 rehearse
 stage rehearse 0.5
@@ -249,9 +297,13 @@ rehearse_kind() { # KIND TESTVER LIVEVER
   say "  rehearsing $1 with the failing test release $2 (live must stay $3)"; su_ rehearse "$1" "$2" || die "the $1 rehearsal failed (PAUSE stays set; output above)"
   [ "$(live_ver "$1")" = "$3" ] || die "after the $1 rehearsal the live version is not $3"
 }
-if [ -z "$REH_GW" ]; then say "  not requested (--rehearse-gateway/--rehearse-web): skipped. PAUSE stays set and rehearsal_ok is not written."
-elif [ "$DRY" = 1 ]; then say "  DRY-RUN: setup-unattended.sh rehearse gateway $REH_GW ; rehearse web $REH_WV (each must fail its health check and roll back to the version above)"
-else rehearse_kind gateway "$REH_GW" "$GW"; rehearse_kind web "$REH_WV" "$WV"; fi
+gw_rehearse() { rehearse_kind gateway "$REH_GW" "$GW"; }
+if [ -z "$REH_GW$REH_WV" ]; then say "  not requested (--rehearse-web$( [ "$GW_ON" = 1 ] && echo "/--rehearse-gateway" )): skipped. PAUSE stays set and rehearsal_ok is not written."
+elif [ "$DRY" = 1 ]; then say "  DRY-RUN: setup-unattended.sh rehearse web $REH_WV$( [ "$GW_ON" = 1 ] && echo " ; then (independent) rehearse gateway $REH_GW" ) (each must fail its health check and roll back to the live version)"
+else
+  rehearse_kind web "$REH_WV" "$WV"
+  if [ "$GW_ON" = 1 ] && [ "$GW_FAIL" = 0 ]; then soft gw_rehearse; fi
+fi
 
 # =========================================================== 9 table
 stage table 0.05
@@ -261,14 +313,16 @@ row() { # NAME EXPECT ACTUAL
 }
 if [ "$DRY" = 1 ]; then say "  DRY-RUN: a table of live versions, floors, PAUSE, blocklist, rehearsal_ok and the output of setup-unattended.sh verify"
 else
-  row "gateway live" "$GW" "$(live_ver gateway)"; row "web live" "$WV" "$(live_ver web)"
-  row "gateway release v$GW signed (3 files)" "$(want_files gateway "$GW" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" "$(release_files "$SERVING" "$GW")"
+  if [ "$GW_ON" = 1 ] && [ "$GW_FAIL" = 1 ]; then row "gateway $GW steps (independent of web)" ok "FAILED or skipped (see above; web is unaffected)"; fi
+  [ "$GW_ON" = 0 ] || [ "$GW_FAIL" = 1 ] || row "gateway live" "$GW" "$(live_ver gateway)"
+  row "web live" "$WV" "$(live_ver web)"
+  [ "$GW_ON" = 0 ] || [ "$GW_FAIL" = 1 ] || row "gateway release v$GW signed (3 files)" "$(want_files gateway "$GW" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" "$(release_files "$SERVING" "$GW")"
   row "web release v$WV signed (3 files)" "$(want_files web "$WV" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')" "$(release_files "$WEB" "$WV")"
-  row "floor not above gateway live" yes "$(f=$(sudo -n /usr/bin/head -1 "$STATE/floor" 2>/dev/null | tr -d ' \r'); { is_ver "${f:-x}" && [ "$(ver_cmp "$f" "$GW")" != 1 ] && echo yes; } || echo no)"
+  [ "$GW_ON" = 0 ] || [ "$GW_FAIL" = 1 ] || row "floor not above gateway live" yes "$(f=$(sudo -n /usr/bin/head -1 "$STATE/floor" 2>/dev/null | tr -d ' \r'); { is_ver "${f:-x}" && [ "$(ver_cmp "$f" "$GW")" != 1 ] && echo yes; } || echo no)"
   row "floor_web not above web live" yes "$(f=$(sudo -n /usr/bin/head -1 "$STATE/floor_web" 2>/dev/null | tr -d ' \r'); { is_ver "${f:-x}" && [ "$(ver_cmp "$f" "$WV")" != 1 ] && echo yes; } || echo no)"
-  if [ -n "$REH_GW" ]; then
+  if [ -n "$REH_GW$REH_WV" ]; then
     row "rehearsal_ok written" yes "$(state_file_has rehearsal_ok && echo yes || echo no)"
-    row "gateway $REH_GW blocklisted" yes "$(sudo -n /usr/bin/grep -qxF "gateway $REH_GW" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
+    [ "$GW_ON" = 0 ] || [ "$GW_FAIL" = 1 ] || row "gateway $REH_GW blocklisted" yes "$(sudo -n /usr/bin/grep -qxF "gateway $REH_GW" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
     row "web $REH_WV blocklisted" yes "$(sudo -n /usr/bin/grep -qxF "web $REH_WV" "$STATE/blocklist" 2>/dev/null && echo yes || echo no)"
   fi
   say "  PAUSE: $(state_file_has PAUSE && echo present || echo absent)   rehearsal_ok: $(state_file_has rehearsal_ok && echo present || echo absent)"
@@ -279,6 +333,7 @@ fi
 # =========================================================== 10 unpause
 stage unpause 0.0
 if [ "$DRY" = 1 ]; then say "  DRY-RUN: with --unpause, rehearsal_ok present and the word 'unpause' typed: setup-unattended.sh unpause"
+elif [ "$WEBONLY" = 1 ]; then say "  web-only run: PAUSE is left exactly as it is (it also guards the gateway, which this run did not touch)"
 elif ! state_file_has PAUSE; then say "  PAUSE is already absent: unattended deploys are ON"
 elif [ "$UNPAUSE" = 0 ]; then say "  PAUSE stays. After you have read the table: run the same command again with --unpause (needs rehearsal_ok)."
 elif ! state_file_has rehearsal_ok; then die "no rehearsal_ok: the rollback rehearsal has not passed, so PAUSE is not released (give --rehearse-gateway and --rehearse-web)"

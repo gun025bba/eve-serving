@@ -46,7 +46,7 @@ echo "SU $*" >>"$FAKE_CALLS"
 cmd=$1; kind=${2:-}; ver=${3:-}
 cur=current_version; [ "$kind" = web ] && cur=current_web_version
 case "$cmd" in
-  deploy) [ ! -f "$FAKE_FX/deploy-fails" ] || exit 1; [ ! -f "$FAKE_STATE/PAUSE" ] || { rm -f "$FAKE_STATE/PAUSE"; touch "$FAKE_STATE/.restore"; }; echo "$ver" >"$FAKE_STATE/$cur"; [ ! -f "$FAKE_STATE/.restore" ] || { echo "reason=install" >"$FAKE_STATE/PAUSE"; rm -f "$FAKE_STATE/.restore"; };;
+  deploy) [ ! -f "$FAKE_FX/deploy-fails" ] || exit 1; [ "$kind" != gateway ] || [ ! -f "$FAKE_FX/deploy-fails-gateway" ] || exit 1; [ ! -f "$FAKE_STATE/PAUSE" ] || { rm -f "$FAKE_STATE/PAUSE"; touch "$FAKE_STATE/.restore"; }; echo "$ver" >"$FAKE_STATE/$cur"; [ ! -f "$FAKE_STATE/.restore" ] || { echo "reason=install" >"$FAKE_STATE/PAUSE"; rm -f "$FAKE_STATE/.restore"; };;
   rehearse) [ ! -f "$FAKE_FX/rehearse-fails" ] || exit 1; echo "$kind $ver" >>"$FAKE_STATE/blocklist"; touch "$FAKE_STATE/PAUSE"; date >"$FAKE_STATE/rehearsal_ok";;
   unpause) [ -f "$FAKE_STATE/rehearsal_ok" ] || exit 1; rm -f "$FAKE_STATE/PAUSE" "$FAKE_STATE/rehearsal_ok";;
   verify) [ ! -f "$FAKE_FX/verify-fails" ] || { echo "  FAIL  something"; exit 1; }; echo "  PASS  all";;
@@ -182,9 +182,9 @@ eq "full: the one-shot got no deploy options" "$(printf '%s\n' "$CALLS" | grep '
 has "full: gateway tag from the clone, with the merge commit" "$CALLS" "TAG cwd=repo 5.1.0 $MC"
 has "full: web tag from the web clone with --repo eve-web" "$CALLS" "TAG cwd=eve-web --repo eve-web 2.0.0"
 lt "full: tags before the deploy" "$(ln_of '^TAG cwd=eve-web')" "$(ln_of '^SU .*deploy gateway')"
-lt "full: gateway deploy before the web deploy" "$(ln_of '^SU .*deploy gateway 5.1.0')" "$(ln_of '^SU .*deploy web 2.0.0')"
-lt "full: deploys before the rehearsal" "$(ln_of '^SU .*deploy web 2.0.0')" "$(ln_of '^SU .*rehearse gateway 5.1.1')"
-lt "full: gateway rehearsal before the web rehearsal" "$(ln_of '^SU .*rehearse gateway')" "$(ln_of '^SU .*rehearse web')"
+lt "full: web deploy before the gateway deploy (the web path comes first)" "$(ln_of '^SU .*deploy web 2.0.0')" "$(ln_of '^SU .*deploy gateway 5.1.0')"
+lt "full: deploys before the rehearsal" "$(ln_of '^SU .*deploy gateway 5.1.0')" "$(ln_of '^SU .*rehearse web 2.0.1')"
+lt "full: web rehearsal before the gateway rehearsal" "$(ln_of '^SU .*rehearse web')" "$(ln_of '^SU .*rehearse gateway')"
 lt "full: verify after the rehearsal" "$(ln_of '^SU .*rehearse web')" "$(ln_of '^SU .*verify')"
 eq "full: no rollback verb is ever used" "$(printf '%s\n' "$CALLS" | grep -ci 'rollback' | tr -d ' ')" 0
 has "full: --src-commit is the merge commit" "$CALLS" "SU --src-commit $MC deploy gateway 5.1.0"
@@ -225,8 +225,10 @@ eq "keys: no one-shot after a key failure" "$(calls | grep -c '^ONESHOT' | tr -d
 # ---------------- fail-closed stages ----------------
 mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
 eq "fail: no state after a failed one-shot" "$(grep -c oneshot= "$H/.eve-session/state" | tr -d ' ')" 0
-mkenv f2; printf 'tag\n' >"$FX/tty"; touch "$FX/tag-refused"; run $(ARGS_BASE); eq "fail: tag refused" "$RC" 1; has "fail: tag refused" "$OUT" 'STOPPED at stage "tags"'; eq "fail: no deploy after a tag refusal" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0; eq "fail: web tag not tried" "$(calls | grep -c 'repo eve-web' | tr -d ' ')" 0
-mkenv f3; echo 2222222222222222222222222222222222222222 >"$FX/tip.eve-serving"; printf 'tag\n' >"$FX/tty"; run $(ARGS_BASE); eq "fail: main moved" "$RC" 1; has "fail: main moved" "$OUT" "main moved"; eq "fail: no tag when main moved" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
+mkenv f2; printf 'tag\n' >"$FX/tty"; touch "$FX/tag-refused"; run $(ARGS_BASE); eq "fail: tag refused" "$RC" 1; has "fail: tag refused" "$OUT" 'STOPPED at stage "tags"'; eq "fail: no deploy after a tag refusal" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0; eq "fail: the gateway tag is not tried after the web tag was refused" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0
+mkenv f3; echo 2222222222222222222222222222222222222222 >"$FX/tip.eve-serving"; printf 'tag\n' >"$FX/tty"; run $(ARGS_BASE); eq "main moved: the run fails at the end (table), rc 1" "$RC" 1; has "main moved: says so" "$OUT" "main moved"; eq "main moved: no gateway tag" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0
+eq "main moved: the WEB tag was pushed and the web release is live" "$(calls | grep -c 'TAG cwd=eve-web' | tr -d ' ')/$(cat "$ST/current_web_version")" "1/2.0.0"; eq "main moved: no gateway deploy" "$(calls | grep -c 'deploy gateway' | tr -d ' ')" 0
+has "main moved: a FAIL row for the gateway steps" "$OUT" "FAIL  gateway 5.1.0 steps"; has "main moved: PAUSE not released" "$OUT" "PAUSE is NOT released"; eq "main moved: PAUSE stays" "$([ -e "$ST/PAUSE" ] && echo yes || echo no)" yes
 # a release that never gets its files: pre-existing tags but no release
 mkenv f5; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; run $(ARGS_BASE) --wait-minutes 0; eq "fail: no signed release in time" "$RC" 1; has "fail: no signed release" "$OUT" 'STOPPED at stage "releases"'; eq "fail: nothing deployed" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0
 mkenv f6; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
@@ -234,7 +236,7 @@ run $(ARGS_BASE) --wait-minutes 0; eq "fail: a release without its signature fil
 mkenv f7; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
 touch "$FX/deploy-fails"; run $(ARGS_BASE) --rehearse-gateway 5.1.1 --rehearse-web 2.0.1 --wait-minutes 0; eq "fail: test releases missing" "$RC" 1; has "fail: test releases missing" "$OUT" 'STOPPED at stage "releases"'; eq "fail: nothing deployed while the test releases are missing" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0
 mkenv f8; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
-touch "$FX/deploy-fails"; run $(ARGS_BASE) --wait-minutes 0; eq "fail: deploy failure stops" "$RC" 1; has "fail: deploy failure" "$OUT" 'STOPPED at stage "deploy"'; eq "fail: the web deploy is not tried after a gateway failure" "$(calls | grep -c 'deploy web' | tr -d ' ')" 0
+touch "$FX/deploy-fails"; run $(ARGS_BASE) --wait-minutes 0; eq "fail: deploy failure stops" "$RC" 1; has "fail: deploy failure" "$OUT" 'STOPPED at stage "deploy"'; eq "fail: the gateway deploy is not tried after a web failure" "$(calls | grep -c 'deploy gateway' | tr -d ' ')" 0
 rm -f "$FX/deploy-fails"; echo 6.0.0 >"$ST/current_version"; run $(ARGS_BASE) --wait-minutes 0; eq "fail: a downgrade is never done" "$RC" 1; has "fail: downgrade" "$OUT" "NEWER than 5.1.0"
 # rehearsal failure keeps PAUSE and stops before the table
 mkenv f9; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; for p in "gateway 5.1.0 eve-serving" "web 2.0.0 eve-web" "gateway 5.1.1 eve-serving" "web 2.0.1 eve-web"; do set -- $p; echo "eve-$1-$2.MANIFEST eve-$1-$2.sigstore.json eve-$1-$2.tar" >"$FX/rel.$3.$2"; done
@@ -242,6 +244,20 @@ touch "$FX/rehearse-fails"; run $(ARGS_BASE) --rehearse-gateway 5.1.1 --rehearse
 # a failing verify makes the table fail and PAUSE stays
 mkenv f10; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
 touch "$FX/verify-fails"; printf 'unpause\n' >"$FX/tty"; run $(ARGS_BASE) --unpause; eq "fail: verify fails the table" "$RC" 1; has "fail: table" "$OUT" "PAUSE is NOT released"
+# the gateway branch is INDEPENDENT: its failure never blocks or undoes the web release
+mkenv ind1; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-gateway-5.1.0.MANIFEST eve-gateway-5.1.0.sigstore.json eve-gateway-5.1.0.tar" >"$FX/rel.eve-serving.5.1.0"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
+touch "$FX/deploy-fails-gateway"; run $(ARGS_BASE) --wait-minutes 0; eq "indep: a gateway deploy failure: rc 1 (table)" "$RC" 1; eq "indep: the web release is live" "$(cat "$ST/current_web_version")" 2.0.0
+has "indep: gateway failure message" "$OUT" "GATEWAY step failed"; has "indep: web unaffected" "$OUT" "The web path is not affected"; has "indep: FAIL row" "$OUT" "FAIL  gateway 5.1.0 steps"; eq "indep: PAUSE stays" "$([ -e "$ST/PAUSE" ] && echo yes || echo no)" yes
+mkenv ind2; printf '%s\n' "eve-serving v5.1.0" "eve-web v2.0.0" >"$FX/tags"; echo "eve-web-2.0.0.MANIFEST eve-web-2.0.0.sigstore.json eve-web-2.0.0.tar" >"$FX/rel.eve-web.2.0.0"
+run $(ARGS_BASE) --wait-minutes 0; eq "indep: gateway release never published: rc 1" "$RC" 1; eq "indep: the web release was still deployed" "$(cat "$ST/current_web_version")" 2.0.0; eq "indep: no gateway deploy attempted" "$(calls | grep -c 'deploy gateway' | tr -d ' ')" 0
+# --web-only: the shortest path (no gateway anything, PAUSE untouched, no switch)
+mkenv wo0; run --merge-commit $MC --web-only --web 2.0.0 --gateway 5.1.0; eq "web-only: --gateway refused" "$RC" 1
+run --merge-commit $MC --web-only --web 2.0.0 --switch; eq "web-only: --switch refused" "$RC" 1; run --merge-commit $MC --web-only --web 2.0.0 --unpause; eq "web-only: --unpause refused" "$RC" 1
+mkenv wo1; run --merge-commit $MC --web-only --web 2.0.0 --rehearse-web 2.0.1 --dry-run; eq "web-only dry: rc" "$RC" 0; has "web-only dry: plan" "$OUT" "WEB ONLY"; hasnt "web-only dry: no gateway" "$OUT" "gateway v"
+mkenv wo2; printf 'tag\n' >"$FX/tty"; echo "eve-web-2.0.1.MANIFEST eve-web-2.0.1.sigstore.json eve-web-2.0.1.tar" >"$FX/rel.eve-web.2.0.1"
+run --merge-commit $MC --web-only --web 2.0.0 --rehearse-web 2.0.1; eq "web-only: rc" "$RC" 0; eq "web-only: web live" "$(cat "$ST/current_web_version")" 2.0.0; eq "web-only: gateway untouched" "$(cat "$ST/current_version")" 5.0.2
+eq "web-only: only the web tag" "$(calls | grep -c '^TAG' | tr -d ' ')/$(calls | grep -c 'TAG cwd=eve-web' | tr -d ' ')" "1/1"; eq "web-only: no gateway deploy or rehearsal" "$(calls | grep -cE 'deploy gateway|rehearse gateway' | tr -d ' ')" 0
+eq "web-only: PAUSE stays" "$([ -e "$ST/PAUSE" ] && echo yes || echo no)" yes; eq "web-only: only the web key was needed" "$(calls | grep -c LSREMOTE | tr -d ' ')" 1; has "web-only: table pass" "$OUT" "PASS  web live"; hasnt "web-only: no gateway rows" "$OUT" "gateway live"
 # sudo refused
 mkenv f11; touch "$FX/sudo-refused"; run $(ARGS_BASE); eq "fail: sudo refused" "$RC" 1; has "fail: sudo refused" "$OUT" 'STOPPED at stage "sudo"'; eq "fail: nothing after a refused sudo" "$(calls | grep -cE '^(ONESHOT|TAG|SU )' | tr -d ' ')" 0
 
@@ -281,6 +297,10 @@ mm "$FM" --out "$T/m.out"; eq "measure: --out copy equals the output" "$(cat "$T
 mm "$FM" --bogus; eq "measure: unknown option" "$MRC" 1
 # writes nothing outside its temp dir: the box tree is unchanged
 B1=$(find "$D" -newer "$T/m.out" -type f 2>/dev/null | wc -l | tr -d ' '); eq "measure: no repository file touched" "$B1" 0
+# the mapping table in the runbook covers every measured item; env values are never printed
+DOC=$D/../../docs/runbooks/release-session.md
+for n in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do grep -q "^| $n |" "$DOC" && ok || bad "runbook mapping table lacks item $n"; grep -q "^# $n " "$M" && ok || bad "measure script lacks item $n"; done
+SECRET_PROBE=zz-secret-value-9f3a; MOUT=$(EVE_PROBE_TOKEN=$SECRET_PROBE bash "$M" 2>&1); eq "measure: an env value is never printed" "$(printf '%s' "$MOUT" | grep -c "$SECRET_PROBE")" 0
 
 echo "session tests passed: $PASS  failed: $FAILN"
 [ "$FAILN" = 0 ]
