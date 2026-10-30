@@ -201,7 +201,7 @@ done
 code() { if [ -n "$fmt" ]; then printf '%s' "$1"; fi; }
 M=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 case "$url" in
-  https://api.github.com/user) if [ -n "${FAKE_TEMP_HTTP:-}" ] && [ "$tok" != "gho_FAKEOAUTHTOKEN0123456789" ]; then code "$FAKE_TEMP_HTTP"; exit 0; fi; if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
+  https://api.github.com/user) if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/actions/permissions) code "${FAKE_PAT_CODE:-403}"; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/commits/$M) echo '{"sha":"'$M'"}';;
   https://api.github.com/repos/gun025bba/eve-serving/compare/$M...main) echo '{"status":"'"${FAKE_COMPARE:-ahead}"'"}';;
@@ -237,11 +237,11 @@ st = {"user": "gun025bba", "admin": True, "next": 100, "repos": {"gun025bba/eve-
 json.dump(st, open(sys.argv[1], "w"))
 PY
 }
-run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary token)
+run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (a bot token left in the environment)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
   ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="${FAKE_WT_DIR:-$D}" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
       ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
-      ${FAKE_TEMP_HTTP:+FAKE_TEMP_HTTP=$FAKE_TEMP_HTTP} ${WARN_FILE_T:+EVE_ONESHOT_WARN_FILE=$WARN_FILE_T} ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
+      ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
 mkdir -p "$T/home"
@@ -280,8 +280,9 @@ new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --web
 cat "$T/out" >"$T/out.happy"; [ -z "${UT_DEBUG:-}" ] || cat "$T/out"
 eq "happy: rc" "$OSRC" 0
 has "happy: all settings passed" "$(cat "$T/out")" "ALL SETTINGS CHECKS PASSED"
-has "happy: temporary token refused on an admin endpoint" "$(cat "$T/out")" "no Administration"
-has "happy: both tokens proven dead" "$(cat "$T/out")" "both tokens are dead"
+hasnt "happy: no bot-token check, no prompt for it" "$(cat "$T/out")" "temporary token"
+eq "happy: the bot token is never sent to any API" "$(grep -c "actions/permissions" "$T/fk/curl.log" | tr -d ' ')" 0
+has "happy: the OAuth token proven dead" "$(cat "$T/out")" "the OAuth token is dead"
 hasnt "happy: no FAIL row" "$(cat "$T/out")" "  FAIL  "
 eq "happy: exactly one sudo call" "$(sudo_calls)" 1
 eq "happy: sudo ARGC (-c session _ SU INST web rk rv up MERGE)" "$(sed -n 's/^ARGC //p' "$T/fk/sudo.log")" 14
@@ -376,33 +377,20 @@ new_world ok; FAKE_TAMPER=setup-pim-adapter.sh TEMP=PAT_FAKE_TEMP_TOKEN_01234567
 eq "pim: a tampered adapter file is not looked at without the option: rc" "$OSRC" 0
 OS=$OS_REAL; D=$D_REAL; unset FAKE_WT_DIR
 
-# S3-S6: revocation must be PROVEN, otherwise FAIL
-new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\n' >"$T/fk/revoked"; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-eq "temp token still valid: rc non-zero" "$((OSRC != 0))" 1; has "temp token still valid: loud warning" "$(cat "$T/out")" "STILL BE VALID"; has "temp token: http=200 reported" "$(cat "$T/out")" "temporary: http=200"
+# S3-S6: the OAuth token of the run must be PROVEN dead, otherwise FAIL. The bot token (a long-lived token limited to the three repositories) is not asked for, checked or proven here.
 new_world ok; printf 'PAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "oauth token still valid: rc non-zero" "$((OSRC != 0))" 1; has "oauth token still valid: loud warning" "$(cat "$T/out")" "STILL BE VALID"
 new_world ok; TTYIN=nope TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "'revoked' not typed: rc non-zero" "$((OSRC != 0))" 1; has "'revoked' not typed: warning" "$(cat "$T/out")" "confirmed=no"
+new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\n' >"$T/fk/revoked"; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "a bot token GitHub still accepts is not this script's business: rc 0" "$OSRC" 0; has "oauth proven dead" "$(cat "$T/out")" "the OAuth token is dead"
 new_world ok; run_os --merge-commit $M
-eq "no temporary token given (cannot prove): WARN only, rc 0" "$OSRC" 0; has "unproven temp token: http=unproven" "$(cat "$T/out")" "http=unproven"; has "unproven temp token: a WARN line" "$(cat "$T/out")" "WARN  temporary token: its revocation was NOT proven"; has "unproven temp token: follow-up text" "$(cat "$T/out")" "WARN  follow-up"; hasnt "unproven temp token: not the still-valid alarm" "$(cat "$T/out")" "STILL BE VALID"
-new_world ok; : >"$T/warnfile"; WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "unproven temp token: the marker word is left for the session" "$(cat "$T/warnfile")" temp-token
-new_world ok; : >"$T/warnfile"; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "proven temp token: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; hasnt "proven temp token: no WARN" "$(cat "$T/out")" "WARN  temporary token"
-new_world ok; printf 'PAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; run_os --merge-commit $M
-eq "no temp token but the OAuth token still valid: still FAIL" "$((OSRC != 0))" 1; has "no temp token but the OAuth token still valid: loud alarm" "$(cat "$T/out")" "STILL BE VALID"
-new_world ok; TTYIN=nope run_os --merge-commit $M
-eq "unproven temp token and 'revoked' not typed: still FAIL" "$((OSRC != 0))" 1
-# a pasted temporary token that gets no clear 401 (5xx, timeout, curl error, 403 = "other") is a FAIL, not a WARN
-for h in 502 403 000; do new_world ok; : >"$T/warnfile"; FAKE_TEMP_HTTP=$h WARN_FILE_T=$T/warnfile TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-  eq "temp token answered $h (other): FAIL, rc non-zero" "$((OSRC != 0))" 1; has "temp token answered $h: loud alarm" "$(cat "$T/out")" "STILL BE VALID"; hasnt "temp token answered $h: no WARN line" "$(cat "$T/out")" "WARN  temporary token"; eq "temp token answered $h: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; done
-# the temporary token is already dead (401) before the run: WARN, not a stop; its revocation is then proven at the end
-new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\nPAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; FAKE_PAT_CODE=401 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-eq "temp token already 401 at the start: rc 0" "$OSRC" 0; has "temp token already 401: WARN, not a stop" "$(cat "$T/out")" "WARN: the temporary token is already invalid"; has "temp token already 401: both dead at the end" "$(cat "$T/out")" "both tokens are dead"
-new_world ok; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') run_os --merge-commit $M
-eq "temporary token pasted at the end (hidden prompt): rc" "$OSRC" 0; hasnt "pasted token is not echoed" "$(cat "$T/out")" PAT_FAKE_TEMP
+eq "no bot token in the environment: rc 0" "$OSRC" 0; hasnt "no prompt for a temporary token" "$(cat "$T/out")" "Paste the temporary token"; hasnt "no mention of a temporary token" "$(cat "$T/out")" "temporary"
+eq "the run asks for 'revoked' once and for nothing else" "$(grep -c . "$T/tty.in" | tr -d ' ')" 1
 
 # S7: a settings FAIL row stops before sudo; the revoke flow still runs
 new_world ok; FAKE_ENV_IGNORE=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-eq "settings FAIL: rc non-zero" "$((OSRC != 0))" 1; has "settings FAIL: a FAIL row" "$(cat "$T/out")" "  FAIL  "; eq "settings FAIL: NO sudo" "$(sudo_calls)" 0; has "settings FAIL: says why" "$(cat "$T/out")" "sudo step is NOT run"; has "settings FAIL: tokens still handled" "$(cat "$T/out")" "both tokens are dead"
+eq "settings FAIL: rc non-zero" "$((OSRC != 0))" 1; has "settings FAIL: a FAIL row" "$(cat "$T/out")" "  FAIL  "; eq "settings FAIL: NO sudo" "$(sudo_calls)" 0; has "settings FAIL: says why" "$(cat "$T/out")" "sudo step is NOT run"; has "settings FAIL: tokens still handled" "$(cat "$T/out")" "the OAuth token is dead"
 # S15: no tag key registered -> the table fails (tagging with the key would break)
 new_world none; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "no key: rc non-zero" "$((OSRC != 0))" 1; eq "no key: NO sudo" "$(sudo_calls)" 0; has "no key: DeployKey row" "$(cat "$T/out")" "DeployKey bypass present"
@@ -443,9 +431,9 @@ for f in setup-unattended.sh setup-deploy-nopasswd.sh settings/SHA256SUMS settin
   new_world ok; FAKE_TAMPER=$f TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
   eq "tampered $f: rc non-zero" "$((OSRC != 0))" 1; eq "tampered $f: no gh call (no login)" "$(wc -l <"$T/fk/gh.log" | tr -d ' ')" 0; eq "tampered $f: no sudo" "$(sudo_calls)" 0
 done
-# S10: a temporary token that can read admin settings violates the conditions
+# S10: a bot token left in the environment is dropped at once: never sent anywhere, whatever it can read
 new_world ok; FAKE_PAT_CODE=200 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-eq "admin-capable temp token: rc non-zero" "$((OSRC != 0))" 1; eq "admin-capable temp token: no gh call" "$(wc -l <"$T/fk/gh.log" | tr -d ' ')" 0; has "admin-capable temp token: says why" "$(cat "$T/out")" "violates the conditions"
+eq "bot token in the environment: rc 0" "$OSRC" 0; eq "bot token in the environment: no request with it" "$(grep -c "actions/permissions" "$T/fk/curl.log" | tr -d ' ')" 0; hasnt "bot token in the environment: not echoed" "$(cat "$T/out")" PAT_FAKE_TEMP
 # S11: the wrong login
 new_world ok; python3 - "$T/fk/gh.json" <<'PY'
 import json, sys
@@ -458,7 +446,7 @@ new_world ok; FAKE_COMPARE=diverged TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os -
 new_world ok; FAKE_PRIVATE=true TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M; eq "private repo: rc non-zero" "$((OSRC != 0))" 1; eq "private repo: no gh call" "$(wc -l <"$T/fk/gh.log" | tr -d ' ')" 0
 # S13: a failing sudo session fails the run (tokens still proven)
 new_world ok; FAKE_SUDO_RC=7 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
-eq "sudo session failure: rc non-zero" "$((OSRC != 0))" 1; has "sudo session failure: says exit code" "$(cat "$T/out")" "exit 7"; has "sudo session failure: tokens still handled" "$(cat "$T/out")" "both tokens are dead"
+eq "sudo session failure: rc non-zero" "$((OSRC != 0))" 1; has "sudo session failure: says exit code" "$(cat "$T/out")" "exit 7"; has "sudo session failure: tokens still handled" "$(cat "$T/out")" "the OAuth token is dead"
 
 # ---------------- setup-unattended.sh in a sandbox (stub dscl / launchctl / sudo / fetch / deploy) ----------------
 S=$T/su; mkdir -p "$S/bin" "$S/libexec" "$S/state" "$S/home" "$S/launchd" "$S/sudoers"

@@ -22,7 +22,7 @@ A blocklisted version you really want: edit `blocklist` by hand (root) and ship 
 2. **login** (browser, throwaway `gh` config, OAuth) as `gun025bba`, admin of eve-serving and eve-web.
 3. **settings** (`deploy/nopasswd/settings/*.json`, idempotent) and 4. **read-back table**. A FAIL row stops the run: **no sudo**. Write order: the `release-tags-lock` rulesets first (before `release-tags` is rewritten and before any other PUT), so a failure part-way never leaves the tags unprotected. The `pull_request` rules carry `require_extra_approval_for_unattributed_changes: true` (as the live ruleset) and the table compares it.
 5. **sudo, once** (one password prompt): accounts `evedeploy` + `evebackup`, installer (`--deploy-user evedeploy`, `WEB_ENABLED=yes`, entrypoint with the brakes), optional calendar adapter (`--calendar-adapter X.Y.Z`, see below), today's supervised gateway deploy (`--gateway-deploy X.Y.Z`) and web deploy (`--web-deploy X.Y.Z`; the installer already made PAUSE, which the supervised deploy lifts and puts back), `state` (blocklist, poller + plist, then re-hash of every installed file), optional rehearsal, `load` (poller), install table.
-6. **clean-up**: local logout; the links to revoke the OAuth token and the temporary token; you type `revoked`; both are proven dead with HTTP 401. A token that is still alive, or one that cannot be proven, ends the run FAIL (non-zero).
+6. **clean-up**: local logout; the link to revoke the OAuth token of this run; you type `revoked`; it is proven dead with HTTP 401. An OAuth token that is still alive, or one that cannot be proven, ends the run FAIL (non-zero). The bot token is not part of this step (see below).
 
 ## Calendar adapter (PIM) in the same sudo session: as-is / to-be
 
@@ -61,11 +61,10 @@ CI prerequisite (separate PR + security review, Med-1): `deploy-sign.yml` must a
 **TCC rule (the macOS calendar prompt).** The planned prompt, "eve-pim wants to access your calendar", appears once on the Mac screen while the session runs (you must be logged in at the screen): answer **Allow Full Access**. Any OTHER prompt = **Don't Allow**, leave PAUSE set, and report. If the planned prompt is not answered within 4 minutes the adapter step ends as PENDING (exit 0, nothing half-installed); answer it when it shows and re-run the SAME one-shot command (idempotent: the pins, the settings and the already installed files are re-checked, not replaced).
 Order matters: the adapter step runs after the installer and before the deploys, so a failed adapter step stops the run before any release is deployed (the run is idempotent; the failure restores the previous adapter).
 
-## The temporary token (the one that opens the PR)
+## The bot token (the one that opens the PR)
 
-Conditions, all required: **fine-grained**; repositories **eve-serving and eve-web only**; permissions **Contents: write and Pull requests: write only, no Administration**, no other permission; **expiry 1 day**; used **from the environment only** (never in a file, a command line, a log, a gh config).
-It is never used to change a setting. `eve-oneshot.sh` only (a) refuses to start if the token can read an admin-only endpoint (a token with Administration violates the conditions) when `EVE_TEMP_TOKEN` is set, and (b) at the end proves with a 401, through curl's stdin, that it is revoked.
-Revoke: https://github.com/settings/personal-access-tokens (Delete). The OAuth login of the run: https://github.com/settings/applications ("GitHub CLI", Revoke).
+Policy (owner decision, 10/30 14:13 KST): the bot token is a **long-lived fine-grained token limited to the three repositories** (eve-serving, eve-web, eve-ios), with permissions **Contents: write and Pull requests: write only, no Administration**, and an **expiry of 90 days at most** (shorter is better; rotate before it expires). It is **not** revoked at deploy time and `eve-oneshot.sh` / `eve-session.sh` no longer ask for it, check it or prove its revocation (the earlier check and the paste-and-prove prompt are gone). It is never used to change a setting; keep it out of files, command lines, logs and gh config. If `EVE_TEMP_TOKEN` happens to be set, the one-shot only removes it from the environment so no child process inherits it.
+What stays: the OAuth login of each run is revoked and proven dead (401): https://github.com/settings/applications ("GitHub CLI", Revoke). Rotate or delete the bot token at https://github.com/settings/personal-access-tokens.
 
 ## Install with PAUSE, rehearse later (works without a signed test release today)
 
