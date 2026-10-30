@@ -55,8 +55,8 @@ Any gate that is FAIL **or UNKNOWN** skips the switch; the release continues ove
 
 At its end `eve-oneshot.sh` makes you revoke the OAuth token of the run (you type `revoked`) and **proves it dead with HTTP 401: unchanged, a FAIL otherwise**. For the temporary token (the fine-grained token that opened the PR) it asks you to paste it, hidden:
 - GitHub answers 401: proven, nothing more to do.
-- Empty input, or no answer: **WARN** (the run is not stopped, exit 0). Follow-up: open the fine-grained tokens page and check that the token is gone from the list (delete it if not). `eve-session.sh` repeats it as a `WARN  temporary token revocation` row in its table (state key `oneshot_warn`, not a failure).
-- GitHub still accepts it (200): FAIL, as before.
+- Empty input (nothing pasted): **WARN** (the run is not stopped, exit 0). Follow-up: open the fine-grained tokens page and check that the token is gone from the list (delete it if not). `eve-session.sh` repeats it as a `WARN  temporary token revocation` row in its table (state key `oneshot_warn`, not a failure).
+- A token that was pasted but gets no clear 401 (200 still accepted, 403, 5xx, timeout, curl error): FAIL, as before.
 - A token that is already 401 when the run starts (`EVE_TEMP_TOKEN`): a WARN line instead of a stop.
 
 ### The rehearsal drill invariants (checked before and after)

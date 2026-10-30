@@ -23,7 +23,7 @@
 #   2  settings:  the reviewed JSON files, applied with that login (rulesets incl. release-branches on eve-serving, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings; eve-ios: only the main-protect ruleset with the required check `compile`)
 #   3  verify:    every setting is read back (PASS/FAIL table). A FAIL row stops the run: no sudo.
 #   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [calendar adapter], [today's gateway deploy], [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
-#   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; the OAuth token is PROVEN dead with an HTTP 401 (not dead or not proven = FAIL, non-zero exit). The temporary token: 401 = proven; empty input or no answer = a WARN with a follow-up text (the run goes on, exit 0); GitHub still accepting it (200) = FAIL.
+#   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; the OAuth token is PROVEN dead with an HTTP 401 (not dead or not proven = FAIL, non-zero exit). The temporary token: 401 = proven; empty input = a WARN with a follow-up text (the run goes on, exit 0); a pasted token that is still accepted (200) or gets no clear 401 (403, 5xx, timeout, curl error) = FAIL.
 # THE TEMPORARY TOKEN (the fine-grained token that opened the PR): conditions are fixed: repositories eve-serving and eve-web only; Contents and Pull requests write only; NO Administration;
 # expiry 1 day; used from the environment only. This script NEVER changes anything with it. If EVE_TEMP_TOKEN is set when the script starts it is used for ONE read: it must be REFUSED on an
 # admin-only endpoint (a token that can read admin settings violates the conditions and stops the run before any change). At the end it is read again (EVE_TEMP_TOKEN or a hidden prompt)
@@ -124,9 +124,9 @@ revoke_flow() {
   pat=""
   TEMP_RESULT="http=$pcode"
   tty_close
-  # the OAuth token of this run must be PROVEN dead (401), as before. The temporary token: 401 = proven; no input or no answer (unproven/other) = WARN only (the run goes on and says what to do);
-  # a token that GitHub still ACCEPTS (200) is a FAIL.
-  if [ "$pcode" = unproven ] || [ "$pcode" = other ]; then TEMP_WARN=1; fi
+  # the OAuth token of this run must be PROVEN dead (401), as before. The temporary token: 401 = proven; NO INPUT (unproven) = WARN only (the run goes on and says what to do);
+  # anything GitHub answered or failed to answer for a token that WAS pasted (200, 403, 5xx, timeout, curl error = "other") is a FAIL.
+  if [ "$pcode" = unproven ]; then TEMP_WARN=1; fi
   if [ "$confirmed" = yes ] && [ "$code" = 401 ] && { [ "$pcode" = 401 ] || [ "$TEMP_WARN" = 1 ]; }; then RV_OK=1
     if [ "$TEMP_WARN" = 1 ]; then
       printf '\n   WARN  temporary token: its revocation was NOT proven by this run (%s). The OAuth token of this run is dead (401). The run is not stopped.\n' "$TEMP_RESULT"
