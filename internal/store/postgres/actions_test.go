@@ -432,6 +432,55 @@ func TestPostgresActions_JobOwnership(t *testing.T) {
 	}
 }
 
+// I-2: finished pim write cards lose payload/payload_view after the cutoff;
+// live pending, young and other-tool cards are untouched; the hash stays.
+func TestPostgresActions_ScrubActionContent(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const a = "alice@example"
+	now := time.Now().UTC()
+	mk := func(tool, status string, age time.Duration, expiresIn time.Duration) string {
+		p := newProposal(t, s, a, `{"title":"치과","notes":"보험증"}`)
+		if _, err := s.pool.Exec(ctx, `UPDATE pending_actions SET tool=$2, status=$3, updated_at=$4, expires_at=$5 WHERE id=$1`,
+			p.ID, tool, status, now.Add(-age), now.Add(expiresIn)); err != nil {
+			t.Fatal(err)
+		}
+		return p.ID
+	}
+	tools := []string{"calendar_add_event", "reminders_add"}
+	expired := mk("calendar_add_event", "pending", 48*time.Hour, -47*time.Hour)
+	approved := mk("calendar_add_event", "approved", 48*time.Hour, -47*time.Hour)
+	voided := mk("reminders_add", "voided", 48*time.Hour, -47*time.Hour)
+	live := mk("calendar_add_event", "pending", 48*time.Hour, time.Hour)
+	young := mk("calendar_add_event", "approved", time.Hour, time.Hour)
+	other := mk("memory.propose", "approved", 48*time.Hour, -47*time.Hour)
+
+	n, err := s.ScrubActionContent(ctx, tools, now.Add(-24*time.Hour))
+	if err != nil || n != 3 {
+		t.Fatalf("scrubbed %d (%v), want 3", n, err)
+	}
+	content := func(id string) (string, string, string) {
+		var p, v, h string
+		if err := s.pool.QueryRow(ctx, `SELECT payload::text, payload_view::text, payload_hash FROM pending_actions WHERE id=$1`, id).Scan(&p, &v, &h); err != nil {
+			t.Fatal(err)
+		}
+		return p, v, h
+	}
+	for name, id := range map[string]string{"expired": expired, "approved": approved, "voided": voided} {
+		if p, v, h := content(id); p != "{}" || v != "{}" || h == "" {
+			t.Errorf("%s: payload=%s view=%s hash=%q", name, p, v, h)
+		}
+	}
+	for name, id := range map[string]string{"live": live, "young": young, "other tool": other} {
+		if p, _, _ := content(id); p == "{}" {
+			t.Errorf("%s card was scrubbed", name)
+		}
+	}
+	if n, err := s.ScrubActionContent(ctx, tools, now.Add(-24*time.Hour)); err != nil || n != 0 {
+		t.Fatalf("second run: %d %v", n, err)
+	}
+}
+
 // JSONB does not keep key order ({"text","kind"} is stored and returned as
 // {"kind","text"}). The payload hash must therefore be over a canonical form:
 // the hash computed at create time still verifies against the payload read

@@ -1,0 +1,12 @@
+name: calendar_add_event
+version: 1.0.0
+description: "Propose adding one calendar event (title, start as RFC 3339 with offset and zero seconds, optional end, all_day, location, notes, calendar_id, required, taken from a calendar_list_events result: the card names that calendar). Nothing is written until the user approves the confirmation card; you only get status pending_confirmation back. The event syncs to the user's linked accounts once approved. Timed events last at most 7 days, all-day events at most 31."
+scopes: [calendar.write]
+side_effect: write
+verbs: [add]
+taint_output: false
+egress: []
+secrets: []
+timeout: 5s
+max_result_chars: 1000
+exposure: {modes: [auto], max_per_turn: 2}

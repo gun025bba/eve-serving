@@ -94,7 +94,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if !auth.AllowedLogin(cfg.AllowedUsers, *user) {
 			return die("pair: %q is not in allowed_users", *user)
 		}
-		code, err := m.IssueCode(ctx, *user)
+		login, _ := auth.NormalizeLogin(*user) // AllowedLogin above already accepted it
+		code, err := m.IssueCode(ctx, login)
 		if err != nil {
 			return die("pair: %v", err)
 		}
