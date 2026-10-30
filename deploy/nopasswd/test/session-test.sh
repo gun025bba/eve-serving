@@ -292,7 +292,7 @@ mm "$FM"; has "measure: fake macOS passes gate 01" "$MOUT" "01  OK"
 eq "measure: SIP text is shortened and printed" "$(printf '%s' "$MOUT" | grep -c 'System Integrity')" 1
 # BSD emulation (macOS): a strict sed that rejects a number flag combined with g ("bad flag in substitute command"), a BSD stat (no --version; -f prints "Directory", "Symbolic Link"), the fake macOS above.
 # Gate 03 must stay OK (it was UNKNOWN/FAIL for every component when the type word was cut with sed 's/ /_/3g').
-BSDB=$T/bsd-bin; mkdir -p "$BSDB"; cp "$FM"/* "$BSDB"/; export REAL_SED=$(command -v sed) REAL_STAT=$(command -v stat)
+BSDB=$T/bsd-bin; mkdir -p "$BSDB"; cp "$FM"/* "$BSDB"/; export REAL_SED=$(command -v sed) REAL_STAT=$(command -v stat); GNU03=
 cat >"$BSDB/sed" <<'BSDSED'
 #!/bin/bash
 for a in "$@"; do case "$a" in s?*?[0-9]g|s?*?[0-9][0-9]g) echo "sed: bad flag in substitute command" >&2; exit 1;; esac; done
@@ -310,13 +310,19 @@ if [ "$1" = -f ]; then
 else exec "$REAL_STAT" "$@"; fi
 BSDSTAT
 chmod +x "$BSDB"/*
-mm "$BSDB"; has "measure (BSD sed/stat): gate 01 still OK" "$MOUT" "01  OK"
-eq "measure (BSD sed/stat): no chain component is unreadable or failing" "$(printf '%s\n' "$MOUT" | grep -cE '^03  (UNKNOWN|FAIL)')" 0
-has "measure (BSD sed/stat): the root row is OK" "$MOUT" "03  OK      chain /: mode 755 uid 0 no acl"
-has "measure (BSD sed/stat): the chain summary is OK" "$MOUT" "components are root-owned"
-eq "measure (BSD sed/stat): the strict sed rejects the old form" "$(printf 'a b c d' | "$BSDB/sed" 's/ /_/3g' 2>/dev/null; echo "rc=$?")" "rc=1"
-mkdir -p "$T/lnk"; ln -sfn x "$T/lnk/l"
-eq "measure (BSD stat): the BSD stat stub prints a two-word type" "$("$BSDB/stat" -f '%HT' "$T/lnk/l")" "Symbolic Link"
+mm "$FM"; GNU03=$(printf '%s\n' "$MOUT" | grep '^03 ' | sed 's#/tmp/[^ ]*##')
+if [ "$(uname -s)" = Darwin ]; then
+  # real BSD tools here (the CI macOS job, system bash 3.2): no chain component may be unreadable
+  eq "measure (macOS tools): no chain component is UNKNOWN" "$(printf '%s\n' "$MOUT" | grep -cE '^03  UNKNOWN')" 0
+else
+  # the environment decides which components are OK (the runner's /opt, /usr/local), so the BSD-emulated rows must equal the GNU rows
+  mm "$BSDB"; has "measure (BSD sed/stat): gate 01 still OK" "$MOUT" "01  OK"
+  eq "measure (BSD sed/stat): no chain component is UNKNOWN" "$(printf '%s\n' "$MOUT" | grep -cE '^03  UNKNOWN')" 0
+  eq "measure (BSD sed/stat): the 03 rows equal the GNU rows" "$(printf '%s\n' "$MOUT" | grep '^03 ' | sed 's#/tmp/[^ ]*##')" "$GNU03"
+  eq "measure (BSD sed/stat): the strict sed rejects the old form" "$(printf 'a b c d' | "$BSDB/sed" 's/ /_/3g' 2>/dev/null; echo "rc=$?")" "rc=1"
+  mkdir -p "$T/lnk"; ln -sfn x "$T/lnk/l"
+  eq "measure (BSD stat): the BSD stat stub prints a two-word type" "$("$BSDB/stat" -f '%HT' "$T/lnk/l")" "Symbolic Link"
+fi
 # no secrets, user names or addresses: the output never contains the user name of this run
 eq "measure: output has no user name" "$(printf '%s' "$MOUT" | grep -c "$(id -un)")" 0
 # --out writes a copy and keeps the exit status
