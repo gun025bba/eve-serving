@@ -60,5 +60,6 @@ the 5.x binary against a copy of the config first.
 
 ## 4. Data
 
-Stored tool arguments are cleared after `web.args_retention_days` (90). Rejected queries never store arguments. The HMAC key is not part of any backup
+Stored tool arguments are cleared after `web.args_retention_days` (90; a smaller value is refused at start-up) by the daily retention job; the call row stays
+until `web.retention_days` (90) purges it. This is the same for browser-session and API-key requests. Rejected queries never store arguments. The HMAC key is not part of any backup
 bundle that leaves the machine.

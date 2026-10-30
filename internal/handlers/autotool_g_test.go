@@ -854,6 +854,50 @@ func TestAPIKey_WebSearchFalseIgnored(t *testing.T) {
 	}
 }
 
+// #158 decisions (2026-10-30): an API-key request gets automatic selection on
+// by default, and its search arguments are kept for 90 days exactly like a
+// browser session's (the feature code does not look at how the caller
+// authenticated).
+func TestAPIKey_AutoOnAndArgsKept90Days(t *testing.T) {
+	e, up := autoEnv(t, callStep{tool: "web_search", args: q("go 1.27 release")}, callStep{text: "ok [1]"})
+	resp := apiPost(t, e, `{"stream":true,"thread_id":"new","messages":[{"role":"user","content":"go 1.27 release"}]}`)
+	evs, done := readSSE(t, resp.Body)
+	resp.Body.Close()
+	if !done {
+		t.Fatal("no [DONE]")
+	}
+	if n := toolNames(up.requests()[0]); !has(n, "web_search") {
+		t.Fatalf("API-key request without web tools by default: %v", n)
+	}
+	calls := byObject(evs, "chat.completion.tool_call")
+	if len(calls) != 1 || calls[0]["selected_by"] != "model" {
+		t.Fatalf("%v", calls)
+	}
+	p := byObject(evs, "chat.completion.persisted")
+	if len(p) != 1 {
+		t.Fatalf("API-key turn not persisted: %v", evs)
+	}
+	mid := p[0]["message_id"].(string)
+	m := e.st.(*memstore.Store)
+	rows := m.ToolCalls(mid)
+	if len(rows) != 1 || rows[0].ArgsExpiresAt == nil {
+		t.Fatalf("%+v", rows)
+	}
+	d := time.Until(*rows[0].ArgsExpiresAt)
+	if d < 89*24*time.Hour || d > 91*24*time.Hour {
+		t.Fatalf("args kept for %v, want 90 days", d)
+	}
+	if n, err := m.ClearExpiredArgs(context.Background(), time.Now().Add(89*24*time.Hour)); err != nil || n != 0 {
+		t.Fatalf("args cleared before 90 days: %d %v", n, err)
+	}
+	if n, err := m.ClearExpiredArgs(context.Background(), time.Now().Add(91*24*time.Hour)); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+	if rows = m.ToolCalls(mid); len(rows) != 1 || strings.Contains(string(rows[0].Args), "go 1.27") {
+		t.Fatalf("args not cleared: %+v", rows)
+	}
+}
+
 // Budgets and the kill switch apply to the API-key identity like to anyone.
 func TestAPIKey_BudgetAndKillSwitchSame(t *testing.T) {
 	// budget

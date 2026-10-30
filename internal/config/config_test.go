@@ -90,6 +90,19 @@ func TestWebDefaultsOnAndEnv(t *testing.T) {
 	}
 }
 
+// #158: search arguments are kept 90 days; a shorter period needs explicit approval, so it is refused.
+func TestWebArgsRetentionAtLeast90(t *testing.T) {
+	for _, v := range []string{"89", "30", "1"} {
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_ARGS_RETENTION_DAYS": v}[k] }); err == nil {
+			t.Fatalf("args_retention_days=%s accepted", v)
+		}
+	}
+	c, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_ARGS_RETENTION_DAYS": "120"}[k] })
+	if err != nil || c.Web.ArgsRetentionDays != 120 {
+		t.Fatalf("%v %+v", err, c.Web)
+	}
+}
+
 // auto_select_off is the 6.0.0 rollback switch: it fails closed (an unreadable
 // env value turns auto selection off) and off wins over the file.
 func TestWebAutoSelectOff(t *testing.T) {

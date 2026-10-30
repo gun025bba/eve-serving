@@ -40,6 +40,9 @@
   in 5.x will start searching** (the per-thread setting no longer exists; the model decides). This is deliberate and part of the MAJOR.
 - **API-key clients are on by default, too.** They get the web tools, the gateway tool prompt, the new SSE events and the same guards (echo, suspect,
   G1-G4, the kill switch). They are one budget identity (`api-key`, shared by all keys, separate from UI users); there is no RAG-path exemption.
+- **Decisions of 2026-10-30 (#158):** search arguments are kept for 90 days (`web.args_retention_days`, values below 90 are refused), then cleared by the
+  daily retention job; API-key requests get automatic tool selection on by default and follow the same retention. Tests: `TestAPIKey_AutoOnAndArgsKept90Days`,
+  `TestWebArgsRetentionAtLeast90`.
 - **Web tool exposure (G2/G3):** `web_search` is offered only in round 1 (before any tool result), at most `web.max_searches` (config values above 2 are
   capped at 2) per request, 128 runes per query; after any fetch result neither search nor fetch is offered; `web_fetch` takes only URLs from the user's
   message or an earlier search result and never chains. After a personal-data read (G1) there is no search, and fetch only for URLs the user typed.

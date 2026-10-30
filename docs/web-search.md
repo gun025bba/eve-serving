@@ -341,6 +341,10 @@ DROP TABLE tool_calls;
 | `fetch.max_per_domain` | `GW_FETCH_MAX_PER_DOMAIN` | `2` |
 | `search.max_query_chars` | `GW_SEARCH_MAX_QUERY_CHARS` | `256` |
 | `tools.web.retention_days` | `GW_WEB_RETENTION_DAYS` | `90` |
+| `web.args_retention_days` | `GW_WEB_ARGS_RETENTION_DAYS` | `90` (값이 90보다 작으면 시작을 거부해요) |
+
+- 검색 입력(`tool_calls.args`의 검색어/URL)은 90일 동안 보관하고, 그 뒤에는 매일 도는 정리 작업이 `{}`로 비워요(행은 남아요). 거절된 질의는 처음부터 저장하지 않아요.
+- API 키(Bearer) 요청도 세션 요청과 똑같이 자동 도구 선택이 기본으로 켜져 있고, 검색 입력도 같은 90일 규칙을 따라요. 인증 방식에 따른 구분은 인증 미들웨어에만 있고, 도구 기능은 `users.id` 기준으로만 동작해요.
 
 - `fetch.allowed_ports`를 바꿔도 5432, 6379, 8000, 8080, 8888은 항상 거부돼요(코드 고정).
 
