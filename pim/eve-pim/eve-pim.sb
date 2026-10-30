@@ -1,0 +1,9 @@
+;; eve-pim sandbox profile (best effort; sandbox-exec is deprecated but works).
+;; Deny all IP networking. The unix socket in --socket-dir is the only
+;; channel. EventKit talks to calendaragent/remindd over XPC (mach-lookup),
+;; which is not network access.
+(version 1)
+(allow default)
+(deny network-outbound (remote ip))
+(deny network-inbound (local ip))
+(deny network-bind (local ip))

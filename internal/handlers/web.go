@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"io"
 	"net/http"
 	"regexp"
@@ -371,6 +372,13 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 	}
 	var memTaint []string
 	memUser := memOffer // memory active (enabled + intro seen) and history checkable (fail-closed)
+	// Calendar/reminder tools are offered only where they were before the memory-only tool path
+	// (web auto/force); a web-off request that takes this path for memory_propose gets no pim tools.
+	var pimTools []string
+	if webTools {
+		pimTools = append(s.pimToolsFor(r.Context(), user(r)), s.pimWriteToolsFor(r.Context(), user(r))...)
+	}
+	var pimCalls []string // pim results are untrusted: they taint memory proposals
 	if memUser {
 		_, memTaint = s.historyTainted(r, msgs, pr) // raw request history: client tool messages taint too
 	}
@@ -446,7 +454,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			if webTools {
 				defs = tools.ToolDefs()
 			}
-			b["tools"] = s.withMemoryTool(defs, memUser)
+			b["tools"] = withPimTools(s.withMemoryTool(defs, memUser), pimTools)
 			b["tool_choice"] = "auto"
 			fwd := ""
 			if stream && !webTools {
@@ -500,6 +508,21 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 			}
 			conv = append(conv, map[string]any{"role": "assistant", "content": content, "tool_calls": tcs})
 			for _, c := range calls {
+				if pim.IsTool(c.name) {
+					// A write proposal after web/pim results in this turn is allowed,
+					// but its card is marked tainted and shows the exact values.
+					pimTainted := len(pimCalls) > 0 || len(sess.Calls) > 0 || len(sess.Sources) > 0
+					res, po, conf := s.runPimTool(r, pr, pimTools, c.name, c.args, pimTainted)
+					pc, prs := pimToolEvents(c.id, c.name, c.args, rounds, po)
+					out.event(pc)
+					out.event(prs)
+					if conf != nil { // directly after its tool_result (§11.1)
+						out.event(conf)
+					}
+					pimCalls = append(pimCalls, "request:call:"+c.name)
+					conv = append(conv, map[string]any{"role": "tool", "tool_call_id": c.id, "name": c.name, "content": res})
+					continue
+				}
 				if c.name == memory.ToolName && s.memoryOn() && !memUser {
 					// user memory off: tool is hidden, but a call that arrives
 					// anyway gets a kill_switch tool error; nothing is saved.
@@ -513,7 +536,7 @@ func (s *Server) webChat(w http.ResponseWriter, r *http.Request, body map[string
 				}
 				if c.name == memory.ToolName && memUser {
 					// Any web result already in this request taints the proposal.
-					reasons := append([]string(nil), memTaint...)
+					reasons := append(append([]string(nil), memTaint...), pimCalls...)
 					for _, wc := range sess.Calls {
 						reasons = append(reasons, "request:call:"+wc.Tool)
 					}

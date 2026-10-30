@@ -1,0 +1,8 @@
+{"v":1,"id":"g1","method":"list_events","params":{"from":"2026-10-28T00:00:00+09:00","to":"2026-10-29T00:00:00+09:00"}}
+{"v":1,"id":"g2","method":"list_reminders","params":{"due_before":"2026-10-29T00:00:00+09:00","include_done":false}}
+{"v":1,"id":"g3","method":"list_calendars","params":{}}
+{"v":1,"id":"g4","method":"add_reminder","params":{"title":"우유 사기","due":"2026-10-29T00:00:00+09:00","list":"장보기"}}
+{"v":1,"id":"g5","method":"add_reminder","params":{"title":"제목만"}}
+{"v":1,"id":"g6","method":"complete_reminder","params":{"id":"r1"}}
+{"v":1,"id":"g7","method":"add_event","params":{"title":"치과","start":"2026-10-28T15:00:00+09:00","end":"2026-10-28T16:00:00+09:00","all_day":false,"location":"역삼동 치과","notes":"보험증","calendar_id":"cal_1"}}
+{"v":1,"id":"g8","method":"add_event","params":{"title":"기념일","start":"2026-10-29T00:00:00+09:00","end":"2026-10-30T00:00:00+09:00","all_day":true}}
