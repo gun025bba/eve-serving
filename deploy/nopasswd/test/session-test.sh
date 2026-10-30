@@ -122,6 +122,7 @@ exec $REALGIT "\$@"
 FAKE
   cat >"$FB/ssh-keygen" <<'FAKE'
 #!/bin/bash
+case " $* " in *" -y "*) echo "KEYGENY $*" >>"$FAKE_CALLS"; [ -f "$FAKE_FX/ykfail" ] && exit 1; echo "ssh-ed25519 AAAADERIVED"; exit 0;; esac
 echo "KEYGEN $*" >>"$FAKE_CALLS"
 while [ $# -gt 0 ]; do [ "$1" = -f ] && f=$2; shift; done
 echo key >"$f"; echo "ssh-ed25519 AAAAFAKE" >"$f.pub"
@@ -221,6 +222,26 @@ eq "keys: the missing key was created" "$(calls | grep -c KEYGEN | tr -d ' ')" 1
 eq "keys: no one-shot after a key failure" "$(calls | grep -c '^ONESHOT' | tr -d ' ')" 0
 # the keys become valid while the owner adds them
 : >"$FX/keysok"; : >"$C"; run $(ARGS_BASE) --dry-run; eq "keys: dry run does not call ssh/git" "$(calls | grep -c LSREMOTE | tr -d ' ')" 0
+
+# keys: the private key exists WITHOUT its .pub (the reported failure: sed could not open id_ed25519.pub); the .pub is derived, nothing is regenerated
+mkenv k2; rm -f "$FX/keysok"; rm -rf "$H/.eve-release-tagger" "$H/.eve-web-release-tagger"; mkdir -p "$H/.eve-release-tagger"; chmod 755 "$H/.eve-release-tagger"; echo PRIVATE-ORIG >"$H/.eve-release-tagger/id_ed25519"; chmod 600 "$H/.eve-release-tagger/id_ed25519"
+printf 'registered\n' >"$FX/tty"; run $(ARGS_BASE)
+eq "keys/private-only: stops at keys only because GitHub does not accept the key yet" "$RC/$(printf '%s' "$OUT" | grep -c 'No such file')" "1/0"; has "keys/private-only: still the keys stage" "$OUT" 'STOPPED at stage "keys"'
+has "keys/private-only: says the .pub was derived" "$OUT" "derived the missing"; has "keys/private-only: shows the derived public half" "$OUT" "ssh-ed25519 AAAADERIVED"
+eq "keys/private-only: the .pub exists" "$([ -s "$H/.eve-release-tagger/id_ed25519.pub" ] && echo yes || echo no)" yes
+eq "keys/private-only: the private key is untouched" "$(cat "$H/.eve-release-tagger/id_ed25519")" PRIVATE-ORIG
+eq "keys/private-only: no key was generated for it (only the web key)" "$(calls | grep -c '^KEYGEN ' | tr -d ' ')" 1; eq "keys/private-only: one derive" "$(calls | grep -c '^KEYGENY ' | tr -d ' ')" 1
+eq "keys/dir: an existing 755 key directory is set to 700" "$(stat -c %a "$H/.eve-release-tagger" 2>/dev/null || stat -f %Lp "$H/.eve-release-tagger")" 700
+eq "keys/dir: the web key directory is created 0700 with a key and a .pub" "$(stat -c %a "$H/.eve-web-release-tagger" 2>/dev/null || stat -f %Lp "$H/.eve-web-release-tagger")/$([ -f "$H/.eve-web-release-tagger/id_ed25519" ] && [ -s "$H/.eve-web-release-tagger/id_ed25519.pub" ] && echo yes || echo no)" 700/yes
+# both halves exist: reused as they are, nothing created or derived
+mkenv k3; rm -f "$FX/keysok"; for d in .eve-release-tagger .eve-web-release-tagger; do mkdir -p -m 700 "$H/$d"; echo "PRIV-$d" >"$H/$d/id_ed25519"; chmod 600 "$H/$d/id_ed25519"; echo "ssh-ed25519 AAAAMINE-$d" >"$H/$d/id_ed25519.pub"; done
+printf 'registered\n' >"$FX/tty"; run $(ARGS_BASE)
+eq "keys/reuse: nothing generated or derived" "$(calls | grep -c '^KEYGEN' | tr -d ' ')" 0; has "keys/reuse: shows the existing public half" "$OUT" "AAAAMINE-.eve-release-tagger"; has "keys/reuse: web too" "$OUT" "AAAAMINE-.eve-web-release-tagger"
+eq "keys/reuse: private keys untouched" "$(cat "$H/.eve-release-tagger/id_ed25519" "$H/.eve-web-release-tagger/id_ed25519" | tr '\n' ' ')" "PRIV-.eve-release-tagger PRIV-.eve-web-release-tagger "
+# a private key whose public half cannot be derived (passphrase): a clear stop, nothing overwritten
+mkenv k4; rm -f "$FX/keysok"; rm -rf "$H/.eve-release-tagger" "$H/.eve-web-release-tagger"; mkdir -p -m 700 "$H/.eve-release-tagger"; echo PRIV-PASS >"$H/.eve-release-tagger/id_ed25519"; chmod 600 "$H/.eve-release-tagger/id_ed25519"; touch "$FX/ykfail"
+printf 'registered\n' >"$FX/tty"; run $(ARGS_BASE)
+eq "keys/passphrase: stops" "$RC" 1; has "keys/passphrase: says why" "$OUT" "cannot be derived"; hasnt "keys/passphrase: no raw sed error" "$OUT" "No such file"; eq "keys/passphrase: the key was not overwritten" "$(cat "$H/.eve-release-tagger/id_ed25519")" PRIV-PASS
 
 # ---------------- fail-closed stages ----------------
 mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1;  has "fail: the stop points above the clean-up text" "$OUT" "ABOVE the"; has "fail: the exit code is shown" "$OUT" "(exit 1)"; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0

@@ -34,6 +34,10 @@ Options: `--web-only` (shortest path: preflight, deploy key, one-shot, web tag, 
 | 9 | table | 0.05 | live versions, floors, releases, blocklist, `rehearsal_ok`, `verify` as PASS/FAIL rows |
 | 10 | unpause | 0 | only with `--unpause`, a passed rehearsal and the word `unpause` typed by you |
 
+### Key files in the keys stage
+
+Each key lives in `~/.eve-release-tagger/` (eve-serving) and `~/.eve-web-release-tagger/` (eve-web), mode 0700 (created, or tightened if it was wider). A missing private key is created (ed25519, no passphrase); an existing one is **reused and never overwritten**. A private key without its `.pub` (copied or restored alone) gets the `.pub` derived from it; a key with a passphrase cannot be derived and the stage stops with a message (move it away and re-run to get a new key). A pair you created by hand with `ssh-keygen -t ed25519 -N "" -C release-tagger -f ~/.eve-release-tagger/id_ed25519` is reused as it is.
+
 ### Why the keys come before the install
 
 `eve-oneshot.sh` gives the `release-tags` ruleset its DeployKey bypass only if exactly one write key titled `release-tagger` (and `eve-web-release-tagger`) exists at that moment. With the key added afterwards the
