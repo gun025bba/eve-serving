@@ -1,0 +1,86 @@
+[
+ {
+  "config": "5.x web off (default today): Eve web-off prompt, no tools",
+  "prompt_tokens": 814,
+  "latency_s": [
+   2.04,
+   1.73,
+   1.74,
+   1.74,
+   1.76
+  ],
+  "median_s": 1.74
+ },
+ {
+  "config": "5.x web on (button): Eve web-on + 3-line tools text + 2 tools",
+  "prompt_tokens": 1282,
+  "latency_s": [
+   2.65,
+   2.67,
+   2.64,
+   2.67,
+   2.66
+  ],
+  "median_s": 2.66
+ },
+ {
+  "config": "#158 round 1: Eve web-on + #158 text + date + 2 tools",
+  "prompt_tokens": 1440,
+  "latency_s": [
+   2.98,
+   2.97,
+   2.97,
+   2.98,
+   2.97
+  ],
+  "median_s": 2.97
+ },
+ {
+  "config": "#158 round 1, fresh question (+ Gate hint)",
+  "prompt_tokens": 1457,
+  "latency_s": [
+   3.0,
+   3.01,
+   3.02,
+   3.0,
+   2.99
+  ],
+  "median_s": 3.0
+ },
+ {
+  "config": "#158 round 2: same text, tools = web_fetch only",
+  "prompt_tokens": 1275,
+  "latency_s": [
+   2.63,
+   2.66,
+   2.61,
+   2.62,
+   2.64
+  ],
+  "median_s": 2.63
+ },
+ {
+  "config": "#158 round 1 + memory block 1500 chars",
+  "prompt_tokens": 2456,
+  "latency_s": [
+   5.32,
+   5.33,
+   5.31,
+   5.28,
+   5.32
+  ],
+  "median_s": 5.32
+ },
+ {
+  "config": "#158 round 1 + memory block 3000 chars",
+  "prompt_tokens": 3473,
+  "latency_s": [
+   7.57,
+   7.57,
+   7.57,
+   7.55,
+   7.6
+  ],
+  "median_s": 7.57
+ }
+]

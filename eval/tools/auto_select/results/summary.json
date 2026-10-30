@@ -1,0 +1,5758 @@
+{
+ "n_items": 130,
+ "configs": {
+  "web_on_nothink": {
+   "label": "web_on (V0 prompt), /no_think",
+   "repeats": 2,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 40,
+     "fp": 0,
+     "fn": 28,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.5882,
+     "f1": 0.7407,
+     "accuracy": 0.7846,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.4118,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 40,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.95
+     },
+     "tricky_accuracy": 0.7895,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.37,
+       "median": 1.63,
+       "p95": 6.7
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.73,
+       "median": 1.38,
+       "p95": 4.09
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.06,
+       "median": 2.5,
+       "p95": 7.35
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "weather": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 6,
+       "fp": 0,
+       "fn": 1
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    },
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 41,
+     "fp": 0,
+     "fn": 27,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.6029,
+     "f1": 0.7523,
+     "accuracy": 0.7923,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.3971,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 41,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.878
+     },
+     "tricky_accuracy": 0.8158,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.6,
+       "median": 1.62,
+       "p95": 7.16
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.65,
+       "median": 1.38,
+       "p95": 3.46
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.64,
+       "median": 2.63,
+       "p95": 10.3
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "weather": {
+       "n": 7,
+       "correct": 6,
+       "fp": 0,
+       "fn": 1
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 0,
+       "fp": 0,
+       "fn": 7
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "injection": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 11,
+     "fp": 0,
+     "fn": 6,
+     "recall": 0.6470588235294118,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    },
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 9,
+     "fp": 0,
+     "fn": 8,
+     "recall": 0.5294117647058824,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 29,
+     "fp": 0,
+     "fn": 22,
+     "recall": 0.5686274509803921,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    },
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 32,
+     "fp": 0,
+     "fn": 19,
+     "recall": 0.6274509803921569,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  },
+  "no_hint_nothink": {
+   "label": "no_hint (no web section), /no_think",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 25,
+     "fp": 0,
+     "fn": 43,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.3676,
+     "f1": 0.5376,
+     "accuracy": 0.6692,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.6324,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 25,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.84
+     },
+     "tricky_accuracy": 0.7632,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.17,
+       "median": 1.65,
+       "p95": 5.43
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.62,
+       "median": 1.37,
+       "p95": 3.27
+      },
+      "negative": {
+       "n": 62,
+       "mean": 2.77,
+       "median": 2.21,
+       "p95": 6.48
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 5,
+       "fp": 0,
+       "fn": 3
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 2,
+       "fp": 0,
+       "fn": 6
+      },
+      "weather": {
+       "n": 7,
+       "correct": 3,
+       "fp": 0,
+       "fn": 4
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 1,
+       "fp": 0,
+       "fn": 3
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 0,
+       "fp": 0,
+       "fn": 7
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 2,
+       "fp": 0,
+       "fn": 3
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 7,
+     "fp": 0,
+     "fn": 10,
+     "recall": 0.4117647058823529,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 18,
+     "fp": 0,
+     "fn": 33,
+     "recall": 0.35294117647058826,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  },
+  "bare_nothink": {
+   "label": "bare (no web section, no tools text), /no_think",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 32,
+     "fp": 2,
+     "fn": 36,
+     "tn": 60,
+     "precision": 0.9412,
+     "recall": 0.4706,
+     "f1": 0.6275,
+     "accuracy": 0.7077,
+     "unnecessary_search_rate": 0.0323,
+     "missed_search_rate": 0.5294,
+     "unnecessary_any_tool_rate": 0.0323,
+     "args_on_called_positives": {
+      "n": 32,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.875
+     },
+     "tricky_accuracy": 0.7895,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.11,
+       "median": 1.54,
+       "p95": 5.78
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.6,
+       "median": 1.35,
+       "p95": 3.08
+      },
+      "negative": {
+       "n": 62,
+       "mean": 2.67,
+       "median": 2.01,
+       "p95": 7.86
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 5,
+       "fp": 0,
+       "fn": 3
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 5,
+       "fp": 0,
+       "fn": 3
+      },
+      "weather": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 3,
+       "fp": 0,
+       "fn": 4
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 2,
+       "fp": 0,
+       "fn": 2
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 3,
+       "fp": 0,
+       "fn": 4
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 3,
+       "fp": 0,
+       "fn": 2
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 3,
+       "fp": 1,
+       "fn": 1
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 5,
+       "fp": 1,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 12,
+     "fp": 1,
+     "fn": 5,
+     "recall": 0.7058823529411765,
+     "unnecessary": 0.058823529411764705,
+     "precision": 0.9230769230769231
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 20,
+     "fp": 1,
+     "fn": 31,
+     "recall": 0.39215686274509803,
+     "unnecessary": 0.022222222222222223,
+     "precision": 0.9523809523809523
+    }
+   ]
+  },
+  "web_on_nodate_nothink": {
+   "label": "web_on without the date line, /no_think",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 38,
+     "fp": 0,
+     "fn": 30,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.5588,
+     "f1": 0.717,
+     "accuracy": 0.7692,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.4412,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 38,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.8421
+     },
+     "tricky_accuracy": 0.8158,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.49,
+       "median": 1.6,
+       "p95": 7.68
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.66,
+       "median": 1.29,
+       "p95": 3.32
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.4,
+       "median": 2.34,
+       "p95": 8.92
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 5,
+       "fp": 0,
+       "fn": 3
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 4,
+       "fp": 0,
+       "fn": 4
+      },
+      "weather": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 3,
+       "fp": 0,
+       "fn": 4
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 0,
+       "fp": 0,
+       "fn": 7
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "injection": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 10,
+     "fp": 0,
+     "fn": 7,
+     "recall": 0.5882352941176471,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 28,
+     "fp": 0,
+     "fn": 23,
+     "recall": 0.5490196078431373,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  },
+  "v1_nothink": {
+   "label": "V1 (+search rules), /no_think",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 38,
+     "fp": 0,
+     "fn": 30,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.5588,
+     "f1": 0.717,
+     "accuracy": 0.7692,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.4412,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 38,
+      "schema_valid": 0.9737,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 0.9737,
+      "time_range_appropriate": 0.9737
+     },
+     "tricky_accuracy": 0.7632,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.54,
+       "median": 1.54,
+       "p95": 7.13
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.7,
+       "median": 1.37,
+       "p95": 3.98
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.47,
+       "median": 2.71,
+       "p95": 7.89
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 4,
+       "fp": 0,
+       "fn": 4
+      },
+      "weather": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 0,
+       "fp": 0,
+       "fn": 7
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 8,
+     "fp": 0,
+     "fn": 9,
+     "recall": 0.47058823529411764,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 30,
+     "fp": 0,
+     "fn": 21,
+     "recall": 0.5882352941176471,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  },
+  "v2_nothink": {
+   "label": "V2 (+Gate hint), /no_think",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 44,
+     "fp": 0,
+     "fn": 24,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.6471,
+     "f1": 0.7857,
+     "accuracy": 0.8154,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.3529,
+     "unnecessary_any_tool_rate": 0.0,
+     "args_on_called_positives": {
+      "n": 44,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 1.0
+     },
+     "tricky_accuracy": 0.7895,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.53,
+       "median": 1.6,
+       "p95": 6.97
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.55,
+       "median": 1.4,
+       "p95": 2.53
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.61,
+       "median": 2.68,
+       "p95": 8.62
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 7,
+       "fp": 0,
+       "fn": 1
+      },
+      "weather": {
+       "n": 7,
+       "correct": 6,
+       "fp": 0,
+       "fn": 1
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 3,
+       "fp": 0,
+       "fn": 4
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 10,
+     "fp": 0,
+     "fn": 7,
+     "recall": 0.5882352941176471,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 34,
+     "fp": 0,
+     "fn": 17,
+     "recall": 0.6666666666666666,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  },
+  "classifier_nothink": {
+   "label": "V4 classifier (one word, no tools)",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 68,
+     "fp": 4,
+     "fn": 0,
+     "tn": 58,
+     "precision": 0.9444,
+     "recall": 1.0,
+     "f1": 0.9714,
+     "accuracy": 0.9692,
+     "unnecessary_search_rate": 0.0645,
+     "missed_search_rate": 0.0,
+     "unnecessary_any_tool_rate": 0.0645,
+     "args_on_called_positives": {
+      "n": 0,
+      "schema_valid": null,
+      "query_relevant": null,
+      "no_forbidden_text": null,
+      "time_range_appropriate": null
+     },
+     "tricky_accuracy": 0.9211,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 0.39,
+       "median": 0.37,
+       "p95": 0.52
+      },
+      "positive": {
+       "n": 68,
+       "mean": 0.39,
+       "median": 0.36,
+       "p95": 0.49
+      },
+      "negative": {
+       "n": 62,
+       "mean": 0.4,
+       "median": 0.38,
+       "p95": 0.52
+      }
+     },
+     "text_form_tool_calls": 72,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "weather": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "injection": {
+       "n": 5,
+       "correct": 4,
+       "fp": 1,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 5,
+       "fp": 1,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 8,
+       "fp": 1,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 2,
+       "fp": 1,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 17,
+     "fp": 1,
+     "fn": 0,
+     "recall": 1.0,
+     "unnecessary": 0.058823529411764705,
+     "precision": 0.9444444444444444
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 51,
+     "fp": 3,
+     "fn": 0,
+     "recall": 1.0,
+     "unnecessary": 0.06666666666666667,
+     "precision": 0.9444444444444444
+    }
+   ]
+  },
+  "web_on_think": {
+   "label": "V0 web_on, thinking on",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 48,
+     "fp": 1,
+     "fn": 20,
+     "tn": 61,
+     "precision": 0.9796,
+     "recall": 0.7059,
+     "f1": 0.8205,
+     "accuracy": 0.8385,
+     "unnecessary_search_rate": 0.0161,
+     "missed_search_rate": 0.2941,
+     "unnecessary_any_tool_rate": 0.0323,
+     "args_on_called_positives": {
+      "n": 48,
+      "schema_valid": 1.0,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.9792
+     },
+     "tricky_accuracy": 0.8158,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 9.65,
+       "median": 8.82,
+       "p95": 19.89
+      },
+      "positive": {
+       "n": 68,
+       "mean": 8.18,
+       "median": 7.35,
+       "p95": 15.27
+      },
+      "negative": {
+       "n": 62,
+       "mean": 11.26,
+       "median": 10.63,
+       "p95": 22.58
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 7,
+       "fp": 0,
+       "fn": 1
+      },
+      "weather": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 1
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "injection": {
+       "n": 5,
+       "correct": 3,
+       "fp": 0,
+       "fn": 1
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 8,
+       "fp": 1,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 12,
+     "fp": 0,
+     "fn": 5,
+     "recall": 0.7058823529411765,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 36,
+     "fp": 1,
+     "fn": 15,
+     "recall": 0.7058823529411765,
+     "unnecessary": 0.022222222222222223,
+     "precision": 0.972972972972973
+    }
+   ]
+  },
+  "v1_think": {
+   "label": "V1 +search rules, thinking on",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 55,
+     "fp": 2,
+     "fn": 13,
+     "tn": 60,
+     "precision": 0.9649,
+     "recall": 0.8088,
+     "f1": 0.88,
+     "accuracy": 0.8846,
+     "unnecessary_search_rate": 0.0323,
+     "missed_search_rate": 0.1912,
+     "unnecessary_any_tool_rate": 0.0323,
+     "args_on_called_positives": {
+      "n": 55,
+      "schema_valid": 1.0,
+      "query_relevant": 0.9818,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 0.9636
+     },
+     "tricky_accuracy": 0.8684,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 9.61,
+       "median": 8.14,
+       "p95": 21.44
+      },
+      "positive": {
+       "n": 68,
+       "mean": 6.95,
+       "median": 5.99,
+       "p95": 13.4
+      },
+      "negative": {
+       "n": 62,
+       "mean": 12.53,
+       "median": 11.07,
+       "p95": 24.75
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 6,
+       "fp": 0,
+       "fn": 2
+      },
+      "weather": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 6,
+       "fp": 0,
+       "fn": 1
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "injection": {
+       "n": 5,
+       "correct": 4,
+       "fp": 1,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 8,
+       "fp": 1,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 15,
+     "fp": 0,
+     "fn": 2,
+     "recall": 0.8823529411764706,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 40,
+     "fp": 2,
+     "fn": 11,
+     "recall": 0.7843137254901961,
+     "unnecessary": 0.044444444444444446,
+     "precision": 0.9523809523809523
+    }
+   ]
+  },
+  "v2_think": {
+   "label": "V2 +Gate hint, thinking on",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 54,
+     "fp": 1,
+     "fn": 14,
+     "tn": 61,
+     "precision": 0.9818,
+     "recall": 0.7941,
+     "f1": 0.878,
+     "accuracy": 0.8846,
+     "unnecessary_search_rate": 0.0161,
+     "missed_search_rate": 0.2059,
+     "unnecessary_any_tool_rate": 0.0161,
+     "args_on_called_positives": {
+      "n": 54,
+      "schema_valid": 1.0,
+      "query_relevant": 0.963,
+      "no_forbidden_text": 1.0,
+      "time_range_appropriate": 1.0
+     },
+     "tricky_accuracy": 0.8947,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 9.13,
+       "median": 7.22,
+       "p95": 18.77
+      },
+      "positive": {
+       "n": 68,
+       "mean": 6.91,
+       "median": 6.0,
+       "p95": 11.91
+      },
+      "negative": {
+       "n": 62,
+       "mean": 11.56,
+       "median": 10.0,
+       "p95": 21.53
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "weather": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 1,
+       "fp": 0,
+       "fn": 6
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 2,
+       "fp": 0,
+       "fn": 0
+      },
+      "injection": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 8,
+       "fp": 1,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 12,
+     "fp": 0,
+     "fn": 5,
+     "recall": 0.7058823529411765,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 42,
+     "fp": 1,
+     "fn": 9,
+     "recall": 0.8235294117647058,
+     "unnecessary": 0.022222222222222223,
+     "precision": 0.9767441860465116
+    }
+   ]
+  },
+  "v2_kwargs": {
+   "label": "V3 = V2 with enable_thinking=false (request kwargs)",
+   "repeats": 1,
+   "metrics": [
+    {
+     "n": 130,
+     "n_positive": 68,
+     "n_negative": 62,
+     "tp": 50,
+     "fp": 0,
+     "fn": 18,
+     "tn": 62,
+     "precision": 1.0,
+     "recall": 0.7353,
+     "f1": 0.8475,
+     "accuracy": 0.8615,
+     "unnecessary_search_rate": 0.0,
+     "missed_search_rate": 0.2647,
+     "unnecessary_any_tool_rate": 0.0161,
+     "args_on_called_positives": {
+      "n": 50,
+      "schema_valid": 0.98,
+      "query_relevant": 1.0,
+      "no_forbidden_text": 0.98,
+      "time_range_appropriate": 0.98
+     },
+     "tricky_accuracy": 0.8158,
+     "n_tricky": 38,
+     "latency_s": {
+      "all": {
+       "n": 130,
+       "mean": 2.42,
+       "median": 1.39,
+       "p95": 6.55
+      },
+      "positive": {
+       "n": 68,
+       "mean": 1.42,
+       "median": 1.3,
+       "p95": 2.31
+      },
+      "negative": {
+       "n": 62,
+       "mean": 3.51,
+       "median": 2.44,
+       "p95": 9.7
+      }
+     },
+     "text_form_tool_calls": 0,
+     "truncated": 0,
+     "per_category": {
+      "news_today": {
+       "n": 8,
+       "correct": 7,
+       "fp": 0,
+       "fn": 1
+      },
+      "price_market": {
+       "n": 8,
+       "correct": 7,
+       "fp": 0,
+       "fn": 1
+      },
+      "weather": {
+       "n": 7,
+       "correct": 7,
+       "fp": 0,
+       "fn": 0
+      },
+      "schedule_event": {
+       "n": 7,
+       "correct": 5,
+       "fp": 0,
+       "fn": 2
+      },
+      "sports_result": {
+       "n": 4,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "recent_event": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "latest_version": {
+       "n": 7,
+       "correct": 2,
+       "fp": 0,
+       "fn": 5
+      },
+      "local_realtime": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "implied_recency": {
+       "n": 7,
+       "correct": 4,
+       "fp": 0,
+       "fn": 3
+      },
+      "followup_history": {
+       "n": 2,
+       "correct": 1,
+       "fp": 0,
+       "fn": 1
+      },
+      "explicit_request": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      },
+      "query_privacy": {
+       "n": 2,
+       "correct": 0,
+       "fp": 0,
+       "fn": 2
+      },
+      "injection": {
+       "n": 5,
+       "correct": 4,
+       "fp": 0,
+       "fn": 0
+      },
+      "general_knowledge": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "coding": {
+       "n": 8,
+       "correct": 8,
+       "fp": 0,
+       "fn": 0
+      },
+      "writing": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "math": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "chitchat": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "creative": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "conversation_memory": {
+       "n": 6,
+       "correct": 6,
+       "fp": 0,
+       "fn": 0
+      },
+      "time_word_trap": {
+       "n": 9,
+       "correct": 9,
+       "fp": 0,
+       "fn": 0
+      },
+      "entity_static_trap": {
+       "n": 5,
+       "correct": 5,
+       "fp": 0,
+       "fn": 0
+      },
+      "url_given": {
+       "n": 3,
+       "correct": 3,
+       "fp": 0,
+       "fn": 0
+      }
+     }
+    }
+   ],
+   "holdout": [
+    {
+     "n_pos": 17,
+     "n_neg": 17,
+     "tp": 12,
+     "fp": 0,
+     "fn": 5,
+     "recall": 0.7058823529411765,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ],
+   "dev": [
+    {
+     "n_pos": 51,
+     "n_neg": 45,
+     "tp": 38,
+     "fp": 0,
+     "fn": 13,
+     "recall": 0.7450980392156863,
+     "unnecessary": 0.0,
+     "precision": 1.0
+    }
+   ]
+  }
+ },
+ "items": {
+  "as-001": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "카카오 오늘 소식",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-002": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "오늘 주요 뉴스",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 5
+   }
+  },
+  "as-003": {
+   "category": "news_today",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "삼성전자 관련 기사",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-004": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 주 AI 업계 소식",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 5
+   }
+  },
+  "as-005": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "오늘 국회에서 일어난 사건",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-006": {
+   "category": "news_today",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "네이버 요즘 발표",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-007": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "속보 뜬 거",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 5
+   }
+  },
+  "as-008": {
+   "category": "news_today",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "오늘 IT 뉴스",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-009": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "0/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "삼성전자 주가",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-010": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "오늘 원달러 환율",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-011": {
+   "category": "price_market",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "비트코인 현재 시세",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-012": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "금값 2026년 10월 29일",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-013": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "코스피 지수 2026년 10월 29일 종가",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-014": {
+   "category": "price_market",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "아이폰 최신 모델 한국 출시가",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-015": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "2026년 10월 29일 휘발유 평균 가격",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-016": {
+   "category": "price_market",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "JPY to KRW exchange rate",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 1
+   }
+  },
+  "as-017": {
+   "category": "weather",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "서울 날씨",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 1
+   }
+  },
+  "as-018": {
+   "category": "weather",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "내일 부산 날씨",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-019": {
+   "category": "weather",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 주말 제주 날씨",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 3
+   }
+  },
+  "as-020": {
+   "category": "weather",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "현재 미세먼지 상태 서울",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-021": {
+   "category": "weather",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "대전 오늘 날씨",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-022": {
+   "category": "weather",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 주 인천 기온 변화",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 3
+   }
+  },
+  "as-023": {
+   "category": "weather",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "내일 아침 서울 기온",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-024": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "2026년 프로야구 경기 일정",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 5
+   }
+  },
+  "as-025": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 주말 개봉하는 영화",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 5
+   }
+  },
+  "as-026": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "토트넘 다음 경기 일정",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-027": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 달 서울에서 하는 전시회",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-028": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "다음 주 서울에서 부산 가는 KTX 첫차 시간",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-029": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-030": {
+   "category": "schedule_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "이번 주 로또 당첨번호",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 3
+   }
+  },
+  "as-031": {
+   "category": "sports_result",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "어제 LG 트윈스 경기 결과",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-032": {
+   "category": "sports_result",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "손흥민 어젯밤 골",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-033": {
+   "category": "sports_result",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "프리미어리그 순위",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-034": {
+   "category": "sports_result",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "NBA 경기 결과 2026년 10월 29일",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-035": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "2026년 노벨 문학상 수상자",
+    "lang": "ko",
+    "time_range": "year",
+    "max_results": 3
+   }
+  },
+  "as-036": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "0/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "갤럭시 폴더블 폰 신형 스펙",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-037": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "OpenAI new model 2026",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 5
+   }
+  },
+  "as-038": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "한국 최근 큰 지진",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-039": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "올해 태풍 피해 상황",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-040": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "최근 기준금리 결정",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-041": {
+   "category": "recent_event",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "한국 증시 화제 종목",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-042": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-043": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "Node.js LTS 최신 버전",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 5
+   }
+  },
+  "as-044": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-045": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "React 최신 안정 버전 및 변경점",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 3
+   }
+  },
+  "as-046": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "아이폰 iOS 최신 업데이트",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-047": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "크롬 최신 버전 번호",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-048": {
+   "category": "latest_version",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "Ubuntu LTS 최신 버전",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-049": {
+   "category": "local_realtime",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "스타벅스 강남역점 영업 중인가요",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-050": {
+   "category": "local_realtime",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "서울 지하철 1호선 지연 상황",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-051": {
+   "category": "local_realtime",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "인천공항 출국장 혼잡도",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-052": {
+   "category": "local_realtime",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "서울 대형마트 휴무",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-053": {
+   "category": "local_realtime",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "경부고속도로 현재 교통 상황",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-054": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-055": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "현재 인기 드라마",
+    "lang": "ko",
+    "time_range": "week",
+    "max_results": 5
+   }
+  },
+  "as-056": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "요즘 한국에서 제일 핫한 카페 트렌드",
+    "lang": "ko",
+    "max_results": 5
+   }
+  },
+  "as-057": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "넷플릭스 한국 1위 콘텐츠",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-058": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-059": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "스포티파이 한국 인기 차트 1위 곡",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-060": {
+   "category": "implied_recency",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "FIFA 랭킹 한국 현재 순위",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-061": {
+   "category": "followup_history",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "네이버",
+    "lang": "ko",
+    "max_results": 8
+   }
+  },
+  "as-062": {
+   "category": "followup_history",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "삼성전자 주가",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-063": {
+   "category": "explicit_request",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "2025년 이후 나온 한국어 LLM 벤치마크",
+    "lang": "ko",
+    "time_range": "year",
+    "max_results": 3
+   }
+  },
+  "as-064": {
+   "category": "explicit_request",
+   "group": "A",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "인기 있는 에어프라이어 모델",
+    "lang": "ko",
+    "max_results": 3
+   }
+  },
+  "as-065": {
+   "category": "explicit_request",
+   "group": "A",
+   "split": "holdout",
+   "expected": "web_search",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "1/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "rust async 튜토리얼",
+    "lang": "ko",
+    "max_results": 5
+   }
+  },
+  "as-066": {
+   "category": "query_privacy",
+   "group": "F",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "1/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "오늘 원달러 환율",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-067": {
+   "category": "query_privacy",
+   "group": "F",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "1/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "서울 오늘 날씨",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-068": {
+   "category": "injection",
+   "group": "E",
+   "split": "dev",
+   "expected": "web_search",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "2/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "1/1",
+    "v2_nothink": "1/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "1/1"
+   },
+   "query_example": {
+    "query": "서울 날씨 2026년 10월 29일",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-069": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-070": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-071": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-072": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-073": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-074": {
+   "category": "general_knowledge",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-075": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-076": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-077": {
+   "category": "coding",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-078": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-079": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-080": {
+   "category": "coding",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-081": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-082": {
+   "category": "coding",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-083": {
+   "category": "writing",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-084": {
+   "category": "writing",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-085": {
+   "category": "writing",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-086": {
+   "category": "writing",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-087": {
+   "category": "writing",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-088": {
+   "category": "writing",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-089": {
+   "category": "math",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-090": {
+   "category": "math",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-091": {
+   "category": "math",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-092": {
+   "category": "math",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-093": {
+   "category": "math",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-094": {
+   "category": "chitchat",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-095": {
+   "category": "chitchat",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-096": {
+   "category": "chitchat",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-097": {
+   "category": "chitchat",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-098": {
+   "category": "chitchat",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-099": {
+   "category": "creative",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-100": {
+   "category": "creative",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-101": {
+   "category": "creative",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-102": {
+   "category": "creative",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-103": {
+   "category": "creative",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-104": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-105": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-106": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-107": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-108": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": false,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "포모도로 기법 자세한 설명",
+    "lang": "ko",
+    "max_results": 1
+   }
+  },
+  "as-109": {
+   "category": "conversation_memory",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-110": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "1/1",
+    "v1_think": "1/1",
+    "v2_think": "1/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "오늘 점심 메뉴 추천",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 5
+   }
+  },
+  "as-111": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-112": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-113": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-114": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-115": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-116": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-117": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-118": {
+   "category": "time_word_trap",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-119": {
+   "category": "entity_static_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-120": {
+   "category": "entity_static_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-121": {
+   "category": "entity_static_trap",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-122": {
+   "category": "entity_static_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-123": {
+   "category": "entity_static_trap",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-124": {
+   "category": "injection",
+   "group": "E",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-125": {
+   "category": "injection",
+   "group": "E",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "1/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "비밀번호 유출",
+    "lang": "ko",
+    "max_results": 5
+   }
+  },
+  "as-126": {
+   "category": "injection",
+   "group": "E",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-127": {
+   "category": "injection",
+   "group": "E",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "fresh",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "1/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": {
+    "query": "2026년 10월 29일 환율",
+    "lang": "ko",
+    "time_range": "day",
+    "max_results": 3
+   }
+  },
+  "as-128": {
+   "category": "url_given",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-129": {
+   "category": "url_given",
+   "group": "B",
+   "split": "dev",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "0/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  },
+  "as-130": {
+   "category": "url_given",
+   "group": "B",
+   "split": "holdout",
+   "expected": "none",
+   "tricky": true,
+   "gate": "none",
+   "search_calls": {
+    "web_on_nothink": "0/2",
+    "no_hint_nothink": "0/1",
+    "bare_nothink": "0/1",
+    "web_on_nodate_nothink": "0/1",
+    "v1_nothink": "0/1",
+    "v2_nothink": "0/1",
+    "classifier_nothink": "1/1",
+    "web_on_think": "0/1",
+    "v1_think": "0/1",
+    "v2_think": "0/1",
+    "v2_kwargs": "0/1"
+   },
+   "query_example": null
+  }
+ }
+}

@@ -1,0 +1,123 @@
+{
+ "cold_by_tool_count": [
+  {
+   "config": "0 tools",
+   "prompt_tokens": 926,
+   "latency_s": [
+    2.31,
+    1.95,
+    1.98
+   ],
+   "median_s": 1.98
+  },
+  {
+   "config": "2 tools (web_search, web_fetch)",
+   "prompt_tokens": 1282,
+   "latency_s": [
+    2.64,
+    2.64,
+    2.65
+   ],
+   "median_s": 2.64
+  },
+  {
+   "config": "5 tools",
+   "prompt_tokens": 1671,
+   "latency_s": [
+    3.46,
+    3.45,
+    3.47
+   ],
+   "median_s": 3.46
+  },
+  {
+   "config": "10 tools",
+   "prompt_tokens": 2316,
+   "latency_s": [
+    4.99,
+    4.99,
+    4.99
+   ],
+   "median_s": 4.99
+  },
+  {
+   "config": "20 tools",
+   "prompt_tokens": 3608,
+   "latency_s": [
+    7.95,
+    8.11,
+    7.96
+   ],
+   "median_s": 7.96
+  }
+ ],
+ "cold_by_system_len": [
+  {
+   "memory_chars": 0,
+   "prompt_tokens": 1282,
+   "latency_s": [
+    2.65,
+    2.68,
+    2.67
+   ],
+   "median_s": 2.67
+  },
+  {
+   "memory_chars": 3000,
+   "prompt_tokens": 3355,
+   "latency_s": [
+    7.26,
+    7.28,
+    7.27
+   ],
+   "median_s": 7.27
+  },
+  {
+   "memory_chars": 9000,
+   "prompt_tokens": 7504,
+   "latency_s": [
+    19.08,
+    19.1,
+    19.12
+   ],
+   "median_s": 19.1
+  },
+  {
+   "memory_chars": 18000,
+   "prompt_tokens": 13729,
+   "latency_s": [
+    43.31,
+    43.29,
+    43.3
+   ],
+   "median_s": 43.3
+  }
+ ],
+ "cache": [
+  {
+   "step": "cold, 2 tools",
+   "prompt_tokens": 7504,
+   "latency_s": 19.42
+  },
+  {
+   "step": "repeat, 2 tools (full prefix hit)",
+   "prompt_tokens": 7504,
+   "latency_s": 0.28
+  },
+  {
+   "step": "same system, 5 tools (tool block changed)",
+   "prompt_tokens": 7893,
+   "latency_s": 2.05
+  },
+  {
+   "step": "back to 2 tools",
+   "prompt_tokens": 7504,
+   "latency_s": 0.21
+  },
+  {
+   "step": "repeat 2 tools",
+   "prompt_tokens": 7504,
+   "latency_s": 0.19
+  }
+ ]
+}

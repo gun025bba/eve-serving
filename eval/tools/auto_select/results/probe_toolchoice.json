@@ -1,0 +1,34 @@
+{
+ "auto/pos": {
+  "search_called": "5/5",
+  "errors": []
+ },
+ "auto/neg": {
+  "search_called": "0/5",
+  "errors": []
+ },
+ "none/pos": {
+  "search_called": "5/5",
+  "errors": []
+ },
+ "none/neg": {
+  "search_called": "0/5",
+  "errors": []
+ },
+ "forced_web_search/pos": {
+  "search_called": "5/5",
+  "errors": []
+ },
+ "forced_web_search/neg": {
+  "search_called": "0/5",
+  "errors": []
+ },
+ "required/pos": {
+  "search_called": "5/5",
+  "errors": []
+ },
+ "required/neg": {
+  "search_called": "0/5",
+  "errors": []
+ }
+}

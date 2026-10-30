@@ -1,0 +1,54 @@
+[
+ {
+  "tool_result_chars": 0,
+  "prompt_tokens": null,
+  "first_chunk_s": [
+   3.44,
+   2.72
+  ],
+  "first_output_s": [
+   3.49,
+   2.76
+  ],
+  "median_first_chunk_s": 3.08
+ },
+ {
+  "tool_result_chars": 6000,
+  "prompt_tokens": null,
+  "first_chunk_s": [
+   12.75,
+   12.71
+  ],
+  "first_output_s": [
+   12.8,
+   12.76
+  ],
+  "median_first_chunk_s": 12.73
+ },
+ {
+  "tool_result_chars": 12000,
+  "prompt_tokens": null,
+  "first_chunk_s": [
+   26.28,
+   26.49
+  ],
+  "first_output_s": [
+   26.34,
+   26.55
+  ],
+  "median_first_chunk_s": 26.38
+ },
+ {
+  "tool_result_chars": 24000,
+  "prompt_tokens": null,
+  "first_chunk_s": [
+   63.88,
+   63.77
+  ],
+  "first_output_s": [
+   63.96,
+   63.84
+  ],
+  "median_first_chunk_s": 63.83
+ }
+]
