@@ -15,6 +15,18 @@ FX=$HERE/fixtures
 umask 022
 T=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$T"' EXIT
 PASS=0; FAILN=0
+# The five stand-alone sub-suites (release-tag, mac-oneshot, unattended, session, pim-adapter) are independent of the body of this
+# script and of each other (offline, own temp dirs): start them now in the background and collect each one where it used to run.
+# Same checks, same output; the wall time is the longest of them instead of their sum. EVE_TEST_SERIAL=1 runs them one by one again.
+SUBD=$T/sub; mkdir -p "$SUBD"
+sub_start() { local n=$1; if [ "${EVE_TEST_SERIAL:-}" = 1 ]; then return 0; fi; ( bash "$HERE/$n.sh" >"$SUBD/$n.out" 2>&1; echo $? >"$SUBD/$n.rc" ) & }
+sub_get() { # NAME -> sets SUB_OUT, SUB_RC
+  local n=$1
+  if [ "${EVE_TEST_SERIAL:-}" = 1 ]; then SUB_OUT=$(bash "$HERE/$n.sh" 2>&1); SUB_RC=$?; return 0; fi
+  while [ ! -f "$SUBD/$n.rc" ]; do sleep 1; done
+  SUB_OUT=$(cat "$SUBD/$n.out"); SUB_RC=$(cat "$SUBD/$n.rc")
+}
+for n in release-tag-test mac-oneshot-test unattended-test session-test pim-adapter-test; do sub_start "$n"; done
 ok()   { PASS=$((PASS + 1)); }
 bad()  { FAILN=$((FAILN + 1)); echo "FAIL: $*"; }
 eq()   { if [ "$2" = "$3" ]; then ok; else bad "$1: got [$2] want [$3]"; fi; }
@@ -832,28 +844,28 @@ fi
 
 # ---------------- release-tag.sh (offline, fake gh/git/ssh; separate script so it can also run alone) ----------------
 [ -x "$D/release-tag.sh" ] && ok || bad "release-tag.sh must be executable"
-rt_out=$(bash "$HERE/release-tag-test.sh" 2>&1); rt_rc=$?
+sub_get release-tag-test; rt_out=$SUB_OUT; rt_rc=$SUB_RC
 printf '%s\n' "$rt_out" | tail -n 5
 eq "release-tag tests" "$rt_rc" 0
 
 # ---------------- mac-oneshot.sh (offline: fake gh/curl/sudo/ssh/ssh-keygen) ----------------
-mo_out=$(bash "$HERE/mac-oneshot-test.sh" 2>&1); mo_rc=$?
+sub_get mac-oneshot-test; mo_out=$SUB_OUT; mo_rc=$SUB_RC
 printf '%s\n' "$mo_out" | tail -n 5
 eq "mac-oneshot tests" "$mo_rc" 0
 
 # ---------------- unattended deploy: one-shot, root half, poller (offline) ----------------
-ua_out=$(bash "$HERE/unattended-test.sh" 2>&1); ua_rc=$?
+sub_get unattended-test; ua_out=$SUB_OUT; ua_rc=$SUB_RC
 printf '%s\n' "$ua_out" | tail -n 8
 eq "unattended tests" "$ua_rc" 0
 
 # ---------------- the release-day session and the read-only measurement (offline, fake sudo/gh/git) ----------------
 [ -x "$D/eve-session.sh" ] && [ -x "$D/eve-measure.sh" ] && ok || bad "eve-session.sh and eve-measure.sh must be executable"
-se_out=$(bash "$HERE/session-test.sh" 2>&1); se_rc=$?
+sub_get session-test; se_out=$SUB_OUT; se_rc=$SUB_RC
 printf '%s\n' "$se_out" | tail -n 5
 eq "session tests" "$se_rc" 0
 
 # ---------------- calendar adapter installer (setup-pim-adapter.sh: verify + atomic install, fake cosign/codesign, offline) ----------------
-pa_out=$(bash "$HERE/pim-adapter-test.sh" 2>&1); pa_rc=$?
+sub_get pim-adapter-test; pa_out=$SUB_OUT; pa_rc=$SUB_RC
 printf '%s\n' "$pa_out" | tail -n 8
 eq "pim adapter tests" "$pa_rc" 0
 

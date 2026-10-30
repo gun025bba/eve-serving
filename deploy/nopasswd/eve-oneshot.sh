@@ -171,7 +171,7 @@ keytitle_of() { case "$1" in */eve-serving) echo release-tagger;; */eve-web) ech
 body_of() { jq -c . "$SETTINGS/$1"; }
 
 # ---------- step 0: pins (read-only; the only network use before the login is public GitHub, no token) ----------
-pub_get() { curl -fsSL --proto '=https' --tlsv1.2 -m 60 -H 'Accept: application/vnd.github+json' "$1"; }
+pub_get() { curl -fsSL --proto '=https' --tlsv1.2 -m 30 --retry 4 --retry-delay 3 --retry-all-errors -H 'Accept: application/vnd.github+json' "$1"; }   # a dropped connection is retried, not taken for a verdict
 step_pins() {
   step "0. pins: merge commit and sha256 of every file that will run as root or change a setting"
   local r f t pr
