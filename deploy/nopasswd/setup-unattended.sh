@@ -131,7 +131,7 @@ kind_args() { # $1 kind $2 version -> sets VERB RVERB CURF
   [[ "$2" =~ $V_RE ]] || die "version must be X.Y.Z"
   case "$1" in gateway) VERB=deploy; CURF=current_version;; web) VERB=deploy-web; CURF=current_web_version;; *) die "kind must be gateway or web";; esac
 }
-as_deploy_user() { "$SUDO" -u "$DEPLOY_USER" "$@"; }
+as_deploy_user() { ( cd / && "$SUDO" -u "$DEPLOY_USER" "$@" ); }   # cd /: the caller's cwd (a private temp dir) is not readable by the deploy user (getcwd warnings)
 run_deploy() { # $1 kind $2 version ; prints the entrypoint's last line; returns its status
   as_deploy_user "$LIBEXEC/fetch" "$1" "$2" >/dev/null || return 99
   as_deploy_user /usr/bin/sudo -n "$LIBEXEC/deploy" "$VERB" 2>&1 | tail -3 || return "${PIPESTATUS[0]}"

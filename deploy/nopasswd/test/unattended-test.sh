@@ -33,6 +33,16 @@ for f in eve-oneshot.sh eve-session.sh eve-measure.sh setup-unattended.sh setup-
 done
 if command -v shellcheck >/dev/null 2>&1; then for f in eve-oneshot.sh setup-unattended.sh setup-pim-adapter.sh eve-poll pin-unattended.sh; do shellcheck -s bash "$D/$f" >"$T/sc.out" 2>&1 && ok || { bad "shellcheck $f"; cat "$T/sc.out"; }; done; else echo "note: shellcheck not installed, skipped"; fi
 for f in "$SETT"/*.json; do jq -e . "$f" >/dev/null 2>&1 && ok || bad "$(basename "$f") must be valid JSON"; done
+# absolute tool paths of the root entrypoint exist on THIS os (macOS CI runs this on a real macOS: /usr/bin/chown does not exist there, /usr/sbin/chown does)
+ED=$D/eve-deploy; missing=""
+for p in $(grep -v '^[[:space:]]*#' "$ED" | grep -v 'chown_bin()' | grep -oE '/(usr/)?(s?bin|libexec)/[A-Za-z0-9._-]+' | sort -u); do
+  case "$p" in /libexec/*|/usr/local/libexec/*|/usr/libexec/*) continue;; /bin/launchctl) [ "$(uname -s)" = Darwin ] || continue;; /usr/bin/sha256sum) [ "$(uname -s)" != Darwin ] || continue;; esac
+  [ -x "$p" ] || missing="$missing $p"
+done
+eq "eve-deploy: every absolute tool path exists on this OS" "$missing" ""
+eval "$(grep '^chown_bin()' "$ED")"; cb=$(chown_bin) && [ -x "$cb" ] && ok || bad "eve-deploy: chown_bin finds no chown"
+grep -vE '^[[:space:]]*#' "$ED" | grep -E '/usr/bin/chown' | grep -v 'chown_bin()' >/dev/null && bad "eve-deploy: a hard-coded /usr/bin/chown remains" || ok
+grep -qE '^as_deploy_user\(\) \{ \( cd / && ' "$SU" && ok || bad "setup-unattended.sh: the deploy user must be switched to from cd /"
 # pins
 eq "pin: oneshot installer sha256" "$(const PIN_INSTALLER_SHA256 "$OS")" "$(sha256 "$D/setup-deploy-nopasswd.sh")"
 eq "pin: oneshot setup-unattended sha256" "$(const PIN_UNATTENDED_SHA256 "$OS")" "$(sha256 "$SU")"
