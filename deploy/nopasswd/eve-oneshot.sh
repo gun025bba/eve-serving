@@ -23,7 +23,7 @@
 #   2  settings:  the reviewed JSON files, applied with that login (rulesets incl. release-branches on eve-serving, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings; eve-ios: only the main-protect ruleset with the required check `compile`)
 #   3  verify:    every setting is read back (PASS/FAIL table). A FAIL row stops the run: no sudo.
 #   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [calendar adapter], [today's gateway deploy], [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
-#   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; both are PROVEN dead with an HTTP 401. Not dead = FAIL (non-zero exit).
+#   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; the OAuth token is PROVEN dead with an HTTP 401 (not dead or not proven = FAIL, non-zero exit). The temporary token: 401 = proven; empty input or no answer = a WARN with a follow-up text (the run goes on, exit 0); GitHub still accepting it (200) = FAIL.
 # THE TEMPORARY TOKEN (the fine-grained token that opened the PR): conditions are fixed: repositories eve-serving and eve-web only; Contents and Pull requests write only; NO Administration;
 # expiry 1 day; used from the environment only. This script NEVER changes anything with it. If EVE_TEMP_TOKEN is set when the script starts it is used for ONE read: it must be REFUSED on an
 # admin-only endpoint (a token that can read admin settings violates the conditions and stops the run before any change). At the end it is read again (EVE_TEMP_TOKEN or a hidden prompt)
@@ -34,6 +34,7 @@ set +x +v; unset BASH_XTRACEFD GH_DEBUG DEBUG 2>/dev/null || true; export -n SHE
 set -euo pipefail
 # the temporary token is taken out of the environment at once: no child process (gh, git, curl, sudo) ever inherits it
 TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
+WARN_FILE=${EVE_ONESHOT_WARN_FILE-}; unset EVE_ONESHOT_WARN_FILE 2>/dev/null || true   # eve-session.sh only: where this script leaves the word "temp-token" when the temporary token's revocation could not be proven (a WARN, not a FAIL)
 
 # ---------- pins and constants (pin-unattended.sh --oneshot rewrites the four sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
@@ -105,7 +106,7 @@ http_code_with() { # $1 token (sent through stdin, never in a command line or th
     case "$out" in 401) echo 401;; 200) echo 200;; *) echo other;; esac
   else echo other; fi
 }
-TEMP_RESULT="not run"
+TEMP_RESULT="not run"; TEMP_WARN=0
 revoke_flow() {
   local confirmed=no code=other pat="" pcode=unproven
   REVOKE_DONE=1
@@ -123,7 +124,15 @@ revoke_flow() {
   pat=""
   TEMP_RESULT="http=$pcode"
   tty_close
-  if [ "$confirmed" = yes ] && [ "$code" = 401 ] && [ "$pcode" = 401 ]; then RV_OK=1; say "   both tokens are dead (GitHub answered 401 for each): OK"
+  # the OAuth token of this run must be PROVEN dead (401), as before. The temporary token: 401 = proven; no input or no answer (unproven/other) = WARN only (the run goes on and says what to do);
+  # a token that GitHub still ACCEPTS (200) is a FAIL.
+  if [ "$pcode" = unproven ] || [ "$pcode" = other ]; then TEMP_WARN=1; fi
+  if [ "$confirmed" = yes ] && [ "$code" = 401 ] && { [ "$pcode" = 401 ] || [ "$TEMP_WARN" = 1 ]; }; then RV_OK=1
+    if [ "$TEMP_WARN" = 1 ]; then
+      printf '\n   WARN  temporary token: its revocation was NOT proven by this run (%s). The OAuth token of this run is dead (401). The run is not stopped.\n' "$TEMP_RESULT"
+      printf '   WARN  follow-up: open %s, check that the fine-grained token that opened the PR is gone from the list (delete it if it is still there). eve-session.sh repeats this as a WARN row in its table.\n' "$PAT_URL"
+      if [ -n "$WARN_FILE" ]; then printf 'temp-token\n' >>"$WARN_FILE" 2>/dev/null || true; fi
+    else say "   both tokens are dead (GitHub answered 401 for each): OK"; fi
   else printf '\n   !!!!  WARNING: a token of this run may STILL BE VALID (oauth: %s, temporary: %s).  Revoke it NOW at the links above.  !!!!\n' "$REVOKE_RESULT" "$TEMP_RESULT"; fi
 }
 teardown() { # idempotent: local logout + delete the throwaway dir; then the revoke flow once
@@ -220,7 +229,7 @@ temp_token_precheck() { # the temporary token (if given) must NOT see admin-only
   if [ -z "$pat" ]; then say "  EVE_TEMP_TOKEN not set: the conditions cannot be checked here (it is asked for at the end, to prove its revocation)"; return 0; fi
   c=$(printf 'Authorization: Bearer %s\n' "$pat" | curl -sS -o /dev/null -w '%{http_code}' -m 30 --proto '=https' --tlsv1.2 -H @- -H 'Accept: application/vnd.github+json' -H "X-GitHub-Api-Version: $API_VERSION" https://api.github.com/repos/gun025bba/eve-serving/actions/permissions 2>/dev/null || true)
   pat=""
-  case "$c" in 401) die "the temporary token is already invalid (401): unset EVE_TEMP_TOKEN or use the right one";; 403|404) say "  the token is refused on an admin-only endpoint ($c): no Administration, as required";; *) die "the temporary token can read admin-only settings (HTTP $c): it violates the conditions. Revoke it, make a new one without Administration, and re-run";; esac
+  case "$c" in 401) say "  WARN: the temporary token is already invalid (401): that is the wanted end state; its revocation is still asked for at the end (a WARN there, not a stop, if it cannot be proven)";; 403|404) say "  the token is refused on an admin-only endpoint ($c): no Administration, as required";; *) die "the temporary token can read admin-only settings (HTTP $c): it violates the conditions. Revoke it, make a new one without Administration, and re-run";; esac
 }
 
 # ---------- step 1: login ----------
