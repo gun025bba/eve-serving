@@ -51,6 +51,15 @@ jobs:
           for t in TestAudit_PrivilegesAndAppendOnly TestAudit_ConcurrentChainAndTamper TestPostgresStore TestPostgresActions_ReissueRevise TestPostgresActions_ConcurrentReissueCap TestPostgresActions_ConcurrentReviseOnlyOneWins TestPostgresPush_CapOwnershipDelete TestPostgresProactiveMessagesUnread TestPostgresJobFK TestPostgresActions_ReviseOrderAndExpired TestPostgresActions_JobOwnership TestPostgresActions_PayloadHashSurvivesJSONB; do grep -q -- "--- PASS: $t" pg.out || { echo "$t did not run"; exit 1; }; done
       - name: e2e build tag (vet + tests)
         run: go vet -tags e2e ./... && go test -tags e2e -count=1 ./internal/auth/
+      - name: SSRF fixed corpus (testdata/ssrf_urls.txt, design 6.8) must run, not skip
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v -tags qa_testhook -run 'TestQA_SSRF' ./internal/webfetch ./internal/tools | tee ssrf.out
+          if grep -- '--- SKIP' ssrf.out | grep -vq 'TestQA_SSRF_PrivateHoldout'; then echo "SSRF corpus tests skipped"; exit 1; fi
+          for t in TestQA_SSRF_CorpusDirect TestQA_SSRF_DeniedPortsWithWideConfig TestQA_SSRF_AllowControl TestQA_SSRF_ToolsLayer TestQA_SSRF_ErrorCodeContract; do grep -q -- "--- PASS: $t" ssrf.out || { echo "$t did not run"; exit 1; }; done
+      - name: e2e + qa_testhook tags (vet + full test run)
+        run: go vet -tags "e2e qa_testhook" ./... && go test -race -count=1 -tags "e2e qa_testhook" ./...
       - name: Default binary has no e2e identity injection
         shell: bash
         run: |

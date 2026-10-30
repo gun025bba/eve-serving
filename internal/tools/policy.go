@@ -5,8 +5,6 @@
 package tools
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/url"
 	"regexp"
 	"strings"
@@ -68,12 +66,15 @@ var secretPatterns = []*regexp.Regexp{
 
 // CheckQuery returns "" if q may be sent to the search provider, otherwise a
 // short reason ("empty", "too_long", "secret_pattern").
-func CheckQuery(q string) string {
+func CheckQuery(q string) string { return CheckQueryMax(q, MaxQueryChars) }
+
+// CheckQueryMax is CheckQuery with an explicit rune cap.
+func CheckQueryMax(q string, max int) string {
 	q = strings.TrimSpace(q)
 	if q == "" {
 		return "empty"
 	}
-	if len([]rune(q)) > MaxQueryChars {
+	if len([]rune(q)) > max {
 		return "too_long"
 	}
 	for _, p := range secretPatterns {
@@ -82,12 +83,6 @@ func CheckQuery(q string) string {
 		}
 	}
 	return ""
-}
-
-// Hash returns a short sha256 prefix for logs (never log raw queries/URLs).
-func Hash(s string) string {
-	h := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(h[:8])
 }
 
 // CanonURL normalizes a URL for allowlist comparison ("" if not http(s)).

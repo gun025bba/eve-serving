@@ -72,12 +72,12 @@ func TestAuthProviders(t *testing.T) {
 	}
 }
 
-func TestWebDefaultsOffAndEnv(t *testing.T) {
+func TestWebDefaultsOnAndEnv(t *testing.T) {
 	c, err := Load("/nonexistent.yaml", func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Web.Enabled || c.Web.DefaultMode != "off" || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
+	if !c.Web.Enabled || c.Web.MaxSearches != 2 || c.Web.ArgsRetentionDays != 90 || c.Tools.V4Mode != V4Off || c.Web.DefaultMode != "auto" || c.Web.AutoSelectOff || c.Web.SearxngURL != "http://127.0.0.1:8888" || c.Web.RetentionDays != 90 || c.Web.FetchGlobalConc != 4 || c.Web.FetchPerHostConc != 2 {
 		t.Fatalf("%+v", c.Web)
 	}
 	env := map[string]string{"GW_WEB_ENABLED": "true", "GW_WEB_DEFAULT_MODE": "auto", "GW_SEARXNG_URL": "http://127.0.0.1:9999", "GW_FETCH_ALLOWED_PORTS": "80,443,8443", "GW_SEARCH_TIMEOUT": "4s"}
@@ -87,6 +87,64 @@ func TestWebDefaultsOffAndEnv(t *testing.T) {
 	}
 	if _, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_DEFAULT_MODE": "always"}[k] }); err == nil {
 		t.Fatal("bad mode accepted")
+	}
+}
+
+// #158: search arguments are kept 90 days; a shorter period needs explicit approval, so it is refused.
+func TestWebArgsRetentionAtLeast90(t *testing.T) {
+	for _, v := range []string{"89", "30", "1"} {
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_ARGS_RETENTION_DAYS": v}[k] }); err == nil {
+			t.Fatalf("args_retention_days=%s accepted", v)
+		}
+	}
+	c, err := Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_ARGS_RETENTION_DAYS": "120"}[k] })
+	if err != nil || c.Web.ArgsRetentionDays != 120 {
+		t.Fatalf("%v %+v", err, c.Web)
+	}
+}
+
+// auto_select_off is the 6.0.0 rollback switch: it fails closed (an unreadable
+// env value turns auto selection off) and off wins over the file.
+func TestWebAutoSelectOff(t *testing.T) {
+	cases := []struct {
+		name, env, yaml string
+		want            bool
+	}{
+		{"unset", "", "", false},
+		{"env true", "true", "", true},
+		{"env 1", "1", "", true},
+		{"env false", "false", "", false},
+		{"env garbage fails closed", "maybe", "", true},
+		{"yaml true, env false: off wins", "false", "web:\n  auto_select_off: true\n", true},
+		{"yaml true", "", "web:\n  auto_select_off: true\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := "/nonexistent.yaml"
+			if c.yaml != "" {
+				path = filepath.Join(t.TempDir(), "c.yaml")
+				if err := os.WriteFile(path, []byte(c.yaml), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load(path, func(k string) string {
+				if k == "GW_WEB_AUTO_SELECT_OFF" {
+					return c.env
+				}
+				return ""
+			})
+			if err != nil || cfg.Web.AutoSelectOff != c.want {
+				t.Fatalf("%v %+v", err, cfg.Web)
+			}
+		})
+	}
+}
+
+func TestWebBudgetEnv(t *testing.T) {
+	env := map[string]string{"GW_WEB_USER_DAILY_SEARCH": "7", "GW_WEB_GLOBAL_DAILY_FETCH": "9"}
+	c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] })
+	if err != nil || c.Web.UserDailySearch != 7 || c.Web.GlobalDailyFetch != 9 {
+		t.Fatalf("%v %+v", err, c.Web)
 	}
 }
 
@@ -249,5 +307,85 @@ func TestMemoryResolvedLogNoSecrets(t *testing.T) {
 		if strings.Contains(out, bad) {
 			t.Fatalf("log line leaks %q: %s", bad, out)
 		}
+	}
+}
+
+func TestToolsConfig_PIMWindow(t *testing.T) {
+	c, err := Load("", func(k string) string {
+		return map[string]string{"GW_TOOLS_PIM_WINDOW_START": "2026-11-01T09:00:00+09:00", "GW_TOOLS_PIM_WINDOW_END": "2026-11-15T09:00:00+09:00"}[k]
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, en := c.Tools.PIMWindow()
+	if st.IsZero() || en.IsZero() || !en.After(st) {
+		t.Fatalf("window %v %v", st, en)
+	}
+	c, err = Load("", func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, en := c.Tools.PIMWindow(); !st.IsZero() || !en.IsZero() {
+		t.Fatalf("unset must mean earliest / no end: %v %v", st, en)
+	}
+	if _, err = Load("", func(k string) string {
+		if k == "GW_TOOLS_PIM_WINDOW_START" {
+			return "yesterday"
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("a window time that does not parse was accepted")
+	}
+}
+
+// N-3: web.default_mode "off" is honoured as auto_select_off (an old deployment
+// that had the web tools off keeps them off), "force" and unknown values are
+// load errors, "auto" and absent change nothing. Same through the env.
+func TestWebDefaultMode_OffHonouredForceRefused(t *testing.T) {
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	noEnv := func(string) string { return "" }
+	c, err := Load(write("web:\n  default_mode: off\n"), noEnv)
+	if err != nil || !c.Web.AutoSelectOff || !c.Web.DefaultModeOff {
+		t.Fatalf("default_mode off ignored: %v %+v", err, c.Web)
+	}
+	c, err = Load("/nonexistent.yaml", func(k string) string { return map[string]string{"GW_WEB_DEFAULT_MODE": "off"}[k] })
+	if err != nil || !c.Web.AutoSelectOff {
+		t.Fatalf("GW_WEB_DEFAULT_MODE=off ignored: %v %+v", err, c.Web)
+	}
+	for _, mode := range []string{"force", "always", "ON"} {
+		if _, err := Load(write("web:\n  default_mode: "+mode+"\n"), noEnv); err == nil {
+			t.Errorf("default_mode %q accepted", mode)
+		}
+	}
+	for _, body := range []string{"web:\n  default_mode: auto\n", "web:\n  enabled: true\n"} {
+		c, err := Load(write(body), noEnv)
+		if err != nil || c.Web.AutoSelectOff || c.Web.DefaultModeOff {
+			t.Errorf("%q: %v %+v", body, err, c.Web)
+		}
+	}
+}
+
+// N-2: web enabled and no kill switch file configured: automatic selection is
+// switched off at start-up; with a file it stays as configured.
+func TestRequireKillswitch(t *testing.T) {
+	c := Default()
+	if !c.RequireKillswitch() || !c.Web.AutoSelectOff {
+		t.Fatal("web on without kill switch file must turn automatic selection off")
+	}
+	c = Default()
+	c.ToolsKillswitchFile = "/etc/eve/tools-killswitch.yaml"
+	if c.RequireKillswitch() || c.Web.AutoSelectOff {
+		t.Fatal("a configured file must not change the setting")
+	}
+	c = Default()
+	c.Web.Enabled = false
+	if c.RequireKillswitch() {
+		t.Fatal("web disabled: nothing to require")
 	}
 }

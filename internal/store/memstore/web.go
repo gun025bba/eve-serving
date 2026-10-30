@@ -51,6 +51,33 @@ func (s *Store) Sources(_ context.Context, user string, ids []string) (map[strin
 	return out, nil
 }
 
+func (s *Store) ClearExpiredArgs(_ context.Context, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var n int64
+	for _, cs := range s.calls {
+		for i := range cs {
+			if cs[i].ArgsExpiresAt != nil && cs[i].ArgsExpiresAt.Before(now) && string(cs[i].Args) != "{}" {
+				cs[i].Args = json.RawMessage(`{}`)
+				n++
+			}
+		}
+	}
+	return n, nil
+}
+
+func (s *Store) ToolCallsByMessage(_ context.Context, user string, ids []string) (map[string][]store.ToolCall, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string][]store.ToolCall{}
+	for _, id := range ids {
+		if m, ok := s.msgs[id]; ok && m.user == user && len(s.calls[id]) > 0 {
+			out[id] = append([]store.ToolCall{}, s.calls[id]...)
+		}
+	}
+	return out, nil
+}
+
 // ToolCalls is a test helper.
 func (s *Store) ToolCalls(id string) []store.ToolCall {
 	s.mu.Lock()
@@ -118,4 +145,29 @@ func (s *Store) SetThreadSettings(_ context.Context, user, id string, v json.Raw
 	b, _ := json.Marshal(cur)
 	s.settings[id] = b
 	return nil
+}
+
+// SetMessageMetadata and MessageMetadata are test helpers.
+func (s *Store) SetMessageMetadata(id string, raw json.RawMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.msgs[id]; ok {
+		m.Metadata = raw
+	}
+}
+
+func (s *Store) MessageMetadata(id string) json.RawMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.msgs[id]; ok {
+		return append(json.RawMessage(nil), m.Metadata...)
+	}
+	return nil
+}
+
+// AddToolCallForTest attaches a tool_calls row to a message (test helper).
+func (s *Store) AddToolCallForTest(id string, c store.ToolCall) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls[id] = append(s.calls[id], c)
 }

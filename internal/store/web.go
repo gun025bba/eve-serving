@@ -22,6 +22,11 @@ type ToolCall struct {
 	LatencyMs   int64           `json:"latency_ms"`
 	ResultChars int             `json:"result_chars"`
 	CreatedAt   time.Time       `json:"created_at"`
+	// Added in 6.0.0 (migration 00009); nil for older rows.
+	SelectedBy    *string    `json:"selected_by,omitempty"`
+	ErrorCode     *string    `json:"error_code,omitempty"`
+	ResultCount   *int       `json:"result_count,omitempty"`
+	ArgsExpiresAt *time.Time `json:"args_expires_at,omitempty"`
 }
 
 // WebSource is a numbered citation for an assistant message (metadata only).
@@ -46,8 +51,14 @@ type WebStore interface {
 	SaveWebRun(ctx context.Context, user, messageID string, calls []ToolCall, sources []WebSource) error
 	// Sources returns citations per message id (only the caller's messages).
 	Sources(ctx context.Context, user string, messageIDs []string) (map[string][]WebSource, error)
+	// ToolCallsByMessage returns the stored tool calls (tool, status; args are
+	// not needed) per message id, only for the caller's messages.
+	ToolCallsByMessage(ctx context.Context, user string, messageIDs []string) (map[string][]ToolCall, error)
 	// PurgeWebHistory deletes tool_calls and web_sources created before cutoff.
 	PurgeWebHistory(ctx context.Context, cutoff time.Time) (int64, error)
+	// ClearExpiredArgs sets args to {} on every tool_calls row whose
+	// args_expires_at is before now. The row itself stays.
+	ClearExpiredArgs(ctx context.Context, now time.Time) (int64, error)
 }
 
 // ThreadSettingsStore persists per-thread settings JSON ({"web_search":"auto"}).

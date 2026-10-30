@@ -44,9 +44,11 @@ func (s *Store) SaveWebRun(ctx context.Context, user, messageID string, calls []
 		if len(args) == 0 {
 			args = json.RawMessage(`{}`)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO tool_calls (id, message_id, user_id, round, seq, tool, provider, args, status, error, latency_ms, result_chars)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-			ids[i], messageID, u, c.Round, c.Seq, c.Tool, c.Provider, []byte(args), c.Status, c.Error, c.LatencyMs, c.ResultChars); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO tool_calls (id, message_id, user_id, round, seq, tool, provider, args, status, error, latency_ms, result_chars,
+				selected_by, error_code, result_count, args_expires_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			ids[i], messageID, u, c.Round, c.Seq, c.Tool, c.Provider, []byte(args), c.Status, c.Error, c.LatencyMs, c.ResultChars,
+			c.SelectedBy, c.ErrorCode, c.ResultCount, c.ArgsExpiresAt); err != nil {
 			return err
 		}
 	}
@@ -93,6 +95,31 @@ func (s *Store) Sources(ctx context.Context, user string, ids []string) (map[str
 	return out, rows.Err()
 }
 
+func (s *Store) ToolCallsByMessage(ctx context.Context, user string, ids []string) (map[string][]store.ToolCall, error) {
+	out := map[string][]store.ToolCall{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	u, err := s.uid(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT message_id, round, seq, tool, status FROM tool_calls
+		WHERE user_id=$1 AND message_id = ANY($2) ORDER BY message_id, round, seq`, u, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c store.ToolCall
+		if err := rows.Scan(&c.MessageID, &c.Round, &c.Seq, &c.Tool, &c.Status); err != nil {
+			return nil, err
+		}
+		out[c.MessageID] = append(out[c.MessageID], c)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) PurgeWebHistory(ctx context.Context, cutoff time.Time) (int64, error) {
 	a, err := s.pool.Exec(ctx, `DELETE FROM web_sources WHERE created_at < $1`, cutoff)
 	if err != nil {
@@ -103,6 +130,16 @@ func (s *Store) PurgeWebHistory(ctx context.Context, cutoff time.Time) (int64, e
 		return a.RowsAffected(), err
 	}
 	return a.RowsAffected() + b.RowsAffected(), nil
+}
+
+// ClearExpiredArgs empties the stored arguments (query/URL) of rows whose
+// args_expires_at has passed. Old rows (NULL) are covered by PurgeWebHistory.
+func (s *Store) ClearExpiredArgs(ctx context.Context, now time.Time) (int64, error) {
+	t, err := s.pool.Exec(ctx, `UPDATE tool_calls SET args = '{}'::jsonb WHERE args_expires_at IS NOT NULL AND args_expires_at < $1 AND args <> '{}'::jsonb`, now)
+	if err != nil {
+		return 0, err
+	}
+	return t.RowsAffected(), nil
 }
 
 func (s *Store) ThreadSettings(ctx context.Context, user, id string) (json.RawMessage, error) {

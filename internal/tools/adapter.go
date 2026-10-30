@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"sync"
 )
 
@@ -94,13 +96,26 @@ func (p *Platform) exec(ctx context.Context, s *Session, c *Call, name string, a
 		c.Status, c.Error, c.BlockReason = "blocked", "tool call limit reached", ReasonLimit
 		return ""
 	}
+	if ex, ok := s.d.Extra[name]; ok {
+		if s.d.OnStart != nil {
+			s.d.OnStart(*c)
+		}
+		out := ex.Call(ctx, s, c, args)
+		if s.isPrivate(name) {
+			// P②: every string field of a personal-data result is protected
+			// text, whatever the call's status (partial results too).
+			s.echo.AddProtected(StringFields(out)...)
+		}
+		return out
+	}
 	a, ok := p.Adapters[name]
 	if _, reg := p.Reg.Get(name); !ok || !reg {
 		c.Status, c.Error = "error", "unknown tool"
 		return ""
 	}
 	if p.Kill.Disabled(name) {
-		c.Status, c.Error, c.BlockReason = "blocked", "tool disabled", ReasonDisabled
+		// kill switch (all_off, disabled[]): a gateway refusal, not a tool failure
+		c.Status, c.Error, c.BlockReason, c.ErrorCode = "denied", "tool disabled", ReasonDisabled, ErrCodeKill
 		return ""
 	}
 	if s.d.OnStart != nil {
@@ -117,3 +132,35 @@ const (
 	ReasonQuery    = "query_rejected"
 	ReasonDisabled = "tool_disabled"
 )
+
+// StringFields returns every string value of a JSON document (object keys
+// excluded), recursively; for text that is not JSON it returns the text.
+func StringFields(doc string) []string {
+	var v any
+	if err := json.Unmarshal([]byte(doc), &v); err != nil {
+		if strings.TrimSpace(doc) == "" {
+			return nil
+		}
+		return []string{doc}
+	}
+	var out []string
+	var walk func(x any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case string:
+			if strings.TrimSpace(t) != "" {
+				out = append(out, t)
+			}
+		case []any:
+			for _, e := range t {
+				walk(e)
+			}
+		case map[string]any:
+			for _, e := range t {
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	return out
+}

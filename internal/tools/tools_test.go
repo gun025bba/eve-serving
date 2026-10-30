@@ -95,7 +95,7 @@ func TestQueryGuards(t *testing.T) {
 	}
 	s, fs, _ := newS(nil)
 	_, c := s.Exec(context.Background(), 1, "1", "web_search", `{"query":"token sk-abcdefghijklmnop1234"}`)
-	if c.Status != "blocked" || fs.n != 0 || c.Args["query"] != "[redacted]" {
+	if c.Status != "blocked" || fs.n != 0 || len(c.Args) != 0 || c.ErrorCode != ErrCodeQuery {
 		t.Fatalf("%+v", c)
 	}
 }

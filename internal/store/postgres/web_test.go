@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,5 +62,64 @@ func TestPostgresWebHistory(t *testing.T) {
 	}
 	if err := s.SetThreadSettings(ctx, b, th.ID, json.RawMessage(`{"web_search":"force"}`)); err == nil {
 		t.Fatal("bob changed alice's thread")
+	}
+}
+
+// Migration 00009 (additive): the new nullable columns round-trip, 'denied'
+// is stored as 'denied', and ClearExpiredArgs empties only expired args.
+func TestPostgresToolCallsAutoSelect(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	const a = "alice@example"
+	th, _ := s.CreateThread(ctx, a, "auto")
+	m, err := s.AddMessage(ctx, a, store.Message{ThreadID: th.ID, Role: "assistant", Content: "x", Status: "complete"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	str := func(v string) *string { return &v }
+	n3 := 3
+	past, future := time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour)
+	calls := []store.ToolCall{
+		{Round: 1, Seq: 0, Tool: "web_search", Args: json.RawMessage(`{"query":"q"}`), Status: "ok", SelectedBy: str("model"), ResultCount: &n3, ArgsExpiresAt: &past},
+		{Round: 1, Seq: 1, Tool: "web_fetch", Args: json.RawMessage(`{}`), Status: "denied", SelectedBy: str("model"), ErrorCode: str("permission_denied"), ArgsExpiresAt: &future},
+		{Round: 2, Seq: 0, Tool: "web_search", Args: json.RawMessage(`{"query":"keep"}`), Status: "ok", ArgsExpiresAt: &future},
+		{Round: 2, Seq: 1, Tool: "web_search", Args: json.RawMessage(`{"query":"old row"}`), Status: "ok"}, // pre-6.0.0 style: NULL expiry
+	}
+	if err := s.SaveWebRun(ctx, a, m.ID, calls, nil); err != nil {
+		t.Fatal(err)
+	}
+	var st, by, code string
+	var cnt int
+	if err := s.pool.QueryRow(ctx, `SELECT status, selected_by, coalesce(error_code,''), 0 FROM tool_calls WHERE message_id=$1 AND round=1 AND seq=1`, m.ID).Scan(&st, &by, &code, &cnt); err != nil {
+		t.Fatal(err)
+	}
+	if st != "denied" || by != "model" || code != "permission_denied" {
+		t.Fatal(st, by, code)
+	}
+	if err := s.pool.QueryRow(ctx, `SELECT result_count FROM tool_calls WHERE message_id=$1 AND round=1 AND seq=0`, m.ID).Scan(&cnt); err != nil || cnt != 3 {
+		t.Fatal(cnt, err)
+	}
+	if n, err := s.ClearExpiredArgs(ctx, time.Now()); err != nil || n != 1 {
+		t.Fatal("cleared", n, err)
+	}
+	args := func(round, seq int) string {
+		var b []byte
+		if err := s.pool.QueryRow(ctx, `SELECT args FROM tool_calls WHERE message_id=$1 AND round=$2 AND seq=$3`, m.ID, round, seq).Scan(&b); err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if got := args(1, 0); got != `{}` {
+		t.Fatal("expired args kept:", got)
+	}
+	if !strings.Contains(args(2, 0), "keep") || !strings.Contains(args(2, 1), "old row") {
+		t.Fatal("unexpired / NULL-expiry args were cleared")
+	}
+	if n, _ := s.ClearExpiredArgs(ctx, time.Now()); n != 0 {
+		t.Fatal("second run must be a no-op", n)
+	}
+	// the status CHECK still rejects unknown values
+	if _, err := s.pool.Exec(ctx, `UPDATE tool_calls SET status='weird' WHERE message_id=$1`, m.ID); err == nil {
+		t.Fatal("status CHECK accepts unknown values")
 	}
 }

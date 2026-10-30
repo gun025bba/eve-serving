@@ -84,6 +84,7 @@ func main() {
 	if err != nil {
 		fatal("config: %v", err)
 	}
+	noKillswitch := cfg.RequireKillswitch() // N-2: no kill switch file configured -> automatic web tools off
 	if *migrateOnly {
 		if cfg.Database.URL == "" {
 			fatal("migrate: GW_DATABASE_URL / database.url is empty")
@@ -112,6 +113,12 @@ func main() {
 		fatal("log_level: %v", err)
 	}
 	log := logging.New(lf, lv)
+	if noKillswitch {
+		log.Error("web_auto_select_off", "reason", "no_killswitch_file", "hint", "set tools_killswitch_file (GW_TOOLS_KILLSWITCH_FILE) and check it with eve-gw killswitch-check")
+	}
+	if cfg.Web.DefaultModeOff {
+		log.Warn("web_default_mode_off", "effect", "web.default_mode: off is read as auto_select_off; delete the key to turn automatic tools on")
+	}
 	log.SetRedactor(memory.RedactLog) // always: secrets and memory text never reach logs
 
 	m := metrics.New(cfg.StatsWindow)
@@ -295,12 +302,27 @@ func main() {
 			fmt.Fprintln(os.Stderr, "web tools:", err)
 			os.Exit(1)
 		}
+		// Argument hash key (§4.2-3, §6.4): without a usable key there is no
+		// unkeyed fallback - automatic selection stays off and every web call
+		// is refused (no_hmac_key).
+		if kf := config.Expand(cfg.Tools.LogHMACKeyFile); kf == "" {
+			log.Error("web_auto_select_off", "reason", "no_hmac_key", "detail", "tools.log_hmac_key_file is not set")
+		} else if key, err := memory.ReadKeyFile(kf); err != nil {
+			log.Error("web_auto_select_off", "reason", "no_hmac_key", "err", err.Error())
+		} else if wt.MAC, err = tools.NewArgMAC(key); err != nil {
+			wt.MAC = nil
+			log.Error("web_auto_select_off", "reason", "no_hmac_key", "err", err.Error())
+		} else {
+			log.Info("web_arg_mac_loaded", "kid", wt.MAC.KID())
+		}
 		srv.Web = wt
-		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "default_mode", cfg.Web.DefaultMode)
+		log.Info("web_tools_enabled", "providers", strings.Join(cfg.Web.Providers, ","), "auto_select_off", cfg.Web.AutoSelectOff)
 	}
 	reg := tools.Default() // embedded manifests; invalid manifests abort startup
 	log.Info("tool_registry_loaded", "tools", strings.Join(reg.Reg.Names(), ","))
 	sysEvent(audit.EvRegistryLoaded, "ok", map[string]string{"tools": strings.Join(reg.Reg.Names(), ",")})
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	if cfg.ToolsKillswitchFile != "" {
 		ks := tools.NewKillswitch(config.Expand(cfg.ToolsKillswitchFile), os.Getuid())
 		ks.OnLoad = func(res string, disabled []string, allOff bool) {
@@ -309,6 +331,9 @@ func main() {
 		}
 		ks.Reload()
 		tools.SetKillswitch(ks)
+		// The file is polled every 2 s (mtime/inode): a change, including
+		// auto_select_off, applies within 5 s without SIGHUP or a restart (§6.7).
+		go ks.Watch(ctx)
 		hup := make(chan os.Signal, 1)
 		signal.Notify(hup, syscall.SIGHUP)
 		go func() {
@@ -317,12 +342,10 @@ func main() {
 			}
 		}()
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
 	if pgStore != nil {
 		go runAuditVerify(ctx, pgStore, log, m, breaker, 24*time.Hour)
 	}
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 10*time.Second)

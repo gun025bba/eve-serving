@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/audit"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/tools"
 	"mime"
 	"net/http"
 	"os"
@@ -75,6 +76,16 @@ type Server struct {
 	// AuditBreaker disables the web tools after repeated audit write/verify
 	// failures (M2 fail-open mitigation). nil = no breaker.
 	AuditBreaker *audit.Breaker
+	// Personal supplies the personal-data read tools (calendar, reminders,
+	// notes) of a later release; nil in this build (tests use a mock). Its
+	// tools are offered only when the G1/P2/P4 prerequisites hold
+	// (personalReady): automatic selection on and a store that can join
+	// tool_calls to messages. Every call of such a tool sets private_read, and
+	// all string fields of its result enter the protected text.
+	// budgetSeen dedupes budget_exhausted audit rows (one per day, identity, kind, code)
+	budgetSeen sync.Map
+
+	Personal PersonalTools
 	// WebAuditBlocked disables the web tools because auditing is not durable
 	// (in-memory ledger in production).
 	WebAuditBlocked bool
@@ -245,19 +256,16 @@ func (s *Server) authed(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// whoami reports the caller identity so the UI can detect identity mode.
-func (s *Server) webDefault() string {
-	if !s.webEnabled() {
-		return "off"
-	}
-	return s.Cfg.Web.DefaultMode
-}
+// webDefault is kept for older UIs: "auto" while the model may pick web
+// tools on its own, "off" otherwise. It is not a per-user setting.
+func (s *Server) webDefault() string { return string(s.webMode()) }
 
+// whoami reports the caller identity so the UI can detect identity mode.
 func (s *Server) whoami(w http.ResponseWriter, r *http.Request) {
 	id, _ := auth.FromContext(r.Context())
 	writeJSON(w, 200, map[string]any{"authenticated": true, "user": id.User, "provider": id.Provider,
 		"version":      s.version(),
-		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "persistence": s.Store != nil}})
+		"capabilities": map[string]any{"web_search": s.webEnabled(), "web_search_default": s.webDefault(), "auto_tool_selection": s.autoSelect(), "persistence": s.Store != nil}})
 }
 
 // version is the build version injected via -ldflags (see Makefile), "dev" when unset.
@@ -562,4 +570,12 @@ func rootRedirectTarget(rawQuery string) string {
 		}
 	}
 	return "/ui/?" + rawQuery
+}
+
+// PersonalTools is the seam for personal-data read tools.
+type PersonalTools interface {
+	// Defs are the tool definitions offered to the user of r (none: no tools).
+	Defs(r *http.Request) []any
+	// Adapters run the tools of Defs.
+	Adapters(r *http.Request) map[string]tools.Adapter
 }

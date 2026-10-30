@@ -9,4 +9,4 @@ egress: [search_engine]
 secrets: []
 timeout: 8s
 max_result_chars: 6000
-exposure: {modes: [auto, force], max_per_turn: 3}
+exposure: {modes: [auto], max_per_turn: 2}

@@ -1,0 +1,57 @@
+# Result of TestEcho_NormalQueryCorpus (design 6.1, 8.3 gate). Generated: ECHO_CORPUS_UPDATE=1 go test ./internal/tools -run TestEcho_NormalQueryCorpus
+# The corpus (echo_normal_queries.txt) is synthetic: no production query or memory text. Gate: upper bound of the
+# per-request rejection rate must stay at or below 10%; a request holds at most 2 searches (max_per_turn), so
+# per-request upper = 1-(1-per-query upper)^2.
+
+memory average (15 facts)
+  queries: 420
+  rejected: 7
+  per-query rate: 1.67%
+  Wilson 95% interval: [0.81%, 3.40%]
+  per-request upper bound (2 searches): 6.68%
+  by rule: echo_concat=1 echo_newtoken=1 echo_token=5
+  rejected items:
+  echo_newtoken	user="파이썬 asyncio 사용법 알려줘"	query="python asyncio tutorial"
+  echo_token	user="영어공부 앱"	query="영어 공부 앱"
+  echo_concat	user="서울시청 근처 주차"	query="서울 시청 주차"
+  echo_token	user="제주도여행 일정"	query="제주도 여행 일정"
+  echo_token	user="고양이 사료 추천해줘"	query="고양이가 먹는 사료"
+  echo_token	user="수영 배우고 싶어"	query="수영 강습 초보"
+  echo_token	user="내년 여행"	query="내년 여행 계획"
+
+memory particles (39 facts)
+  queries: 420
+  rejected: 9
+  per-query rate: 2.14%
+  Wilson 95% interval: [1.13%, 4.02%]
+  per-request upper bound (2 searches): 7.88%
+  by rule: echo_concat=1 echo_filter=1 echo_newtoken=1 echo_token=6
+  rejected items:
+  echo_newtoken	user="파이썬 asyncio 사용법 알려줘"	query="python asyncio tutorial"
+  echo_token	user="영어공부 앱"	query="영어 공부 앱"
+  echo_concat	user="서울시청 근처 주차"	query="서울 시청 주차"
+  echo_token	user="제주도여행 일정"	query="제주도 여행 일정"
+  echo_token	user="고양이 사료 추천해줘"	query="고양이가 먹는 사료"
+  echo_filter	user="영어 공부 방법"	query="영어를 공부하는 방법"
+  echo_token	user="등산 코스 추천"	query="등산을 위한 코스"
+  echo_token	user="수영 배우고 싶어"	query="수영 강습 초보"
+  echo_token	user="내년 여행"	query="내년 여행 계획"
+
+memory cap-sized (239 facts)
+  queries: 420
+  rejected: 9
+  per-query rate: 2.14%
+  Wilson 95% interval: [1.13%, 4.02%]
+  per-request upper bound (2 searches): 7.88%
+  by rule: echo_concat=1 echo_filter=1 echo_newtoken=1 echo_token=6
+  rejected items:
+  echo_newtoken	user="파이썬 asyncio 사용법 알려줘"	query="python asyncio tutorial"
+  echo_token	user="영어공부 앱"	query="영어 공부 앱"
+  echo_concat	user="서울시청 근처 주차"	query="서울 시청 주차"
+  echo_token	user="제주도여행 일정"	query="제주도 여행 일정"
+  echo_token	user="고양이 사료 추천해줘"	query="고양이가 먹는 사료"
+  echo_filter	user="영어 공부 방법"	query="영어를 공부하는 방법"
+  echo_token	user="등산 코스 추천"	query="등산을 위한 코스"
+  echo_token	user="수영 배우고 싶어"	query="수영 강습 초보"
+  echo_token	user="내년 여행"	query="내년 여행 계획"
+

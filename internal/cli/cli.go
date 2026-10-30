@@ -13,6 +13,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/gun025bba/eve-serving/internal/tools"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,7 +29,7 @@ import (
 
 // IsCommand reports whether args[0] is an admin subcommand.
 func IsCommand(args []string) bool {
-	return len(args) > 0 && (args[0] == "pair" || args[0] == "sessions")
+	return len(args) > 0 && (args[0] == "pair" || args[0] == "sessions" || args[0] == "killswitch-check")
 }
 
 func envOr(k, d string) string {
@@ -48,6 +49,9 @@ func PepperPath(cfg config.Config, base string) string {
 
 // Run executes an admin subcommand and returns the exit code.
 func Run(args []string, stdout, stderr io.Writer) int {
+	if args[0] == "killswitch-check" {
+		return killswitchCheck(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("eve-gw "+args[0], flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	base := fs.String("base", envOr("GW_BASE", "~/llm-serving"), "base dir holding config.yaml")
@@ -143,4 +147,24 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return die("sessions: unknown subcommand %q", rest[0])
 	}
 	return die("unknown command %q", args[0])
+}
+
+// killswitchCheck is the dry run of a candidate kill-switch file: it parses
+// the file with the gateway's own rules, prints how this build and a 5.x build
+// read it, applies nothing, and needs no config or database. Exit 0: valid for
+// this build and for 5.x; 3: valid only for this build; 1: invalid.
+func killswitchCheck(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: eve-gw killswitch-check <file>")
+		return 2
+	}
+	r := tools.CheckKillswitchFile(config.Expand(args[0]), os.Getuid())
+	fmt.Fprint(stdout, r.String())
+	switch {
+	case r.Result != "ok":
+		return 1
+	case r.OldBuild != "valid":
+		return 3
+	}
+	return 0
 }

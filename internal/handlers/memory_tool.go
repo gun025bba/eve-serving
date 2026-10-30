@@ -18,6 +18,7 @@ import (
 	"github.com/gun025bba/eve-serving/internal/auth"
 	"github.com/gun025bba/eve-serving/internal/memory"
 	"github.com/gun025bba/eve-serving/internal/store"
+	"github.com/gun025bba/eve-serving/internal/tools"
 )
 
 // Model-side memory.propose (memory.md §2, ui-api-contract §3.9.4–§3.9.5).
@@ -300,6 +301,17 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Tool != memory.ToolPropose {
 		s.writeCode(w, r, "scope_denied")
+		return
+	}
+	// Operator kill switch (all_off, or memory_propose in disabled): refused
+	// before any token is spent; the card stays pending until its expiry, so
+	// switching the tool back on makes it approvable again (§6.2). The part
+	// for auto_select_off needs a provenance field this release does not store
+	// (no migration beyond 00009); see CHANGELOG.
+	if tools.Default().Kill.Disabled(memory.ToolPropose) {
+		s.appendAudit(r.Context(), user(r), audit.Event{At: time.Now().UTC(), Actor: audit.ActorUser, Event: audit.EvApproveRefused,
+			Status: "refused", Detail: map[string]string{"reason": "kill_switch", "action_id": a.ID}})
+		s.writeCode(w, r, "kill_switch")
 		return
 	}
 	// per-user switch: effective = system.memory_available AND memory.enabled

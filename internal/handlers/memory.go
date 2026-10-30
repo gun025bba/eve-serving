@@ -308,26 +308,35 @@ func (s *Server) deleteAllMemory(w http.ResponseWriter, r *http.Request) {
 // injectMemory appends the user's memory block to the end of the system
 // prompt of the forwarded request. Any error injects nothing (fail-closed).
 // Proactive/scheduler runs do not come through here.
-func (s *Server) injectMemory(r *http.Request, body map[string]any) {
+func (s *Server) injectMemory(r *http.Request, body map[string]any) []string {
 	if !s.memoryActive(r) {
-		return
+		return nil
 	}
 	msgs, _ := body["messages"].([]any)
 	if len(msgs) == 0 {
-		return
+		return nil
 	}
 	d, err := s.Memory.Load(s.memUID(r))
 	if err != nil {
 		s.Log.Warn("memory_inject_skipped", "request_id", rid(r), "reason", "load_failed")
-		return
+		return nil
 	}
 	limit := s.Cfg.Memory.InjectCapTokens
 	if limit == 0 {
 		limit = memory.DefaultCapTokens
 	}
-	blk, err := memory.Block(d.Items, time.Now(), limit)
+	now := time.Now()
+	blk, err := memory.Block(d.Items, now, limit)
 	if err != nil || blk == "" {
-		return
+		return nil
+	}
+	// P① must never be empty while a block is in the prompt: if the selection
+	// yields no item texts, the block text itself is protected.
+	prot := func() []string {
+		if p := protectedTexts(d.Items, now); len(p) > 0 {
+			return p
+		}
+		return []string{blk}
 	}
 	// The block must be the very last text of the system prompt: append it to
 	// the LAST message of the leading run of system messages, so no client
@@ -343,12 +352,12 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) {
 	}
 	if last < 0 {
 		body["messages"] = append([]any{map[string]any{"role": "system", "content": blk}}, msgs...)
-		return
+		return prot()
 	}
 	m := msgs[last].(map[string]any)
 	c, ok := m["content"].(string)
 	if !ok {
-		return // structured system content: do not touch (fail-closed)
+		return nil // structured system content: do not touch (fail-closed)
 	}
 	cp := make(map[string]any, len(m))
 	for k, v := range m {
@@ -358,6 +367,18 @@ func (s *Server) injectMemory(r *http.Request, body map[string]any) {
 	out := append([]any{}, msgs...)
 	out[last] = cp
 	body["messages"] = out
+	return prot()
+}
+
+// protectedTexts are the memory item texts that were put in the prompt (all
+// selected items, a superset of what fit the token cap). The echo filter
+// keeps the model from copying them into web queries.
+func protectedTexts(items []memory.Item, now time.Time) []string {
+	var out []string
+	for _, it := range memory.Select(items, now) {
+		out = append(out, it.Text)
+	}
+	return out
 }
 
 // reviseMemoryCheck re-runs memory.propose creation validations on the

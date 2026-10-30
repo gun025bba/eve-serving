@@ -30,6 +30,25 @@ type chatPersist struct {
 	failCode    func() string // detached run: cancel/timeout code overrides the reason
 	release     func()        // drops the in-flight turn mark (#30); nil when none
 	inflightKey string
+	// meta is merged into the assistant message's metadata by finish: the
+	// freshness status and the per-turn tool summary (no queries, §13 Q3/Q4).
+	meta map[string]any
+}
+
+// setMeta records what finish writes to messages.metadata. A nil receiver is a
+// no-op. tools is always written (an empty list means "no tool was used").
+func (p *chatPersist) setMeta(fresh string, toolSummary []map[string]any) {
+	if p == nil {
+		return
+	}
+	p.meta = map[string]any{}
+	if fresh != "" {
+		p.meta["fresh"] = fresh
+	}
+	if toolSummary == nil {
+		toolSummary = []map[string]any{}
+	}
+	p.meta["tools"] = toolSummary
 }
 
 // releaseInflight drops the in-flight mark for this turn. Idempotent; called
@@ -298,9 +317,17 @@ func (p *chatPersist) finish(r *http.Request, content, reasoning, model string, 
 		}
 	}
 	m.Status = status
-	if status == store.StatusIncomplete || status == store.StatusFailed {
-		m.Metadata, _ = json.Marshal(map[string]any{"incomplete": true, "reason": reason, "error_code": reason})
+	md := map[string]any{}
+	for k, v := range p.meta {
+		md[k] = v
 	}
+	if status == store.StatusIncomplete || status == store.StatusFailed {
+		md["incomplete"], md["reason"], md["error_code"] = true, reason, reason
+	}
+	if _, ok := md["tools"]; !ok {
+		md["tools"] = []any{} // 6.0.0 always records the key: its absence marks a 5.1.0-window message (design 4.3.4 M-f)
+	}
+	m.Metadata, _ = json.Marshal(md)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
 	defer cancel()
 	var err error

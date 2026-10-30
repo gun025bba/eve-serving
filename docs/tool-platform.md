@@ -43,7 +43,7 @@ secrets: []                   # 이 툴에만 주입할 시크릿 이름
 timeout: 8s
 max_result_chars: 6000
 rate_per_min: 10
-exposure: {modes: [auto, force], max_per_turn: 3}
+exposure: {modes: [auto], max_per_turn: 2}
 ```
 - `egress`: 루프백은 레지스트리에 등록된 내부 엔드포인트(검색 엔진) 하나만 허용, 사설·링크로컬·tailnet 대역과 IP 리터럴은 스키마에서 거부(§13 정규화 재사용).
 - `verbs`(필수, 목록): 확인 카드 `payload_view.verb`의 유일한 출처인 허용 동사 목록. 호출(액션)마다 그중 하나를 서버가 고른다(Q19). enum `add|update|send|delete|run`, 배포 시 고정, 비어 있거나 중복이면 거부. 모델 출력으로 바꿀 수 없고 자유 텍스트 label 없음. 위험 스타일은 verb가 아니라 scopes로 정한다. 값 추가는 MINOR, UI는 모르는 값을 `run`으로 처리(ui-api-contract.md Q19). 테스트: 모든 매니페스트의 verb 유효성(CI 실패), 모델 args로 verb 변경 불가.

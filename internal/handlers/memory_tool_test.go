@@ -275,7 +275,10 @@ func TestHasBlockMarker(t *testing.T) {
 
 func TestStripServerKeys(t *testing.T) {
 	got := string(stripServerKeys([]byte(`{"web_search":"auto","memory_tainted":true}`)))
-	if got != `{"web_search":"auto"}` {
+	if got != `{}` { // memory_tainted and the deprecated web_search key are both server-side only
+		t.Fatal(got)
+	}
+	if got := string(stripServerKeys([]byte(`{"other":1,"web_search":"off"}`))); got != `{"other":1}` {
 		t.Fatal(got)
 	}
 }

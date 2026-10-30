@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -84,6 +85,7 @@ type Config struct {
 	Web      WebConfig    `yaml:"web" json:"web"`
 	Push     PushConfig   `yaml:"push" json:"push"`
 	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+	Tools    ToolsConfig  `yaml:"tools" json:"-"`  // not in /admin/config (key file path)
 	// AllowedHosts are extra Host header values (port ignored) accepted besides
 	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
 	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
@@ -147,36 +149,99 @@ type PushConfig struct {
 	VAPIDKeyID     string `yaml:"vapid_key_id" json:"vapid_key_id"`
 }
 
+// ToolsConfig is the operator configuration of the tool layer (6.0.0,
+// design §4.8). Old builds reject the unknown "tools" key at startup: remove
+// it before rolling back to 5.x (docs/runbooks/auto-tool-selection-rollback.md).
+// Deploy order and rollback: docs/runbooks/auto-tool-selection-rollback.md.
+type ToolsConfig struct {
+	// LogHMACKeyFile is the 0600 file with the HMAC key for argument hashes in
+	// logs, audit events and tool_calls. Without a usable key the automatic
+	// selection is off (fail closed). Set GW_TOOLS_LOG_HMAC_KEY_FILE or this key.
+	LogHMACKeyFile string `yaml:"log_hmac_key_file" json:"-"`
+	// V4Mode is the stage of the same-model yes/no decision call (§4.4.1):
+	// off (default), shadow (judge and count only) or on.
+	V4Mode string `yaml:"v4_mode" json:"-"`
+	// PIMWindowStart / PIMWindowEnd bound the 5.1.0 window (design 4.3.4 M-f):
+	// assistant messages created inside it without metadata.tools[] are treated
+	// as personal-data reads, because 5.1.0 does not record them. RFC 3339.
+	// Start = when 5.1.0 was deployed; empty means "earliest" (fail closed: the
+	// whole history is in the window). End = when 6.0.0 started writing
+	// metadata.tools[] on every assistant message; empty means "no end", which
+	// is safe because 6.0.0 writes the key on every message it persists.
+	// GW_TOOLS_PIM_WINDOW_START / GW_TOOLS_PIM_WINDOW_END.
+	PIMWindowStart string `yaml:"pim_window_start" json:"-"`
+	PIMWindowEnd   string `yaml:"pim_window_end" json:"-"`
+}
+
+// PIMWindow returns the parsed window; a zero Start is "earliest", a zero End
+// "no end". Validate has already checked the format.
+func (t ToolsConfig) PIMWindow() (start, end time.Time) {
+	start, _ = time.Parse(time.RFC3339, t.PIMWindowStart)
+	end, _ = time.Parse(time.RFC3339, t.PIMWindowEnd)
+	return
+}
+
+// V4 modes.
+const (
+	V4Off    = "off"
+	V4Shadow = "shadow"
+	V4On     = "on"
+)
+
 // WebConfig configures the web_search / web_fetch tools (docs/web-search.md
-// §2.10). Disabled by default; requests asking for web search then get 400
-// web_search_disabled.
+// §2.10). Enabled by default since 6.0.0 (automatic tool selection is the
+// default behaviour); web.enabled false removes the web tools entirely.
 type WebConfig struct {
-	Enabled          bool     `yaml:"enabled" json:"enabled"`
-	DefaultMode      string   `yaml:"default_mode" json:"default_mode"` // off|auto|force
-	MaxRounds        int      `yaml:"max_rounds" json:"max_rounds"`
-	MaxCalls         int      `yaml:"max_calls" json:"max_calls"`
-	MaxSearches      int      `yaml:"max_searches" json:"max_searches"`
-	RatePerMin       int      `yaml:"rate_per_min" json:"rate_per_min"`             // searches per user per minute
-	FetchRatePerMin  int      `yaml:"fetch_rate_per_min" json:"fetch_rate_per_min"` // fetches per user per minute
-	RetentionDays    int      `yaml:"retention_days" json:"retention_days"`
-	Providers        []string `yaml:"providers" json:"providers"`
-	SearxngURL       string   `yaml:"searxng_url" json:"searxng_url"`
-	BraveKeyFile     string   `yaml:"brave_api_key_file" json:"-"`
-	SearchTimeoutS   float64  `yaml:"search_timeout_s" json:"search_timeout_s"`
-	SearchMaxResults int      `yaml:"search_max_results" json:"search_max_results"`
-	FetchTimeoutS    float64  `yaml:"fetch_timeout_s" json:"fetch_timeout_s"`
-	FetchMaxBytes    int64    `yaml:"fetch_max_bytes" json:"fetch_max_bytes"`
-	FetchMaxChars    int      `yaml:"fetch_max_chars" json:"fetch_max_chars"`
-	FetchMaxPages    int      `yaml:"fetch_max_pages" json:"fetch_max_pages"`
-	FetchAllowedPort []int    `yaml:"fetch_allowed_ports" json:"fetch_allowed_ports"`
-	FetchDenyCIDRs   []string `yaml:"fetch_deny_cidrs" json:"fetch_deny_cidrs"`
-	FetchGlobalConc  int      `yaml:"fetch_global_conc" json:"fetch_global_conc"`
-	FetchPerHostConc int      `yaml:"fetch_per_host_conc" json:"fetch_per_host_conc"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// DefaultMode is deprecated: automatic tool selection is the default for
+	// every request (web.enabled is the master switch). "auto" or empty change
+	// nothing; "off" is honoured as auto_select_off (an old deployment that had
+	// the web tools off keeps them off); "force" is a load error.
+	DefaultMode string `yaml:"default_mode" json:"default_mode"`
+	// DefaultModeOff is set by validation when default_mode was "off" (for the
+	// start-up warning); it is not a config key.
+	DefaultModeOff bool `yaml:"-" json:"-"`
+	// AutoSelectOff is the operator rollback: true turns automatic web tool
+	// selection off for everyone (GW_WEB_AUTO_SELECT_OFF). An unparsable
+	// environment value counts as true (fail closed).
+	AutoSelectOff bool `yaml:"auto_select_off" json:"auto_select_off"`
+	// ArgsRetentionDays is how long tool_calls.args keeps the accepted query
+	// or URL (default 90, the 5.x value). After that the daily job sets args
+	// to {}. Values below 90 need explicit approval (design §6.4) and are
+	// refused by Load.
+	ArgsRetentionDays int `yaml:"args_retention_days" json:"args_retention_days"`
+	// Auto-selection budgets (0 = default: 150/100 per user per KST day,
+	// 30/60 per minute and 1500/800 per day for everyone).
+	UserDailySearch    int      `yaml:"user_daily_search" json:"user_daily_search"`
+	UserDailyFetch     int      `yaml:"user_daily_fetch" json:"user_daily_fetch"`
+	GlobalSearchPerMin int      `yaml:"global_search_per_min" json:"global_search_per_min"`
+	GlobalFetchPerMin  int      `yaml:"global_fetch_per_min" json:"global_fetch_per_min"`
+	GlobalDailySearch  int      `yaml:"global_daily_search" json:"global_daily_search"`
+	GlobalDailyFetch   int      `yaml:"global_daily_fetch" json:"global_daily_fetch"`
+	MaxRounds          int      `yaml:"max_rounds" json:"max_rounds"`
+	MaxCalls           int      `yaml:"max_calls" json:"max_calls"`
+	MaxSearches        int      `yaml:"max_searches" json:"max_searches"`             // web_search calls per turn (design: max_per_turn): default 2, values above 2 are capped at 2 (G2)
+	RatePerMin         int      `yaml:"rate_per_min" json:"rate_per_min"`             // searches per user per minute
+	FetchRatePerMin    int      `yaml:"fetch_rate_per_min" json:"fetch_rate_per_min"` // fetches per user per minute
+	RetentionDays      int      `yaml:"retention_days" json:"retention_days"`
+	Providers          []string `yaml:"providers" json:"providers"`
+	SearxngURL         string   `yaml:"searxng_url" json:"searxng_url"`
+	BraveKeyFile       string   `yaml:"brave_api_key_file" json:"-"`
+	SearchTimeoutS     float64  `yaml:"search_timeout_s" json:"search_timeout_s"`
+	SearchMaxResults   int      `yaml:"search_max_results" json:"search_max_results"`
+	FetchTimeoutS      float64  `yaml:"fetch_timeout_s" json:"fetch_timeout_s"`
+	FetchMaxBytes      int64    `yaml:"fetch_max_bytes" json:"fetch_max_bytes"`
+	FetchMaxChars      int      `yaml:"fetch_max_chars" json:"fetch_max_chars"`
+	FetchMaxPages      int      `yaml:"fetch_max_pages" json:"fetch_max_pages"`
+	FetchAllowedPort   []int    `yaml:"fetch_allowed_ports" json:"fetch_allowed_ports"`
+	FetchDenyCIDRs     []string `yaml:"fetch_deny_cidrs" json:"fetch_deny_cidrs"`
+	FetchGlobalConc    int      `yaml:"fetch_global_conc" json:"fetch_global_conc"`
+	FetchPerHostConc   int      `yaml:"fetch_per_host_conc" json:"fetch_per_host_conc"`
 }
 
 func defaultWeb() WebConfig {
-	return WebConfig{Enabled: false, DefaultMode: "off", MaxRounds: 3, MaxCalls: 5, MaxSearches: 3, RatePerMin: 10, FetchRatePerMin: 20,
-		RetentionDays: 90, Providers: []string{"searxng"}, SearxngURL: "http://127.0.0.1:8888", SearchTimeoutS: 6, SearchMaxResults: 5,
+	return WebConfig{Enabled: true, DefaultMode: "auto", MaxRounds: 3, MaxCalls: 5, MaxSearches: 2, RatePerMin: 10, FetchRatePerMin: 20,
+		RetentionDays: 90, ArgsRetentionDays: 90, Providers: []string{"searxng"}, SearxngURL: "http://127.0.0.1:8888", SearchTimeoutS: 6, SearchMaxResults: 5,
 		FetchTimeoutS: 10, FetchMaxBytes: 2 << 20, FetchMaxChars: 6000, FetchMaxPages: 3, FetchAllowedPort: []int{80, 443},
 		FetchDenyCIDRs: []string{}, FetchGlobalConc: 4, FetchPerHostConc: 2}
 }
@@ -334,11 +399,34 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 		c.AllowedUsers = []string{}
 	}
 	switch c.Web.DefaultMode {
-	case "off", "auto", "force":
-	case "":
-		c.Web.DefaultMode = "off"
+	case "auto", "":
+		// the default and the only mode: nothing to do
+	case "off":
+		// 5.x deployments that switched the web tools off with default_mode: off
+		// keep them off (N-3): it is read as web.auto_select_off. To turn the
+		// tools on, delete the key.
+		c.Web.AutoSelectOff = true
+		c.Web.DefaultModeOff = true
 	default:
-		return c, fmt.Errorf("web.default_mode must be off|auto|force")
+		return c, fmt.Errorf("web.default_mode must be off|auto (\"force\" was removed in 6.0.0: delete the key)")
+	}
+	if c.Web.ArgsRetentionDays < 90 {
+		return c, fmt.Errorf("web.args_retention_days must be 90 or more (a shorter retention needs explicit approval)")
+	}
+	switch c.Tools.V4Mode {
+	case V4Off, V4Shadow, V4On:
+	case "":
+		c.Tools.V4Mode = V4Off
+	default:
+		return c, fmt.Errorf("tools.v4_mode must be off|shadow|on")
+	}
+	for k, v := range map[string]string{"tools.pim_window_start": c.Tools.PIMWindowStart, "tools.pim_window_end": c.Tools.PIMWindowEnd} {
+		if v == "" {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, v); err != nil {
+			return c, fmt.Errorf("%s must be an RFC 3339 time (for example 2026-11-01T09:00:00+09:00)", k)
+		}
 	}
 	return c, nil
 }
@@ -435,6 +523,18 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	if v := getenv("GW_AUTH_PROVIDERS"); v != "" {
 		c.Auth.Providers = splitList(v)
 	}
+	if v := getenv("GW_TOOLS_LOG_HMAC_KEY_FILE"); v != "" {
+		c.Tools.LogHMACKeyFile = v
+	}
+	if v := getenv("GW_TOOLS_PIM_WINDOW_START"); v != "" {
+		c.Tools.PIMWindowStart = v
+	}
+	if v := getenv("GW_TOOLS_PIM_WINDOW_END"); v != "" {
+		c.Tools.PIMWindowEnd = v
+	}
+	if v := getenv("GW_TOOLS_V4_MODE"); v != "" {
+		c.Tools.V4Mode = v
+	}
 	return applyWebEnv(&c.Web, getenv)
 }
 
@@ -446,14 +546,24 @@ func applyWebEnv(w *WebConfig, getenv func(string) string) error {
 		}
 		w.Enabled = b
 	}
+	if v := getenv("GW_WEB_AUTO_SELECT_OFF"); v != "" {
+		b, err := strconv.ParseBool(v)
+		// fail closed, and off wins: the env can switch auto selection off
+		// (also with an unreadable value) but never back on over the file
+		if b || err != nil {
+			w.AutoSelectOff = true
+		}
+	}
 	for k, p := range map[string]*string{"WEB_DEFAULT_MODE": &w.DefaultMode, "SEARXNG_URL": &w.SearxngURL, "BRAVE_API_KEY_FILE": &w.BraveKeyFile} {
 		if v := getenv("GW_" + k); v != "" {
 			*p = v
 		}
 	}
 	ints := map[string]*int{"WEB_MAX_ROUNDS": &w.MaxRounds, "WEB_MAX_CALLS": &w.MaxCalls, "WEB_MAX_SEARCHES": &w.MaxSearches, "WEB_RATE_PER_MIN": &w.RatePerMin,
-		"WEB_FETCH_RATE_PER_MIN": &w.FetchRatePerMin, "WEB_RETENTION_DAYS": &w.RetentionDays, "SEARCH_MAX_RESULTS": &w.SearchMaxResults,
-		"FETCH_MAX_CHARS": &w.FetchMaxChars, "FETCH_MAX_PAGES": &w.FetchMaxPages, "FETCH_GLOBAL_CONC": &w.FetchGlobalConc, "FETCH_PER_HOST_CONC": &w.FetchPerHostConc}
+		"WEB_FETCH_RATE_PER_MIN": &w.FetchRatePerMin, "WEB_RETENTION_DAYS": &w.RetentionDays, "WEB_ARGS_RETENTION_DAYS": &w.ArgsRetentionDays, "SEARCH_MAX_RESULTS": &w.SearchMaxResults,
+		"FETCH_MAX_CHARS": &w.FetchMaxChars, "FETCH_MAX_PAGES": &w.FetchMaxPages, "FETCH_GLOBAL_CONC": &w.FetchGlobalConc, "FETCH_PER_HOST_CONC": &w.FetchPerHostConc,
+		"WEB_USER_DAILY_SEARCH": &w.UserDailySearch, "WEB_USER_DAILY_FETCH": &w.UserDailyFetch, "WEB_GLOBAL_SEARCH_PER_MIN": &w.GlobalSearchPerMin,
+		"WEB_GLOBAL_FETCH_PER_MIN": &w.GlobalFetchPerMin, "WEB_GLOBAL_DAILY_SEARCH": &w.GlobalDailySearch, "WEB_GLOBAL_DAILY_FETCH": &w.GlobalDailyFetch}
 	for k, p := range ints {
 		if v := getenv("GW_" + k); v != "" {
 			n, err := strconv.Atoi(v)
@@ -558,4 +668,17 @@ func strictBool(s string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("invalid value (want exactly true or false)")
+}
+
+// RequireKillswitch is the fail-closed rule for the kill switch (N-2): with the
+// web tools enabled but no tools_killswitch_file configured there is no
+// 5-second off switch, so automatic tool selection is switched off for this
+// process (web.auto_select_off). It reports whether it had to. The gateway
+// calls it at start-up, after the config is loaded.
+func (c *Config) RequireKillswitch() bool {
+	if c.Web.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
+		c.Web.AutoSelectOff = true
+		return true
+	}
+	return false
 }

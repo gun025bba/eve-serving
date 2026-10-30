@@ -1,5 +1,15 @@
 # Eve: 웹 검색 기능 설계 (web_search / web_fetch)
 
+> **6.0.0 변경: 자동 툴 선택이 기본이에요.** 서버가 웹을 켜 두면(`web.enabled`) 모델이 요청마다 검색할지 스스로 정해요.
+> 사용자별 허용 목록, opt-in, 강제 경로는 없어요. 요청 필드 `web_search`와 스레드 설정 `web_search`, `web.default_mode`는 받기만 하고 **무시**해요(`force`로 사전 검색하는 경로도 없어요). 롤백은 서버 설정 `web.auto_select_off`(`GW_WEB_AUTO_SELECT_OFF`)뿐이고, 값을 읽을 수 없으면 꺼요(fail closed). `web.enabled=false`면 예전처럼 웹 툴이 아예 없어요.
+> 아래 §2.4(force)·§2.12(토글, 400 `web_search_disabled`)와 7.2-4(기본 off)는 5.x 설명이고, 6.0.0에서는 이 안내가 우선해요. 프론트는 `web_search` 요청 필드와 🌐 토글에 기대지 마세요. 상태는 `capabilities.auto_tool_selection`, SSE `tool_result`의 `error_code`, `persisted`의 `fresh`·`tools[]`로 알 수 있어요.
+>
+> - 에코 필터: 메모리 블록 같은 보호 텍스트에서 정규화한 4-gram이 3개 이상 겹치고 사용자 본문에는 없으면 검색어·URL을 거부해요(검색어 128자 제한, URL은 경로·쿼리를 디코드해서 검사). 두 번 거부되면 그 요청에서는 웹 툴을 더 주지 않아요.
+> - 예산: 사용자당 하루(Asia/Seoul) 검색 150, 가져오기 100. 전체 분당 30/60, 하루 1500/800. 넘으면 `budget_exhausted`/`rate_limited`.
+> - 의심 결과(R1~R7)는 모델과 클라이언트에 전달하지 않고, 그 요청에서는 `web_fetch`와 메모리 툴을 거둬요.
+> - 실패한 `tool_result`에는 `error_code`가 붙어요(`ssrf`, `permission_denied`, `kill_switch`, `timeout`, `invalid_arguments`, `search_unavailable`, `fetch_failed`, `rate_limited`, `query_rejected`, `budget_exhausted`, `duplicate_query`, `unsupported_content`, `redirect_blocked`, `unknown_tool`). 사전 검사에서 거절된 호출에는 `tool_call` 이벤트를 보내지 않아요.
+
+
 > 상태: **리서치·설계 초안**. 설치와 서버 반영은 아직 하지 않았어요. 보안 검토가 끝나고 운영자 승인을 받은 뒤에 진행해요.
 > 조사일: 2026-10-26. 외부 수치는 아래 링크 기준이라 바뀔 수 있어요.
 
@@ -331,6 +341,10 @@ DROP TABLE tool_calls;
 | `fetch.max_per_domain` | `GW_FETCH_MAX_PER_DOMAIN` | `2` |
 | `search.max_query_chars` | `GW_SEARCH_MAX_QUERY_CHARS` | `256` |
 | `tools.web.retention_days` | `GW_WEB_RETENTION_DAYS` | `90` |
+| `web.args_retention_days` | `GW_WEB_ARGS_RETENTION_DAYS` | `90` (값이 90보다 작으면 시작을 거부해요) |
+
+- 검색 입력(`tool_calls.args`의 검색어/URL)은 90일 동안 보관하고, 그 뒤에는 매일 도는 정리 작업이 `{}`로 비워요(행은 남아요). 거절된 질의는 처음부터 저장하지 않아요.
+- API 키(Bearer) 요청도 세션 요청과 똑같이 자동 도구 선택이 기본으로 켜져 있고, 검색 입력도 같은 90일 규칙을 따라요. 인증 방식에 따른 구분은 인증 미들웨어에만 있고, 도구 기능은 `users.id` 기준으로만 동작해요.
 
 - `fetch.allowed_ports`를 바꿔도 5432, 6379, 8000, 8080, 8888은 항상 거부돼요(코드 고정).
 

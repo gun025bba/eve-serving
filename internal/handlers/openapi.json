@@ -104,7 +104,7 @@
             "description": "Regenerate: overwrite this assistant message (same id, feedback cleared, no new user message). Requires thread_id."
           },
           "web_search": {
-            "description": "Web tools for this request: false/\"off\", true/\"auto\" (model decides), \"force\" (gateway searches first). Omitted = thread setting, then server default. 400 web_search_disabled when the server has web off. Streaming adds events chat.completion.tool_call, chat.completion.tool_result and chat.completion.sources (before chat.completion.persisted); non-streaming adds choices[0].message.sources.",
+            "description": "Deprecated and ignored since 6.0.0: web tools are selected automatically by the model whenever the server has web enabled (web.enabled) and web.auto_select_off is not set. Any value is accepted and never forwarded upstream. Streaming adds events chat.completion.tool_call (only for accepted calls), chat.completion.tool_result (status, error_code on failure, count, blocked_count) and chat.completion.sources (before chat.completion.persisted); chat.completion.persisted carries fresh (ok|unverified) and tools[]. Non-streaming adds choices[0].message.sources.",
             "oneOf": [
               {
                 "type": "boolean"
