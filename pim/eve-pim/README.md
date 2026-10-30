@@ -52,19 +52,12 @@ Error codes: `invalid_request`, `unknown_method`, `too_large`,
 macOS only (EventKit). `swift build -c release && swift test` in this
 directory; CI runs it on a GitHub-hosted macOS runner (job `pim-helper`).
 
-## Install (owner's hands; not done by any bot)
+## Install
 
-The adapter is **not built on the Mac**. CI builds it with `build-release.sh` (hardened runtime, `codesign -s - -o runtime`,
-calendar-only entitlements and Info.plist from `Support/`), a signed manifest is made with `deploy/nopasswd/sign-pim-manifest.sh`,
-and the owner runs the installer, which verifies and installs it (see `docs/runbooks/5.1.0-calendar-briefing.md`):
-
-```
-sudo bash deploy/install-calendar-adapter.sh --manifest <abs>/eve-pim.MANIFEST --sig <abs>/eve-pim.MANIFEST.sig --adapter <abs>/eve-pim
-sudo bash deploy/install-calendar-adapter.sh --rollback     # back to the one previous adapter
-```
-
-It creates the `_evepim` group and the socket dir, installs the binary and `eve-pim.sb` into the root-owned `/opt/eve-pim/bin`, renders
-`deploy/launchd/com.eve.pim.plist.template` and loads the LaunchAgent. Then approve the **Calendar** TCC prompt once. The helper asks for
+Not part of 5.1.0. The adapter is **not built on the Mac**: CI builds it with `build-release.sh` (hardened runtime,
+`codesign -s - -o runtime`, calendar-only entitlements and Info.plist from `Support/`). The old `ssh-keygen`-signed installer
+(`deploy/install-calendar-adapter.sh`, #154) is dropped; installation moves to the cosign-based setup with a PIM signing CI in a follow-up
+change (`docs/runbooks/5.1.0-calendar-briefing.md`). Until then the adapter must not be signed or installed. The helper asks for
 Calendar only (no Reminders, no Contacts, no full disk access): the `reminders_*` verbs answer `permission_denied`.
 
 ## Gateway write verbs (#70) — both switches off by default
