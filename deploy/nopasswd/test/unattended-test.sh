@@ -201,7 +201,7 @@ done
 code() { if [ -n "$fmt" ]; then printf '%s' "$1"; fi; }
 M=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 case "$url" in
-  https://api.github.com/user) if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
+  https://api.github.com/user) if [ -n "${FAKE_TEMP_HTTP:-}" ] && [ "$tok" != "gho_FAKEOAUTHTOKEN0123456789" ]; then code "$FAKE_TEMP_HTTP"; exit 0; fi; if grep -qxF "$tok" "$FAKE/revoked" 2>/dev/null; then code 401; else code 200; fi; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/actions/permissions) code "${FAKE_PAT_CODE:-403}"; exit 0;;
   https://api.github.com/repos/gun025bba/eve-serving/commits/$M) echo '{"sha":"'$M'"}';;
   https://api.github.com/repos/gun025bba/eve-serving/compare/$M...main) echo '{"status":"'"${FAKE_COMPARE:-ahead}"'"}';;
@@ -241,7 +241,7 @@ run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (the temporary toke
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
   ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="${FAKE_WT_DIR:-$D}" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
       ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
-      ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
+      ${FAKE_TEMP_HTTP:+FAKE_TEMP_HTTP=$FAKE_TEMP_HTTP} ${WARN_FILE_T:+EVE_ONESHOT_WARN_FILE=$WARN_FILE_T} ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
 mkdir -p "$T/home"
@@ -384,7 +384,19 @@ eq "oauth token still valid: rc non-zero" "$((OSRC != 0))" 1; has "oauth token s
 new_world ok; TTYIN=nope TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "'revoked' not typed: rc non-zero" "$((OSRC != 0))" 1; has "'revoked' not typed: warning" "$(cat "$T/out")" "confirmed=no"
 new_world ok; run_os --merge-commit $M
-eq "no temporary token given (cannot prove): rc non-zero" "$((OSRC != 0))" 1; has "unproven temp token: http=unproven" "$(cat "$T/out")" "temporary: http=unproven"
+eq "no temporary token given (cannot prove): WARN only, rc 0" "$OSRC" 0; has "unproven temp token: http=unproven" "$(cat "$T/out")" "http=unproven"; has "unproven temp token: a WARN line" "$(cat "$T/out")" "WARN  temporary token: its revocation was NOT proven"; has "unproven temp token: follow-up text" "$(cat "$T/out")" "WARN  follow-up"; hasnt "unproven temp token: not the still-valid alarm" "$(cat "$T/out")" "STILL BE VALID"
+new_world ok; : >"$T/warnfile"; WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "unproven temp token: the marker word is left for the session" "$(cat "$T/warnfile")" temp-token
+new_world ok; : >"$T/warnfile"; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') WARN_FILE_T=$T/warnfile run_os --merge-commit $M; eq "proven temp token: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; hasnt "proven temp token: no WARN" "$(cat "$T/out")" "WARN  temporary token"
+new_world ok; printf 'PAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; run_os --merge-commit $M
+eq "no temp token but the OAuth token still valid: still FAIL" "$((OSRC != 0))" 1; has "no temp token but the OAuth token still valid: loud alarm" "$(cat "$T/out")" "STILL BE VALID"
+new_world ok; TTYIN=nope run_os --merge-commit $M
+eq "unproven temp token and 'revoked' not typed: still FAIL" "$((OSRC != 0))" 1
+# a pasted temporary token that gets no clear 401 (5xx, timeout, curl error, 403 = "other") is a FAIL, not a WARN
+for h in 502 403 000; do new_world ok; : >"$T/warnfile"; FAKE_TEMP_HTTP=$h WARN_FILE_T=$T/warnfile TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+  eq "temp token answered $h (other): FAIL, rc non-zero" "$((OSRC != 0))" 1; has "temp token answered $h: loud alarm" "$(cat "$T/out")" "STILL BE VALID"; hasnt "temp token answered $h: no WARN line" "$(cat "$T/out")" "WARN  temporary token"; eq "temp token answered $h: no marker" "$(wc -c <"$T/warnfile" | tr -d ' ')" 0; done
+# the temporary token is already dead (401) before the run: WARN, not a stop; its revocation is then proven at the end
+new_world ok; printf 'gho_FAKEOAUTHTOKEN0123456789\nPAT_FAKE_TEMP_TOKEN_0123456789\n' >"$T/fk/revoked"; FAKE_PAT_CODE=401 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "temp token already 401 at the start: rc 0" "$OSRC" 0; has "temp token already 401: WARN, not a stop" "$(cat "$T/out")" "WARN: the temporary token is already invalid"; has "temp token already 401: both dead at the end" "$(cat "$T/out")" "both tokens are dead"
 new_world ok; TTYIN=$(printf 'revoked\nPAT_FAKE_TEMP_TOKEN_0123456789') run_os --merge-commit $M
 eq "temporary token pasted at the end (hidden prompt): rc" "$OSRC" 0; hasnt "pasted token is not echoed" "$(cat "$T/out")" PAT_FAKE_TEMP
 
