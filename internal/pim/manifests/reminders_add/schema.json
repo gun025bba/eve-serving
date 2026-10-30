@@ -1,0 +1,1 @@
+{"type":"object","properties":{"title":{"type":"string","description":"Reminder title, 1-200 characters, no line breaks"},"due":{"type":"string","description":"Optional due time, RFC 3339 with offset"},"list":{"type":"string","description":"Optional reminders list name (default list when omitted)"}},"required":["title"],"additionalProperties":false}

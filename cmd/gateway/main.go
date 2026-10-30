@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gun025bba/eve-serving/internal/memory"
+	"github.com/gun025bba/eve-serving/internal/pim"
 	"github.com/prometheus/client_golang/prometheus"
 	stdlog "log"
 	"net"
@@ -210,6 +211,15 @@ func main() {
 	}
 	srv := &handlers.Server{AuditBreaker: breaker, WebAuditBlocked: handlers.MemoryLedgerBlocksWeb(cfg, pgStore == nil), Audit: ledger, Store: st, Sessions: sessions, Cfg: cfg, Key: key, Auth: chain, Log: log, M: m, Mem: &metrics.MemSampler{Needle: "mlx_lm.server"}, Q: q, Up: up, Start: time.Now(), Version: version}
 
+	if cfg.Pim.Enabled {
+		// Jarvis M1 read tools (#69): owner-only, exposure keyed on users.id.
+		if _, ok := st.(store.UserIDResolver); !ok {
+			log.Error("pim_disabled", "err", "store cannot resolve users.id")
+			os.Exit(1)
+		}
+		srv.Pim = pim.NewClient(cfg.Pim.SocketPath)
+		log.Info("pim_enabled", "msg", "calendar/reminders read tools offered to the configured owner only")
+	}
 	{
 		msg, args := config.MemoryResolvedLog(cfg)
 		log.Info(msg, args...)
@@ -319,10 +329,17 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go srv.RunWebRetention(ctx, 24*time.Hour)
+	go srv.RunPimCardScrub(ctx, 6*time.Hour)
 	if pgStore != nil {
 		go runAuditVerify(ctx, pgStore, log, m, breaker, 24*time.Hour)
 	}
 	defer stop()
+	if cfg.AllowedUsersEnvEmpty {
+		log.Warn("allowed_users_env_empty_ignored", "detail", "GW_ALLOWED_USERS is set but empty and is treated as unset; allowed_users from the config file still applies")
+	}
+	if len(cfg.AllowedUsers) == 0 {
+		log.Warn("allowed_users_empty", "detail", "allowed_users is empty: every browser session is refused and no login can be paired; API keys still authenticate (they do not use the allowlist)")
+	}
 	go func() {
 		<-ctx.Done()
 		sctx, c := context.WithTimeout(context.Background(), 10*time.Second)

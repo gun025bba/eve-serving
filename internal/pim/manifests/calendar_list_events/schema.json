@@ -1,0 +1,1 @@
+{"type":"object","properties":{"from":{"type":"string","description":"Start, RFC 3339 with offset, e.g. 2026-10-28T00:00:00+09:00"},"to":{"type":"string","description":"End, RFC 3339 with offset; at most 31 days after from"}},"required":["from","to"],"additionalProperties":false}
