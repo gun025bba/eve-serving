@@ -1,0 +1,15 @@
+{"id":"c01","desc":"valid citation kept","text":"기온은 19도입니다[1].","valid":[1],"expected":"기온은 19도입니다[1].","removed":0}
+{"id":"c02","desc":"invalid citation removed with preceding space","text":"주가는 71,300원입니다 [3].","valid":[1,2],"expected":"주가는 71,300원입니다.","removed":1}
+{"id":"c03","desc":"no tool calls: all removed","text":"도와드릴 수 없습니다. 경찰청에서 확인하세요. [1]","valid":[],"expected":"도와드릴 수 없습니다. 경찰청에서 확인하세요.","removed":1}
+{"id":"c04","desc":"consecutive run, partially valid","text":"뉴스입니다[1][2][5].","valid":[1,2],"expected":"뉴스입니다[1][2].","removed":1}
+{"id":"c05","desc":"consecutive run, all invalid","text":"A입니다 [4][5] 그리고 B.","valid":[1],"expected":"A입니다 그리고 B.","removed":2}
+{"id":"c06","desc":"inline code untouched","text":"`arr [9]`는 예시입니다 [9].","valid":[1],"expected":"`arr [9]`는 예시입니다.","removed":1}
+{"id":"c07","desc":"fenced code untouched","text":"```\nx = [1]\nprint(x [2])\n```\n결과 [2]","valid":[1],"expected":"```\nx = [1]\nprint(x [2])\n```\n결과","removed":1}
+{"id":"c08","desc":"index form a[1] untouched","text":"a[1]과 b[2]는 배열 원소입니다.","valid":[],"expected":"a[1]과 b[2]는 배열 원소입니다.","removed":0}
+{"id":"c09","desc":"index after ) or ] untouched","text":"f(x)[3] 와 m[0][7]","valid":[],"expected":"f(x)[3] 와 m[0][7]","removed":0}
+{"id":"c10","desc":"line-start citation removed","text":"[2] 첫 줄\n둘째 줄 [1]","valid":[1],"expected":" 첫 줄\n둘째 줄 [1]","removed":1}
+{"id":"c11","desc":"non-numeric brackets untouched","text":"[참고] 항목과 [a]는 그대로 [1]","valid":[],"expected":"[참고] 항목과 [a]는 그대로","removed":1}
+{"id":"c12","desc":"multiple separate invalid","text":"x[1]가 아닌 문장 [6], 또 [7].","valid":[1,2,3],"expected":"x[1]가 아닌 문장, 또.","removed":2}
+{"id":"c13","desc":"unclosed fence treated as code to end","text":"설명 [9]\n```\ncode [9]","valid":[],"expected":"설명\n```\ncode [9]","removed":1}
+{"id":"c14","desc":"empty text","text":"","valid":[],"expected":"","removed":0}
+{"id":"c15","desc":"hangul directly before invalid citation removed","text":"출처입니다[3].","valid":[1],"expected":"출처입니다.","removed":1}
