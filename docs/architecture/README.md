@@ -23,6 +23,7 @@ Eve는 단일 host(서버)에서 로컬 LLM을 서빙하는 시스템입니다. 
 | 개인화 메모리 | **설계** (PR #5·#10 병합, 미구현, MAJOR) | [memory.md](memory.md) |
 | UI ↔ API 계약 (선톡·메모리) | **설계** (미구현, API는 MINOR 추가) | [ui-api-contract.md](ui-api-contract.md) |
 | 자동 툴 선택 (웹 검색·캘린더·메일 확장 구조) | **설계 제안** (미구현, Phase A MINOR · Phase B MAJOR) | [auto-tool-selection.md](auto-tool-selection.md) |
+| 배포에서 root 제거 (root는 최초 설치만, 서비스 계정 배포) | **설계 제안** (미구현, MAJOR, 보안 리뷰 필수) | [deploy-no-root.md](deploy-no-root.md) |
 
 ## 툴 플랫폼 마일스톤 (PR #2 설계 기준, 모두 계획)
 
