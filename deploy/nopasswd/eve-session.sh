@@ -32,7 +32,7 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=ab5bd93b054ecd554a631177c8b561059ca7ae897076ac9e7a170411ee763298   # deploy/nopasswd/eve-oneshot.sh
+PIN_ONESHOT_SHA256=61533352f8060a157a930bdfa5955d0b1e45ae1c4aa669497a8f2b9fdba3e6ff   # deploy/nopasswd/eve-oneshot.sh
 PIN_MEASURE_SHA256=d834c395261e2a126bcae271c067f3653f3236e30f4753916fb30ad0bee46052   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
@@ -117,10 +117,22 @@ state_file_has() { sudo -n /bin/test -e "$STATE/$1" 2>/dev/null; }
 su_() { sudo -n /bin/bash -c "$SU_TEXT" setup-unattended --src-commit "$MERGE" "$@"; }
 
 # ---- GitHub reads (gh, authenticated for reads; no write ever goes through gh here) ----
-tag_exists() { [ "$(gh api "repos/$1/git/matching-refs/tags/v$2" --jq '[.[]|select(.ref=="refs/tags/v'"$2"'")]|length' 2>/dev/null || echo 0)" = 1 ]; }
-release_files() { gh api "repos/$1/releases/tags/v$2" --jq 'select(.draft==false)|[.assets[]|select(.state=="uploaded")|.name]|sort|join(" ")' 2>/dev/null || true; }
+# One GitHub read with retries: a rate limit (unauthenticated reads share 60/hour per IP), a 5xx or a dropped connection is retried with a growing pause
+# (POLL_SEC, 3x, 9x) instead of being taken for "no such release". A 404 is a real answer ("not there yet") and is returned at once. Prints the body on success.
+GH_TRIES=${EVE_SESSION_GH_TRIES:-4}
+ghr() {
+  local i=0 out
+  while :; do
+    if out=$(gh api "$@" 2>&1); then printf '%s\n' "$out"; return 0; fi
+    case $out in *"HTTP 404"*|*'"status":"404"'*) return 1;; esac
+    i=$((i + 1)); [ "$i" -lt "$GH_TRIES" ] || return 1
+    sleep $((POLL_SEC * (i == 1 ? 1 : (i == 2 ? 3 : 9))))
+  done
+}
+tag_exists() { [ "$(ghr "repos/$1/git/matching-refs/tags/v$2" --jq '[.[]|select(.ref=="refs/tags/v'"$2"'")]|length' 2>/dev/null || echo 0)" = 1 ]; }
+release_files() { ghr "repos/$1/releases/tags/v$2" --jq 'select(.draft==false)|[.assets[]|select(.state=="uploaded")|.name]|sort|join(" ")' 2>/dev/null || true; }
 want_files() { printf 'eve-%s-%s.MANIFEST eve-%s-%s.sigstore.json eve-%s-%s.tar' "$1" "$2" "$1" "$2" "$1" "$2"; }
-remote_tip() { gh api "repos/$1/git/ref/heads/main" --jq .object.sha 2>/dev/null || true; }
+remote_tip() { ghr "repos/$1/git/ref/heads/main" --jq .object.sha 2>/dev/null || true; }
 
 stage() { STAGE=$1; printf '\n== stage %s  (about %s h)\n' "$1" "$2"; }
 
@@ -268,13 +280,15 @@ fi
 # =========================================================== 6 releases
 stage releases 0.4
 wait_release() { # KIND REPO VER
-  local want got n=0 max=$(( WAIT_MIN * 60 / POLL_SEC + 1 ))
+  local want got deadline=$(( SECONDS + WAIT_MIN * 60 )) delay=$POLL_SEC
   want=$(want_files "$1" "$3" | tr ' ' '\n' | sort | tr '\n' ' ' | sed 's/ $//')
   while :; do
     got=$(release_files "$2" "$3")
     if [ "$got" = "$want" ]; then say "  $1 v$3: published with exactly $want"; return 0; fi
-    n=$((n + 1)); [ "$n" -le "$max" ] || die "$1 v$3 has no complete signed release after $WAIT_MIN minutes (files now: ${got:-none}). See https://github.com/$2/actions"
-    printf '  waiting for the signed %s v%s release (%s)\n' "$1" "$3" "${got:-no files yet}"; sleep "$POLL_SEC"
+    [ "$SECONDS" -lt "$deadline" ] || die "$1 v$3 has no complete signed release after $WAIT_MIN minutes (files now: ${got:-none}). See https://github.com/$2/actions"
+    printf '  waiting for the signed %s v%s release (%s)\n' "$1" "$3" "${got:-no files yet}"; sleep "$delay"
+    # the pause grows by half each round, up to 2 minutes: ~20 reads in 30 minutes, far below the unauthenticated limit (the old fixed 20 s used 90 and was refused)
+    [ "$delay" -ge 120 ] || { delay=$(( delay * 3 / 2 + 1 )); [ "$delay" -le 120 ] || delay=120; }
   done
 }
 gw_wait() { wait_release gateway "$SERVING" "$GW"; if [ -n "$REH_GW" ]; then wait_release gateway "$SERVING" "$REH_GW"; fi; }

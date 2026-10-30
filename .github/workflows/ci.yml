@@ -1,8 +1,13 @@
 name: ci
 on:
   push:
-    branches: [main, "feat/**", "fix/**"]
+    branches: [main]      # branches are covered by their pull request run (feat/** and fix/** used to run a second, identical copy of every job on each push)
   pull_request:
+  workflow_dispatch:      # a run on demand (also the way to get a `test` result on a main commit whose push run did not start)
+concurrency:
+  # a newer push to the same pull request cancels the older, now useless run; main and manual runs are never cancelled
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
