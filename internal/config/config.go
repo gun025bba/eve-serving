@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gun025bba/eve-serving/internal/auth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,14 +77,20 @@ type Config struct {
 	// (`eve-gw pair --user`) and keep using a paired session. Empty = no
 	// browser sessions. Tailscale-User-* headers are never used for identity.
 	AllowedUsers []string `yaml:"allowed_users" json:"allowed_users"`
+	// AllowedUsersEnvEmpty is set when GW_ALLOWED_USERS is present but empty (or only
+	// separators). That is treated as unset: it never overrides allowed_users from the
+	// YAML file. The gateway logs a startup warning when it is true.
+	AllowedUsersEnvEmpty bool `yaml:"-" json:"-"`
 	// Env is "prod" (default) or "dev". Only dev may run the web tools with
 	// the in-memory audit ledger (no database).
-	Env      string       `yaml:"env" json:"env"`
-	Auth     AuthConfig   `yaml:"auth" json:"auth"`
-	Database DBConfig     `yaml:"database" json:"database"`
-	Web      WebConfig    `yaml:"web" json:"web"`
-	Push     PushConfig   `yaml:"push" json:"push"`
-	Memory   MemoryConfig `yaml:"memory" json:"-"` // not in /admin/config: keeps the 4.0 response unchanged
+	Env      string         `yaml:"env" json:"env"`
+	Auth     AuthConfig     `yaml:"auth" json:"auth"`
+	Database DBConfig       `yaml:"database" json:"database"`
+	Web      WebConfig      `yaml:"web" json:"web"`
+	Push     PushConfig     `yaml:"push" json:"push"`
+	Memory   MemoryConfig   `yaml:"memory" json:"-"`   // not in /admin/config: keeps the 4.0 response unchanged
+	Pim      PimConfig      `yaml:"pim" json:"-"`      // Jarvis M1 (#69); not in /admin/config
+	Briefing BriefingConfig `yaml:"briefing" json:"-"` // Jarvis M1 (#71); not in /admin/config
 	// AllowedHosts are extra Host header values (port ignored) accepted besides
 	// localhost, 127.0.0.1 and ::1 -- normally the tailnet serve name
 	// (GW_ALLOWED_HOSTS). Any other Host gets 421.
@@ -136,6 +143,35 @@ type MemoryConfig struct {
 	//   umask 077; openssl rand -hex 32 > <file>
 	// (one trailing newline is fine; raw binary is rejected).
 	AuditKeyFile string `yaml:"audit_key_file" json:"-"`
+}
+
+// PimConfig enables the Jarvis M1 read tools backed by the eve-pim helper
+// (pim/eve-pim). Off by default: no tool is offered and no socket is opened.
+type PimConfig struct {
+	// Enabled (GW_PIM_ENABLED) is the server-wide switch for the pim tools.
+	Enabled bool `yaml:"enabled"`
+	// SocketPath (GW_PIM_SOCKET_PATH) is eve-pim's unix socket (absolute).
+	SocketPath string `yaml:"socket_path"`
+	// OwnerUserID (GW_PIM_OWNER_USER_ID) is the users.id whose Calendar and
+	// Reminders the helper reads (EventKit = one login user). Every other
+	// user never sees the tools.
+	OwnerUserID int64 `yaml:"owner_user_id"`
+	// WritesEnabled (GW_PIM_WRITES_ENABLED, #70) additionally offers the
+	// write verbs reminders_add / reminders_complete / calendar_add_event, still only through an
+	// approved confirmation card. Off by default, and effective only while
+	// Enabled is on (see WritesOn). The helper must also be started with
+	// --writes-enabled; the two switches are independent and both default off.
+	WritesEnabled bool `yaml:"writes_enabled"`
+}
+
+// WritesOn reports whether the write verbs may be offered and executed.
+func (p PimConfig) WritesOn() bool { return p.Enabled && p.WritesEnabled }
+
+// BriefingConfig is the server-wide switch for the morning briefing (#71).
+// Off by default: the briefing.* settings are not readable or writable and
+// POST /v1/briefing/preview answers 404.
+type BriefingConfig struct {
+	Enabled bool `yaml:"enabled"` // GW_BRIEFING_ENABLED
 }
 
 // PushConfig enables the Web Push subscription endpoints
@@ -292,6 +328,9 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	if err := applyEnv(&c, getenv); err != nil {
 		return c, err
 	}
+	if v, ok := lookup("GW_ALLOWED_USERS"); ok && len(splitList(v)) == 0 {
+		c.AllowedUsersEnvEmpty = true
+	}
 	c.Memory.Enabled, c.Memory.EnabledSource = ResolveMemoryEnabled(cfgMemory, envMemory)
 	if c.Push.Enabled && strings.TrimSpace(c.ToolsKillswitchFile) == "" {
 		// Push/proactive is gated by Killswitch.ProactiveAllowed, which needs a file.
@@ -304,6 +343,9 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 		if c.Memory.InjectCapTokens < 0 || c.Memory.InjectCapTokens > 2000 {
 			return c, fmt.Errorf("memory.inject_cap_tokens must be 0..2000")
 		}
+	}
+	if c.Pim.Enabled && (!filepath.IsAbs(c.Pim.SocketPath) || c.Pim.OwnerUserID <= 0) {
+		return c, fmt.Errorf("pim.enabled requires an absolute pim.socket_path and pim.owner_user_id > 0")
 	}
 	if err := c.Generation.Validate(); err != nil {
 		return c, err
@@ -332,6 +374,16 @@ func LoadEnv(path string, lookup func(string) (string, bool)) (Config, error) {
 	}
 	if c.AllowedUsers == nil {
 		c.AllowedUsers = []string{}
+	}
+	// Fail closed on a malformed allowlist: one entry must be one login, and
+	// auth.NormalizeLogin (the single decision function, ASCII allowlist) must
+	// accept it. A joined list ("a@x b@y"), a comma inside a YAML item or a
+	// look-alike non-ASCII character would otherwise silently lock everyone out
+	// or name a login nobody has.
+	for _, u := range c.AllowedUsers {
+		if u = strings.TrimSpace(u); u != "" && !auth.ValidLogin(u) {
+			return c, fmt.Errorf("allowed_users: each entry must be exactly one login of ASCII letters, digits and . _ @ + - (max 254 bytes), no commas, whitespace or other characters (GW_ALLOWED_USERS is a comma separated list)")
+		}
 	}
 	switch c.Web.DefaultMode {
 	case "off", "auto", "force":
@@ -377,8 +429,11 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	if v := getenv("GW_ALLOWED_ORIGINS"); v != "" {
 		c.AllowedOrigins = splitList(v)
 	}
-	if v := getenv("GW_ALLOWED_USERS"); v != "" {
-		c.AllowedUsers = splitList(v)
+	// A GW_ALLOWED_USERS that is empty, or only separators, is treated as unset:
+	// it does not replace allowed_users from the YAML file (LoadEnv flags it so the
+	// gateway can warn). Set a real list to override the file.
+	if l := splitList(getenv("GW_ALLOWED_USERS")); len(l) > 0 {
+		c.AllowedUsers = l
 	}
 	if v := getenv("GW_DATABASE_URL"); v != "" {
 		c.Database.URL = v
@@ -397,6 +452,37 @@ func applyEnv(c *Config, getenv func(string) string) error {
 			return fmt.Errorf("GW_MEMORY_ALLOW_UNVERIFIED_BACKUP: %w", err)
 		}
 		c.Memory.AllowUnverifiedBackup = b
+	}
+	if v := getenv("GW_PIM_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_ENABLED: %w", err)
+		}
+		c.Pim.Enabled = b
+	}
+	if v := getenv("GW_PIM_WRITES_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_WRITES_ENABLED: %w", err)
+		}
+		c.Pim.WritesEnabled = b
+	}
+	if v := getenv("GW_PIM_SOCKET_PATH"); v != "" {
+		c.Pim.SocketPath = v
+	}
+	if v := getenv("GW_PIM_OWNER_USER_ID"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("GW_PIM_OWNER_USER_ID: %w", err)
+		}
+		c.Pim.OwnerUserID = n
+	}
+	if v := getenv("GW_BRIEFING_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("GW_BRIEFING_ENABLED: %w", err)
+		}
+		c.Briefing.Enabled = b
 	}
 	if v := getenv("GW_PUSH_ENABLED"); v != "" {
 		b, err := strconv.ParseBool(v)

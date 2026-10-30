@@ -56,6 +56,28 @@ func TestAllowedUsersEnv(t *testing.T) {
 	}
 }
 
+func TestAllowedUsersMalformedFailsClosed(t *testing.T) {
+	for _, v := range []string{"a@x b@y", "a@x\tb@y"} {
+		env := map[string]string{"GW_ALLOWED_USERS": v}
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+			t.Fatalf("GW_ALLOWED_USERS=%q: want error", v)
+		}
+	}
+	// commas separate entries; surrounding spaces and empty items are fine
+	env := map[string]string{"GW_ALLOWED_USERS": " a@x , ,b@y"}
+	if c, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err != nil || len(c.AllowedUsers) != 2 {
+		t.Fatal(c.AllowedUsers, err)
+	}
+	// a comma inside one YAML item is a joined list, not a login
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("allowed_users: [\"a@x,b@y\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p, func(string) string { return "" }); err == nil {
+		t.Fatal("comma-joined yaml entry accepted")
+	}
+}
+
 func TestAuthProviders(t *testing.T) {
 	c, _ := Load("/nonexistent.yaml", func(string) string { return "" })
 	if len(c.Auth.Providers) != 2 || c.Auth.Providers[0] != "session" {
@@ -99,6 +121,88 @@ func TestLoad_PushRequiresKillswitch(t *testing.T) {
 	env["GW_TOOLS_KILLSWITCH_FILE"] = "/tmp/ks.yaml"
 	if _, err := Load("/nonexistent.yaml", get); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPimConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := Load("/nonexistent.yaml", env(nil))
+	if err != nil || c.Pim.Enabled {
+		t.Fatal("pim must default off", err)
+	}
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true"})); err == nil {
+		t.Fatal("enabled without socket/owner accepted")
+	}
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "rel/pim.sock", "GW_PIM_OWNER_USER_ID": "1"})); err == nil {
+		t.Fatal("relative socket accepted")
+	}
+	c, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}))
+	if err != nil || c.Pim.OwnerUserID != 7 {
+		t.Fatal(err, c.Pim)
+	}
+}
+
+// L-4 (b): owner_user_id must be a positive id once pim is on; 0, negative and
+// non-numeric values must stop the start rather than silently map to nobody.
+func TestPimOwnerUserIDMustBePositive(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	for _, id := range []string{"0", "-1", "-7", "abc", "1.5"} {
+		m := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": id}
+		if _, err := Load("/nonexistent.yaml", env(m)); err == nil {
+			t.Fatalf("owner id %q accepted with pim enabled", id)
+		}
+	}
+	// with pim off the id is not checked, and 1 is the smallest valid one
+	if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_OWNER_USER_ID": "0"})); err != nil {
+		t.Fatal("pim off must not reject an unset owner id:", err)
+	}
+	m := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "1"}
+	if c, err := Load("/nonexistent.yaml", env(m)); err != nil || c.Pim.OwnerUserID != 1 {
+		t.Fatal(err)
+	}
+}
+
+// L-4 (a): GW_BRIEFING_ENABLED defaults off, parses booleans and refuses junk
+// (a typo must not silently leave the briefing in a state the owner did not choose).
+func TestBriefingConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	c, err := Load("/nonexistent.yaml", env(nil))
+	if err != nil || c.Briefing.Enabled {
+		t.Fatal("briefing must default off", err)
+	}
+	for v, want := range map[string]bool{"true": true, "1": true, "false": false, "0": false} {
+		c, err := Load("/nonexistent.yaml", env(map[string]string{"GW_BRIEFING_ENABLED": v}))
+		if err != nil || c.Briefing.Enabled != want {
+			t.Fatalf("GW_BRIEFING_ENABLED=%q: got %v err %v", v, c.Briefing.Enabled, err)
+		}
+	}
+	for _, v := range []string{"maybe", "yes please", "2"} {
+		if _, err := Load("/nonexistent.yaml", env(map[string]string{"GW_BRIEFING_ENABLED": v})); err == nil {
+			t.Fatalf("GW_BRIEFING_ENABLED=%q accepted", v)
+		}
+	}
+}
+
+func TestPimWritesConfig(t *testing.T) {
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	base := map[string]string{"GW_PIM_ENABLED": "true", "GW_PIM_SOCKET_PATH": "/tmp/x/pim.sock", "GW_PIM_OWNER_USER_ID": "7"}
+	c, err := Load("/nonexistent.yaml", env(base))
+	if err != nil || c.Pim.WritesEnabled || c.Pim.WritesOn() {
+		t.Fatal("pim writes must default off", err)
+	}
+	on := map[string]string{"GW_PIM_WRITES_ENABLED": "true"}
+	for k, v := range base {
+		on[k] = v
+	}
+	if c, err = Load("/nonexistent.yaml", env(on)); err != nil || !c.Pim.WritesOn() {
+		t.Fatal(err, c.Pim)
+	}
+	// the writes flag never outlives the pim switch
+	if c, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_WRITES_ENABLED": "true"})); err != nil || c.Pim.WritesOn() {
+		t.Fatal("writes on without pim.enabled", err)
+	}
+	if _, err = Load("/nonexistent.yaml", env(map[string]string{"GW_PIM_WRITES_ENABLED": "maybe"})); err == nil {
+		t.Fatal("bad bool accepted")
 	}
 }
 
@@ -249,5 +353,58 @@ func TestMemoryResolvedLogNoSecrets(t *testing.T) {
 		if strings.Contains(out, bad) {
 			t.Fatalf("log line leaks %q: %s", bad, out)
 		}
+	}
+}
+
+// Security Low (#146 review): entries must be ASCII logins (the same decision as auth.NormalizeLogin).
+func TestAllowedUsersNonASCIIFailsClosed(t *testing.T) {
+	for _, v := range []string{"\u212A@x", "\u0130@x", "a\u200Bb@x", "a@x;b@y", "a@x,\uFF41@y"} {
+		env := map[string]string{"GW_ALLOWED_USERS": v}
+		if _, err := Load("/nonexistent.yaml", func(k string) string { return env[k] }); err == nil {
+			t.Fatalf("GW_ALLOWED_USERS=%q: want error", v)
+		}
+	}
+}
+
+// GW_ALLOWED_USERS set but empty (or only separators) is treated as unset: the YAML list stays.
+func TestAllowedUsersEnvEmptyIsUnset(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, []byte("allowed_users: [alice@x]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"", "  ", ",", " , ,"} {
+		c, err := LoadEnv(p, func(k string) (string, bool) {
+			if k == "GW_ALLOWED_USERS" {
+				return v, true
+			}
+			return "", false
+		})
+		if err != nil || len(c.AllowedUsers) != 1 || c.AllowedUsers[0] != "alice@x" || !c.AllowedUsersEnvEmpty {
+			t.Fatalf("GW_ALLOWED_USERS=%q: %v env_empty=%v err=%v", v, c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+		}
+	}
+	// unset: no flag; non-empty: overrides the file
+	c, err := LoadEnv(p, func(string) (string, bool) { return "", false })
+	if err != nil || c.AllowedUsersEnvEmpty || len(c.AllowedUsers) != 1 {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+	}
+	c, err = LoadEnv(p, func(k string) (string, bool) {
+		if k == "GW_ALLOWED_USERS" {
+			return "bob@x", true
+		}
+		return "", false
+	})
+	if err != nil || c.AllowedUsersEnvEmpty || len(c.AllowedUsers) != 1 || c.AllowedUsers[0] != "bob@x" {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
+	}
+	// with no YAML list either, the allowlist is empty (fail closed) and flagged
+	c, err = LoadEnv("/nonexistent.yaml", func(k string) (string, bool) {
+		if k == "GW_ALLOWED_USERS" {
+			return "", true
+		}
+		return "", false
+	})
+	if err != nil || len(c.AllowedUsers) != 0 || !c.AllowedUsersEnvEmpty {
+		t.Fatal(c.AllowedUsers, c.AllowedUsersEnvEmpty, err)
 	}
 }

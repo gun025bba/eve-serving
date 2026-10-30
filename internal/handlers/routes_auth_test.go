@@ -52,6 +52,7 @@ func TestRouteAuthMatrix(t *testing.T) {
 		{"GET", "/v1/actions", false, true},
 		{"POST", "/v1/actions/1/reissue", false, true},
 		{"POST", "/v1/proposals/1/revise", false, true},
+		{"POST", "/v1/briefing/preview", false, true},
 		{"POST", "/v1/pair", true, false},
 		{"DELETE", "/v1/session", false, true},
 		{"GET", "/v1/push/vapid-public-key", false, true},

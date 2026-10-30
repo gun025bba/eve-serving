@@ -58,3 +58,15 @@ eve-chat-ui v1.0.1은 `X-Eve-Request`를 보내지 않으므로, 이 변경은 �
   `tailscale-identity` provider enabled; the database name does not contain `_test` (no database is allowed);
   `GW_TEST_IDENTITY_USERS` empty or overlapping `allowed_users`.
 - Logs record only a pseudonym (`t-<12 hex>` = truncated SHA-256) for injected users.
+
+### Browser allowlist (`allowed_users` / `GW_ALLOWED_USERS`)
+
+- A login is decided by one function, `auth.NormalizeLogin`: trimmed, ASCII only (`A-Z a-z 0-9 . _ @ + -`, at most
+  254 bytes), lower-cased. Look-alikes that Unicode case folding would map onto ASCII (Kelvin sign U+212A, U+0130),
+  zero-width/bidi/space characters and joined lists (`a@x, b@y`) are never a login. The allowlist entries, `eve-gw pair --user`
+  (which stores the normalized login) and the session check all use it. An entry it refuses makes the gateway refuse to start.
+- An empty allowlist refuses every browser session and every `eve-gw pair`, and the gateway logs `allowed_users_empty` at
+  startup. **API keys are not affected**: a valid `Authorization` key authenticates with or without the allowlist.
+- `GW_ALLOWED_USERS` set but empty (or only commas/spaces) is treated as **unset**: it does not replace `allowed_users`
+  from the config file, and the gateway logs `allowed_users_env_empty_ignored`. To clear the list, remove the entries from the
+  config file; to replace it, set a non-empty value.
