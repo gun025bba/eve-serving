@@ -54,7 +54,10 @@ GHDIR=""; WORKD=""; FAILS=0; TOKEN=""; LOGIN_OK=0; REVOKE_DONE=0; RV_OK=0; REVOK
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
-die()  { printf 'eve-oneshot: %s\n' "$*" >&2; exit 1; }
+DIED=0; ERR_LINE=""; ERR_CMD=""
+die()  { DIED=1; printf 'eve-oneshot: %s\n' "$*" >&2; exit 1; }
+# set -e would otherwise stop the script WITHOUT a word when a command fails in a place that has no explicit message. Remember where, so that the end of the run names the cause.
+set -E; trap 'ERR_LINE=$LINENO; ERR_CMD=$BASH_COMMAND' ERR
 sha_of() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -d' ' -f1; else sha256sum | cut -d' ' -f1; fi; }
 need() { local c; for c in "$@"; do command -v "$c" >/dev/null 2>&1 || { if [ "$DRY" = 1 ]; then say "  (dry-run) missing tool: $c"; else die "missing tool: $c"; fi; }; done; }
 is_ver() { [[ "$1" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; }
@@ -123,8 +126,10 @@ teardown() { # idempotent: local logout + delete the throwaway dir; then the rev
 }
 cleanup() {
   local rc=$?
-  trap - EXIT INT TERM HUP
+  trap - EXIT INT TERM HUP ERR
   set +e
+  if [ "$rc" != 0 ] && [ "$rc" != 130 ] && [ "$DIED" = 0 ]; then printf '\neve-oneshot: STOPPED (exit %s) by a command without its own message, line %s: %s\n' "$rc" "${ERR_LINE:-?}" "$(printf '%s' "${ERR_CMD:-?}" | head -c 200 | redact)" >&2; fi
+  if [ "$rc" != 0 ]; then printf '\neve-oneshot: the run did NOT complete (exit %s): the clean-up below only closes the login; it is not the cause of the stop.\n' "$rc" >&2; fi
   teardown
   tty_close
   [ -z "$WORKD" ] || rm -rf "$WORKD"
@@ -228,7 +233,7 @@ step_login() {
   [ -n "$TOKEN" ] || die "cannot read the token of this login (needed to prove its revocation at the end)"
   who=$(ghq user --jq .login) || die "cannot read the logged-in user"
   [ "$who" = "$GH_USER" ] || die "logged in as '$who', not $GH_USER: aborting (nothing was changed)"
-  OWNER_ID=$(ghq user --jq .id); [[ "$OWNER_ID" =~ ^[0-9]+$ ]] || die "cannot read the user id"
+  OWNER_ID=$(ghq user --jq .id) || OWNER_ID=""; [[ "$OWNER_ID" =~ ^[0-9]+$ ]] || die "cannot read the user id"
   for r in $REPOS $IOS_REPO; do admin=$(ghq "repos/$r" --jq .permissions.admin) || die "cannot read $r"; [ "$admin" = true ] || die "$GH_USER is not an admin of $r: aborting (nothing was changed)"; done
   say "  logged in as $who, admin of all three repositories"
 }
@@ -266,7 +271,8 @@ EOF3
 upsert_ruleset() { # REPO NAME BODY
   local r=$1 name=$2 body=$3 ids n
   if [ "$DRY" = 1 ]; then say "  DRY-RUN create-or-update ruleset '$name' on $r: $body"; return 0; fi
-  ids=$(ghq "repos/$r/rulesets?per_page=100" --jq ".[] | select(.name==\"$name\") | .id")
+  # an unreadable list must stop here: with "creating" on a failed read a second ruleset of the same name would be attempted
+  ids=$(ghq "repos/$r/rulesets?per_page=100" --jq ".[] | select(.name==\"$name\") | .id") || { say "  API ERROR: cannot list the rulesets of $r (ruleset $name NOT written)"; return 1; }
   n=$(printf '%s' "$ids" | grep -c . || true)
   case "$n" in
     0) say "  ruleset $name: creating"; gw POST "repos/$r/rulesets" "$body";;
@@ -300,9 +306,9 @@ apply_repo() {
       upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)" || say "  CANNOT restore release-tags on $r: remove the DeployKey bypass of that ruleset BY HAND before anything else"
       die "release-tags on $r: not exactly one write deploy key (or the write failed); the ruleset was put back without the DeployKey bypass. Fix the keys and run again"
     fi
-  else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)"; fi
-  upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")"
-  if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
+  else upsert_ruleset "$r" release-tags "$(body_of release-tags.nokey.json)" || die "ruleset release-tags on $r could not be written (the API error is above)"; fi
+  upsert_ruleset "$r" main-protect "$(body_of "main-protect.$([ "$s" = serving ] && echo eve-serving || echo eve-web).json")" || die "ruleset main-protect on $r could not be written (the API error is above)"
+  if [ "$s" = serving ]; then upsert_ruleset "$r" release-branches "$(body_of release-branches.eve-serving.json)" || die "ruleset release-branches on $r could not be written (the API error is above)"; fi   # refs/heads/release/*: no creation/deletion/force-push except admin bypass; PR + test + deploy-nopasswd-macos
   gw PUT "repos/$r/environments/deploy" "$(body_of env-deploy.json)" || say "  warning: environment deploy PUT failed; the table decides"
   sync_env_policies "$r" deploy || say "  warning: policies of deploy not synced; the table decides"
   major=$(jq -c --argjson id "${OWNER_ID:-0}" '.reviewers[0].id = $id' "$SETTINGS/env-deploy-major.json")
@@ -320,14 +326,14 @@ apply_repo() {
 }
 apply_ios() { # eve-ios: ONLY the main-protect ruleset (required status check "compile" from the Actions app, PR required, 0 approvals, squash/rebase, no force-push, no deletion)
   say "  -- $IOS_REPO (main-protect only)"
-  upsert_ruleset "$IOS_REPO" main-protect "$(body_of main-protect.eve-ios.json)"
+  upsert_ruleset "$IOS_REPO" main-protect "$(body_of main-protect.eve-ios.json)" || die "ruleset main-protect on $IOS_REPO could not be written (the API error is above)"
 }
 step_settings() {
   local r
   step "2. settings of the repositories (idempotent; applied ONLY with the throwaway OAuth login, never with a bot token)"
   for r in $REPOS; do preflight_keys "$r"; done
   # FIRST of all writes (before release-tags is rewritten and before any PUT of another setting): the lock on tags v* (no update, delete or force-push), so that a failure later in the run can never leave the tags unprotected
-  for r in $REPOS; do upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)"; done
+  for r in $REPOS; do upsert_ruleset "$r" release-tags-lock "$(body_of release-tags-lock.json)" || die "ruleset release-tags-lock on $r could not be written (the API error is above): stopped, nothing else was changed after it"; done
   for r in $REPOS; do apply_repo "$r"; done
   apply_ios
 }

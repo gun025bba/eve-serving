@@ -223,7 +223,7 @@ eq "keys: no one-shot after a key failure" "$(calls | grep -c '^ONESHOT' | tr -d
 : >"$FX/keysok"; : >"$C"; run $(ARGS_BASE) --dry-run; eq "keys: dry run does not call ssh/git" "$(calls | grep -c LSREMOTE | tr -d ' ')" 0
 
 # ---------------- fail-closed stages ----------------
-mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
+mkenv f1; touch "$FX/oneshot-fails"; run $(ARGS_BASE); eq "fail: one-shot failure" "$RC" 1;  has "fail: the stop points above the clean-up text" "$OUT" "ABOVE the"; has "fail: the exit code is shown" "$OUT" "(exit 1)"; has "fail: one-shot failure" "$OUT" 'STOPPED at stage "install"'; eq "fail: no tag after a one-shot failure" "$(calls | grep -c '^TAG' | tr -d ' ')" 0
 eq "fail: no state after a failed one-shot" "$(grep -c oneshot= "$H/.eve-session/state" | tr -d ' ')" 0
 mkenv f2; printf 'tag\n' >"$FX/tty"; touch "$FX/tag-refused"; run $(ARGS_BASE); eq "fail: tag refused" "$RC" 1; has "fail: tag refused" "$OUT" 'STOPPED at stage "tags"'; eq "fail: no deploy after a tag refusal" "$(calls | grep -cE '^SU ' | tr -d ' ')" 0; eq "fail: the gateway tag is not tried after the web tag was refused" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0
 mkenv f3; echo 2222222222222222222222222222222222222222 >"$FX/tip.eve-serving"; printf 'tag\n' >"$FX/tty"; run $(ARGS_BASE); eq "main moved: the run fails at the end (table), rc 1" "$RC" 1; has "main moved: says so" "$OUT" "main moved"; eq "main moved: no gateway tag" "$(calls | grep -c 'TAG cwd=repo' | tr -d ' ')" 0

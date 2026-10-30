@@ -32,7 +32,7 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=bae74c45d85c8fbf343fea7912584abe40b01d0b3866e4d772ba646f2ce84756   # deploy/nopasswd/eve-oneshot.sh
+PIN_ONESHOT_SHA256=1b4bcd6216c31da48a8691d44c56af62484676bcebbb5cadfc0f44f92f5d7adf   # deploy/nopasswd/eve-oneshot.sh
 PIN_MEASURE_SHA256=dc1afc202d2baf3707c0597eaac1954df1a34234af706f8cbb1e6dd6b5aa3486   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
@@ -194,7 +194,7 @@ stage install 0.3
 if [ "$DRY" = 1 ]; then say "  DRY-RUN: bash eve-oneshot.sh --merge-commit $MERGE (its own dry run follows)"; bash "$D/eve-oneshot.sh" --dry-run --merge-commit "$MERGE" | sed 's/^/    /'
 elif [ "$FORCE_INSTALL" = 0 ] && [ "$(state_get oneshot)" = "$MERGE" ] && [ -n "$(live_ver gateway)" ]; then say "  the one-shot already ran for $MERGE and the entrypoint is installed: skipped (--force-install runs it again)"
 else
-  bash "$D/eve-oneshot.sh" --merge-commit "$MERGE" || die "eve-oneshot.sh failed (its output above says which check; it is idempotent)"
+  bash "$D/eve-oneshot.sh" --merge-commit "$MERGE" || { rc=$?; die "eve-oneshot.sh failed (exit $rc). The cause is in the lines ABOVE the \"== 5.\" clean-up text: look for \"API ERROR\", \"FAIL\" or \"eve-oneshot:\" (that clean-up only closes the login). It is idempotent: re-run after the fix"; }
   state_put oneshot "$MERGE"
 fi
 

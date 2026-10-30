@@ -146,7 +146,9 @@ if rest[0] == "rulesets":
     if method in ("POST", "PUT") and os.environ.get("FAKE_EXTRA_DROP"):
         for r in body["rules"]:
             if r["type"] == "pull_request": r["parameters"].pop("require_extra_approval_for_unattributed_changes", None)
+    if method in ("POST", "PUT") and os.environ.get("FAKE_RB_FAIL") and body.get("name") == "release-branches": print("gh: Validation failed (HTTP 422)", file=sys.stderr); sys.exit(1)
     if len(rest) == 1:
+        if method == "GET" and os.environ.get("FAKE_RS_LIST_FAIL"): nf()
         if method == "GET": out([{"id": r["id"], "name": r["name"], "target": r["target"]} for r in rp["rulesets"]])
         if method == "POST" and os.environ.get("FAKE_RB_NOAPPLY") and body["name"] == "release-branches": done()
         if method == "POST" and os.environ.get("FAKE_IOS_NOAPPLY") and R.endswith("eve-ios"): done()
@@ -240,7 +242,7 @@ PY
 run_os() { # args... ; env FAKE_*, TTYIN (lines typed), TEMP (a bot token left in the environment)
   printf '%s\n' "${TTYIN:-revoked}" >"$T/tty.in"
   ( cd "$T" && env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T/home" TMPDIR="$T" FAKE="$T/fk" FAKE_WT="${FAKE_WT_DIR:-$D}" ONESHOT_TTY="$T/tty.in" ${TEMP:+EVE_TEMP_TOKEN=$TEMP} \
-      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
+      ${FAKE_ENV_IGNORE:+FAKE_ENV_IGNORE=1} ${FAKE_IOS_NOAPPLY:+FAKE_IOS_NOAPPLY=1} ${FAKE_KEY_RACE:+FAKE_KEY_RACE=1} ${FAKE_RT_FAIL:+FAKE_RT_FAIL=1} ${FAKE_RB_NOAPPLY:+FAKE_RB_NOAPPLY=1} ${FAKE_RB_FAIL:+FAKE_RB_FAIL=1} ${FAKE_RS_LIST_FAIL:+FAKE_RS_LIST_FAIL=1} ${FAKE_EXTRA_DROP:+FAKE_EXTRA_DROP=1} ${FAKE_TAMPER:+FAKE_TAMPER=$FAKE_TAMPER} ${FAKE_PAT_CODE:+FAKE_PAT_CODE=$FAKE_PAT_CODE} ${FAKE_COMPARE:+FAKE_COMPARE=$FAKE_COMPARE} ${FAKE_PRIVATE:+FAKE_PRIVATE=$FAKE_PRIVATE} \
       ${FAKE_SUDO_RC:+FAKE_SUDO_RC=$FAKE_SUDO_RC} bash "$OS" "$@" ) >"$T/out" 2>&1
   OSRC=$?
 }
@@ -279,6 +281,7 @@ run_os --dry-run --bogus; eq "unknown argument: refused" "$OSRC" 1
 new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M --web-deploy 1.10.3
 cat "$T/out" >"$T/out.happy"; [ -z "${UT_DEBUG:-}" ] || cat "$T/out"
 eq "happy: rc" "$OSRC" 0
+hasnt "happy: no stop banner, no did-not-complete line" "$(cat "$T/out")" "did NOT complete"; hasnt "happy: no unnamed stop" "$(cat "$T/out")" "STOPPED (exit"; has "happy: the OAuth token is proven dead as the last word" "$(tail -n 2 "$T/out")" "the OAuth token is dead"
 has "happy: all settings passed" "$(cat "$T/out")" "ALL SETTINGS CHECKS PASSED"
 hasnt "happy: no bot-token check, no prompt for it" "$(cat "$T/out")" "temporary token"
 eq "happy: the bot token is never sent to any API" "$(grep -c "actions/permissions" "$T/fk/curl.log" | tr -d ' ')" 0
@@ -406,6 +409,16 @@ new_world ok; FAKE_RT_FAIL=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-
 eq "bypass write fails: rc non-zero" "$((OSRC != 0))" 1; has "bypass write fails: says fail-closed" "$(cat "$T/out")" "FAIL-CLOSED"; eq "bypass write fails: ruleset without the bypass" "$(jq -r "$RTBYP" "$T/fk/gh.json")" "RepositoryRole"
 new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "one key: the bypass stays" "$(jq -r "$RTBYP" "$T/fk/gh.json" | tr ',' '\n' | sort | tr '\n' ',')" "DeployKey,RepositoryRole,"
+# S8d: a failing write or read in the settings step is never silent: the run names the cause, says it did not complete, and does not reach sudo
+new_world ok; FAKE_RB_FAIL=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "release-branches write fails: rc non-zero" "$((OSRC != 0))" 1; has "release-branches write fails: the API error is shown" "$(cat "$T/out")" "API ERROR: POST repos/gun025bba/eve-serving/rulesets"; has "release-branches write fails: names the ruleset" "$(cat "$T/out")" "ruleset release-branches on gun025bba/eve-serving could not be written"; has "release-branches write fails: says the run did not complete" "$(cat "$T/out")" "the run did NOT complete"; eq "release-branches write fails: NO sudo" "$(sudo_calls)" 0; hasnt "release-branches write fails: no WARN about a token" "$(cat "$T/out")" "run is not stopped"
+new_world ok; FAKE_RS_LIST_FAIL=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+eq "rulesets unreadable: rc non-zero" "$((OSRC != 0))" 1; has "rulesets unreadable: the API error is shown" "$(cat "$T/out")" "API ERROR: cannot list the rulesets of gun025bba/eve-serving"; hasnt "rulesets unreadable: no create is attempted on a failed read" "$(cat "$T/out")" "ruleset release-tags: creating"; has "rulesets unreadable: says the run did not complete" "$(cat "$T/out")" "the run did NOT complete"; eq "rulesets unreadable: NO sudo" "$(sudo_calls)" 0
+# S8e: the safety net: a command that fails WITHOUT a message of its own (injected here: a bare failing command right after the settings step) is named and the run says it did not complete
+sed 's|^  step_settings$|&\n  jq -e . /nonexistent/file >/dev/null 2>\&1|' "$D/eve-oneshot.sh" >"$D/.oneshot-inject.sh"; OS_SAVE=$OS; OS=$D/.oneshot-inject.sh
+new_world ok; TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
+OS=$OS_SAVE; rm -f "$D/.oneshot-inject.sh"
+eq "silent stop: rc non-zero" "$((OSRC != 0))" 1; has "silent stop: the stop is named" "$(cat "$T/out")" "STOPPED (exit"; has "silent stop: the failing command is shown" "$(cat "$T/out")" "jq -e"; has "silent stop: says the run did not complete" "$(cat "$T/out")" "the run did NOT complete"; eq "silent stop: NO sudo" "$(sudo_calls)" 0
 # S8b: the eve-ios ruleset did not stick -> FAIL row, no sudo
 new_world ok; FAKE_IOS_NOAPPLY=1 TEMP=PAT_FAKE_TEMP_TOKEN_0123456789 run_os --merge-commit $M
 eq "ios not applied: rc non-zero" "$((OSRC != 0))" 1; has "ios not applied: FAIL row names eve-ios" "$(cat "$T/out")" "FAIL  gun025bba/eve-ios ruleset main-protect"; eq "ios not applied: NO sudo" "$(sudo_calls)" 0
