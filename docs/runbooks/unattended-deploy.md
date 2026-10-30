@@ -18,11 +18,48 @@ A blocklisted version you really want: edit `blocklist` by hand (root) and ship 
 
 ## Order of the one-shot (`eve-oneshot.sh`) and why
 
-1. **pins**: the merge commit is on main and belongs to a merged PR; installer, `setup-unattended.sh` and the settings files have the sha256 pinned in the script. Any mismatch stops here. The verified merge commit is then passed on as `--src-commit` to the installer and to `setup-unattended.sh` (they download only from that commit, and trust only their pinned sha256).
+1. **pins**: the merge commit is on main and belongs to a merged PR; installer, `setup-unattended.sh`, `setup-pim-adapter.sh` (only with `--calendar-adapter`) and the settings files have the sha256 pinned in the script. Any mismatch stops here. The verified merge commit is then passed on as `--src-commit` to the installer and to `setup-unattended.sh` (they download only from that commit, and trust only their pinned sha256).
 2. **login** (browser, throwaway `gh` config, OAuth) as `gun025bba`, admin of eve-serving and eve-web.
 3. **settings** (`deploy/nopasswd/settings/*.json`, idempotent) and 4. **read-back table**. A FAIL row stops the run: **no sudo**. Write order: the `release-tags-lock` rulesets first (before `release-tags` is rewritten and before any other PUT), so a failure part-way never leaves the tags unprotected. The `pull_request` rules carry `require_extra_approval_for_unattributed_changes: true` (as the live ruleset) and the table compares it.
-5. **sudo, once** (one password prompt): accounts `evedeploy` + `evebackup`, installer (`--deploy-user evedeploy`, `WEB_ENABLED=yes`, entrypoint with the brakes), today's supervised web deploy (`--web-deploy X.Y.Z`; the installer already made PAUSE, which the supervised deploy lifts and puts back), `state` (blocklist, poller + plist, then re-hash of every installed file), optional rehearsal, `load` (poller), install table.
+5. **sudo, once** (one password prompt): accounts `evedeploy` + `evebackup`, installer (`--deploy-user evedeploy`, `WEB_ENABLED=yes`, entrypoint with the brakes), optional calendar adapter (`--calendar-adapter X.Y.Z`, see below), today's supervised gateway deploy (`--gateway-deploy X.Y.Z`) and web deploy (`--web-deploy X.Y.Z`; the installer already made PAUSE, which the supervised deploy lifts and puts back), `state` (blocklist, poller + plist, then re-hash of every installed file), optional rehearsal, `load` (poller), install table.
 6. **clean-up**: local logout; the links to revoke the OAuth token and the temporary token; you type `revoked`; both are proven dead with HTTP 401. A token that is still alive, or one that cannot be proven, ends the run FAIL (non-zero).
+
+## Calendar adapter (PIM) in the same sudo session: as-is / to-be
+
+`eve-oneshot.sh --calendar-adapter X.Y.Z [--gateway-deploy X.Y.Z]` lets the one sudo session also install the calendar adapter (`eve-pim`) of the signed release `vX.Y.Z` and deploy the gateway of that release. Without these options nothing changes.
+
+```
+AS-IS  two sudo sessions, two trust paths, the TCC prompt at a random moment
+ one-shot (sudo #1)                                       by hand, later (sudo #2)
+ pins -> login -> settings -> read-back                   deploy/install-calendar-adapter.sh (#154, release/5.1.0)
+   -> accounts -> installer (PAUSE) -> [web deploy]         trust: ssh-key signed manifest + a PIN gate
+   -> state -> load -> verify                               -> group, socket dir, adapter, LaunchAgent, TCC prompt, smoke test
+ the gateway release is deployed separately (another sudo)
+
+TO-BE  ONE command, ONE sudo password, ONE trust root (the CI identity that signs every release)
+ eve-oneshot.sh --merge-commit M --calendar-adapter 5.1.0 --gateway-deploy 5.1.0
+ 0 pins     M is on main (merged PR); sha256 of installer, setup-unattended.sh, setup-pim-adapter.sh and settings/SHA256SUMS match their pins
+ 1-3        login (throwaway gh dir) -> settings -> read-back table; a FAIL row = no sudo
+ 4 root session, ONE password:
+     accounts
+     -> installer (--pause: PAUSE + floors BEFORE the sudoers rule; still exactly 4 sudoers verbs)
+     -> setup-pim-adapter.sh --version 5.1.0
+          download eve-pim-5.1.0 + .MANIFEST + .sigstore.json (https only, size caps) into ONE 0700 work dir
+          verify  cosign verify-blob: pinned trusted root + identity deploy-sign.yml@main + issuer + tag refs/tags/v5.1.0 + the tag's commit (--certificate-github-workflow-sha = release_sha) + trigger push
+                  manifest = exactly eve-pim-manifest=1, release_sha, pim_tree, pim_sha256;  pim_tree == the pinned git tree hash of the reviewed pim/eve-pim source;  sha256(adapter) == pim_sha256
+                  hardened-runtime code signature, calendars entitlement only
+          install atomic rename into /opt/eve-pim/bin (root:wheel 0755, every parent root-owned and closed) -> re-verify; same sha256 = never replaced
+          then    _evepim group, socket dir, sandbox profile, LaunchAgent, wait for the ONE planned TCC prompt, smoke test, gateway env keys (flags stay false)
+     -> deploy gateway 5.1.0 (supervised, before the final PAUSE like --web-deploy) -> [deploy web] -> state -> [rehearse] -> load -> verify
+ 5 clean-up  logout, revoke both tokens, 401 proof
+```
+
+What does NOT change: no new sudoers verb; PAUSE stays set and the poller stays PAUSE-bound; `GW_PIM_ENABLED`, `GW_PIM_WRITES_ENABLED`, `GW_BRIEFING_ENABLED` are only ever added as `false` and the LaunchAgent never passes `--writes-enabled`; the adapter is built and signed by CI, never on the Mac; an installed adapter with the same sha256 is not replaced (same code signature, no new prompt).
+The adapter hashes are not pinned in a file: the signed manifest is the record. Its `pim_tree` must equal `PIM_TREE` in `setup-pim-adapter.sh`: the git TREE hash of `pim/eve-pim` (`git rev-parse <commit>:pim/eve-pim`), currently the one reviewed in #154. A tree hash is content-addressed, so the pin does not depend on a commit staying reachable (the reviewed commit is not on main and a squash merge would drop it), and any change of the adapter source changes it; a new adapter source needs a reviewed change of that file and a new pin in `eve-oneshot.sh`. The manifest's `release_sha` (the commit the release tag points to) is what `--certificate-github-workflow-sha` is bound to, the same binding `eve-deploy` uses, so a signature made for another commit or a manifest copied from another run is refused.
+CI prerequisite (separate PR + security review, Med-1): `deploy-sign.yml` must add a `pim` kind that builds the adapter on a macOS runner and publishes `eve-pim-X.Y.Z`, `eve-pim-X.Y.Z.MANIFEST` (4 lines: `eve-pim-manifest=1`, `release_sha`, `pim_tree` = `git rev-parse HEAD:pim/eve-pim` of the tag checkout, `pim_sha256`) and `eve-pim-X.Y.Z.sigstore.json` (keyless, like the other kinds). **Guard until then:** `setup-pim-adapter.sh` carries `PIM_SIGNING_CI=no`; `--calendar-adapter` is refused by `eve-oneshot.sh` before any login, settings change or sudo (it reads the flag from the pinned text it already checked) and by `setup-pim-adapter.sh` itself before any download. Only the CI PR flips the flag to `yes` together with the new pin in `eve-oneshot.sh`; do not use `--calendar-adapter` before that.
+
+**TCC rule (the macOS calendar prompt).** The planned prompt, "eve-pim wants to access your calendar", appears once on the Mac screen while the session runs (you must be logged in at the screen): answer **Allow Full Access**. Any OTHER prompt = **Don't Allow**, leave PAUSE set, and report. If the planned prompt is not answered within 4 minutes the adapter step ends as PENDING (exit 0, nothing half-installed); answer it when it shows and re-run the SAME one-shot command (idempotent: the pins, the settings and the already installed files are re-checked, not replaced).
+Order matters: the adapter step runs after the installer and before the deploys, so a failed adapter step stops the run before any release is deployed (the run is idempotent; the failure restores the previous adapter).
 
 ## The temporary token (the one that opens the PR)
 
@@ -55,7 +92,7 @@ Open points for the backend / web owners: the smallest safe switch that makes th
 ## Pins: no PR commit is pinned anywhere
 
 `main-protect` requires linear history, so the PR is squash- or rebase-merged and its branch commits do not exist on `main`. Therefore **no file contains a commit sha**: every file fetched at run time is downloaded from ONE main commit (the merge commit) and trusted only by the sha256 embedded in the file that fetches it
-(`eve-deploy`/`eve-fetch`/trust root/uninstall in the installer; `eve-poll`/plist template in `setup-unattended.sh`; the installer, `setup-unattended.sh` and `settings/SHA256SUMS` in `eve-oneshot.sh`; the installer and entrypoint in `mac-oneshot.sh`). The main commit is an **argument** of the final command (`--merge-commit` for `eve-oneshot.sh`, `--src-commit` for `mac-oneshot.sh` and the installer), and the command carries the sha256 of the entry script (no self-reference).
+(`eve-deploy`/`eve-fetch`/trust root/uninstall in the installer; `eve-poll`/plist template in `setup-unattended.sh`; the installer, `setup-unattended.sh`, `setup-pim-adapter.sh` and `settings/SHA256SUMS` in `eve-oneshot.sh`; the installer and entrypoint in `mac-oneshot.sh`). The main commit is an **argument** of the final command (`--merge-commit` for `eve-oneshot.sh`, `--src-commit` for `mac-oneshot.sh` and the installer), and the command carries the sha256 of the entry script (no self-reference).
 Maintainers: after any change run, in this order and with no commit in between, `pin-installer.sh`, `pin-unattended.sh`, `pin-unattended.sh --oneshot`, then commit; after the merge `pin-unattended.sh --print <merge commit>` prints the command. The tests fail on a stale pin.
 
 ## Review gate (CODEOWNERS is NOT enforced)

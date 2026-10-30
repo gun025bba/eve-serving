@@ -8,6 +8,9 @@
 #
 #   --dry-run                 print every step and API call; change nothing, ask nothing, no login, no sudo, no network
 #   --merge-commit SHA        the commit on main that contains the reviewed files (required for a real run)
+#   --calendar-adapter X.Y.Z  [REFUSED until CI signs the adapter: the pinned setup-pim-adapter.sh carries PIM_SIGNING_CI=no] install the PIM calendar adapter (eve-pim) of the signed release vX.Y.Z in the same sudo session (setup-pim-adapter.sh: verifies the Sigstore-signed manifest, installs to root-owned /opt/eve-pim/bin,
+#                             asks YOU for one calendar prompt on the Mac screen; flags stay off; PAUSE stays). Runs after the installer and before the deploys below. Re-run the same command if the prompt was not answered in time.
+#   --gateway-deploy X.Y.Z    today's SUPERVISED gateway deploy (kind=gateway release already tagged and signed), like --web-deploy; BEFORE PAUSE is set
 #   --web-deploy X.Y.Z        today's SUPERVISED web deploy (kind=web release already tagged and signed); done inside the sudo session, BEFORE PAUSE is set
 #   --rehearse KIND X.Y.Z     rollback rehearsal in the same sudo session with a signed test release that must fail its health check (see docs/runbooks/unattended-deploy.md);
 #                             without it the install ends with PAUSE set and the rehearsal is done later
@@ -15,11 +18,11 @@
 #   --settings-only           steps 0-3 only (no sudo)
 #
 # ORDER (the sudo step is reached ONLY if every earlier step and the settings table PASSED; any failure stops there, then only the token clean-up runs):
-#   0  pins:      the merge commit is on main and belongs to a merged PR; the installer, setup-unattended.sh and the settings files at that commit have the sha256 pinned below
+#   0  pins:      the merge commit is on main and belongs to a merged PR; the installer, setup-unattended.sh, [setup-pim-adapter.sh with --calendar-adapter] and the settings files at that commit have the sha256 pinned below
 #   1  login:     `gh auth login --web` as gun025bba in a THROWAWAY gh config dir (OAuth); admin of eve-serving, eve-web and eve-ios; the repositories are public
 #   2  settings:  the reviewed JSON files, applied with that login (rulesets incl. release-branches on eve-serving, environments + wait timer, secret scanning + push protection, immutable releases, Actions settings; eve-ios: only the main-protect ruleset with the required check `compile`)
 #   3  verify:    every setting is read back (PASS/FAIL table). A FAIL row stops the run: no sudo.
-#   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
+#   4  sudo ONCE: accounts, installer (--deploy-user evedeploy: WEB_ENABLED + the PAUSE/floor/blocklist entrypoint), [calendar adapter], [today's gateway deploy], [today's web deploy], PAUSE + poller + state, [rehearsal], poller loaded, install table
 #   5  clean-up:  local gh logout; links to revoke the OAuth token AND the temporary token; you type "revoked"; both are PROVEN dead with an HTTP 401. Not dead = FAIL (non-zero exit).
 # THE TEMPORARY TOKEN (the fine-grained token that opened the PR): conditions are fixed: repositories eve-serving and eve-web only; Contents and Pull requests write only; NO Administration;
 # expiry 1 day; used from the environment only. This script NEVER changes anything with it. If EVE_TEMP_TOKEN is set when the script starts it is used for ONE read: it must be REFUSED on an
@@ -32,10 +35,11 @@ set -euo pipefail
 # the temporary token is taken out of the environment at once: no child process (gh, git, curl, sudo) ever inherits it
 TEMP_TOKEN=${EVE_TEMP_TOKEN-}; unset EVE_TEMP_TOKEN 2>/dev/null || true
 
-# ---------- pins and constants (pin-unattended.sh --oneshot rewrites the three sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
+# ---------- pins and constants (pin-unattended.sh --oneshot rewrites the four sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
 PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
 PIN_UNATTENDED_SHA256=6e946c5d18547f629e0eda8340103e32693579c38a33f0d500066d130abe12c1  # deploy/nopasswd/setup-unattended.sh
+PIN_PIMADAPTER_SHA256=7592219ad2781aef869a3268b6e3dedba1a21809174b1519195367e40d630d1b  # deploy/nopasswd/setup-pim-adapter.sh (fetched and run only with --calendar-adapter)
 PIN_SETTINGS_SHA256=9fc392df1c57b0df2637f5db42010340db389671e3cd10154558b6081a4a102e    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba
 REPOS="gun025bba/eve-serving gun025bba/eve-web"
@@ -47,9 +51,9 @@ OAUTH_URL=https://github.com/settings/applications
 PAT_URL=https://github.com/settings/personal-access-tokens
 SETTINGS_FILES="release-tags.json release-tags.nokey.json release-tags-lock.json main-protect.eve-serving.json main-protect.eve-web.json main-protect.eve-ios.json release-branches.eve-serving.json env-deploy.json env-deploy-major.json security-and-analysis.json actions-workflow.json actions-fork-approval.json"
 
-DRY=0; MERGE=""; WEB_VER=""; REH_KIND=""; REH_VER=""; UNPAUSE=0; SETTINGS_ONLY=0; TTY_FD=0
+DRY=0; MERGE=""; PIM_VER=""; GW_VER=""; WEB_VER=""; REH_KIND=""; REH_VER=""; UNPAUSE=0; SETTINGS_ONLY=0; TTY_FD=0
 HERE=$(cd "$(dirname "$0")" && pwd)
-GHDIR=""; WORKD=""; FAILS=0; TOKEN=""; LOGIN_OK=0; REVOKE_DONE=0; RV_OK=0; REVOKE_RESULT="not run"; OWNER_ID=""; SETTINGS=$HERE/settings; SU_TEXT=""; INST_TEXT=""
+GHDIR=""; WORKD=""; FAILS=0; TOKEN=""; LOGIN_OK=0; REVOKE_DONE=0; RV_OK=0; REVOKE_RESULT="not run"; OWNER_ID=""; SETTINGS=$HERE/settings; SU_TEXT=""; INST_TEXT=""; PIM_TEXT=""
 
 say()  { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -62,15 +66,19 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1;;
     --merge-commit) MERGE=${2:-}; shift;;
+    --calendar-adapter) PIM_VER=${2:-}; shift;;
+    --gateway-deploy) GW_VER=${2:-}; shift;;
     --web-deploy) WEB_VER=${2:-}; shift;;
     --rehearse) REH_KIND=${2:-}; REH_VER=${3:-}; shift 2;;
     --unpause-after-pass) UNPAUSE=1;;
     --settings-only) SETTINGS_ONLY=1;;
-    -h|--help) say "usage: eve-oneshot.sh [--dry-run] --merge-commit SHA [--web-deploy X.Y.Z] [--rehearse gateway|web X.Y.Z [--unpause-after-pass]] [--settings-only]   (see the comment block at the top)"; exit 0;;
+    -h|--help) say "usage: eve-oneshot.sh [--dry-run] --merge-commit SHA [--calendar-adapter X.Y.Z] [--gateway-deploy X.Y.Z] [--web-deploy X.Y.Z] [--rehearse gateway|web X.Y.Z [--unpause-after-pass]] [--settings-only]   (see the comment block at the top)"; exit 0;;
     *) die "unknown argument: $1 (see --help)";;
   esac
   shift
 done
+[ -z "$PIM_VER" ] || is_ver "$PIM_VER" || die "--calendar-adapter needs X.Y.Z"
+[ -z "$GW_VER" ] || is_ver "$GW_VER" || die "--gateway-deploy needs X.Y.Z"
 [ -z "$WEB_VER" ] || is_ver "$WEB_VER" || die "--web-deploy needs X.Y.Z"
 if [ -n "$REH_KIND" ]; then case "$REH_KIND" in gateway|web) ;; *) die "--rehearse KIND must be gateway or web";; esac; is_ver "$REH_VER" || die "--rehearse needs KIND X.Y.Z"; fi
 [ "$UNPAUSE" = 0 ] || [ -n "$REH_KIND" ] || die "--unpause-after-pass needs --rehearse"
@@ -175,6 +183,7 @@ step_pins() {
   if [ "$DRY" = 1 ]; then
     say "  DRY-RUN GET https://api.github.com/repos/{serving}/commits/<merge>, compare/<merge>...main (status identical|ahead), commits/<merge>/pulls (merged PR, base main)"
     say "  DRY-RUN download setup-deploy-nopasswd.sh, setup-unattended.sh, settings/SHA256SUMS and the settings files at <merge>; require sha256: installer=$PIN_INSTALLER_SHA256 unattended=$PIN_UNATTENDED_SHA256 settings-manifest=$PIN_SETTINGS_SHA256"
+    if [ -n "$PIM_VER" ]; then say "  DRY-RUN download setup-pim-adapter.sh at <merge>; require sha256: pim-adapter=$PIN_PIMADAPTER_SHA256; require PIM_SIGNING_CI=yes in it (a real run is refused before login/sudo otherwise)"; fi
     say "  DRY-RUN GET repos/{serving,web}: private must be false (the poller reads releases/latest without a token)"
     return 0
   fi
@@ -190,13 +199,19 @@ step_pins() {
   SETTINGS=$WORKD/settings; mkdir "$SETTINGS"
   INST_TEXT=$(pub_get "$RAW/$MERGE/deploy/nopasswd/setup-deploy-nopasswd.sh"); [ "$(printf '%s\n' "$INST_TEXT" | sha_of)" = "$PIN_INSTALLER_SHA256" ] || die "installer sha256 does not match the pin: NOT running anything"
   SU_TEXT=$(pub_get "$RAW/$MERGE/deploy/nopasswd/setup-unattended.sh"); [ "$(printf '%s\n' "$SU_TEXT" | sha_of)" = "$PIN_UNATTENDED_SHA256" ] || die "setup-unattended.sh sha256 does not match the pin: NOT running anything"
+  if [ -n "$PIM_VER" ]; then
+    PIM_TEXT=$(pub_get "$RAW/$MERGE/deploy/nopasswd/setup-pim-adapter.sh")
+    [ "$(printf '%s\n' "$PIM_TEXT" | sha_of)" = "$PIN_PIMADAPTER_SHA256" ] || die "setup-pim-adapter.sh sha256 does not match the pin: NOT running anything"
+    # the pinned text itself says whether CI signs the adapter yet; until it does nothing may log in, ask for sudo or download (the root script refuses too)
+    printf '%s\n' "$PIM_TEXT" | grep -qx 'PIM_SIGNING_CI=yes' || die "--calendar-adapter refused: CI does not sign and publish the calendar adapter yet (a separate, security-reviewed PR enables it). NOT running anything"
+  fi
   pub_get "$RAW/$MERGE/deploy/nopasswd/settings/SHA256SUMS" >"$SETTINGS/SHA256SUMS"; [ "$(sha_of <"$SETTINGS/SHA256SUMS")" = "$PIN_SETTINGS_SHA256" ] || die "settings manifest sha256 does not match the pin"
   for f in $SETTINGS_FILES; do
     pub_get "$RAW/$MERGE/deploy/nopasswd/settings/$f" >"$SETTINGS/$f" || die "cannot download settings/$f"
     [ "$(sha_of <"$SETTINGS/$f")" = "$(awk -v f="$f" '$2==f {print $1}' "$SETTINGS/SHA256SUMS")" ] || die "settings/$f does not match the pinned manifest"
     jq -e . "$SETTINGS/$f" >/dev/null || die "settings/$f is not valid JSON"
   done
-  say "  merge commit on main, merged PR, installer + setup-unattended + $(printf '%s' "$SETTINGS_FILES" | wc -w | tr -d ' ') settings files match their pins; the three repositories are public"
+  say "  merge commit on main, merged PR, installer + setup-unattended$([ -z "$PIM_VER" ] || printf ' + setup-pim-adapter') + $(printf '%s' "$SETTINGS_FILES" | wc -w | tr -d ' ') settings files match their pins; the three repositories are public"
 }
 temp_token_precheck() { # the temporary token (if given) must NOT see admin-only settings; one read, no change
   local c pat=$TEMP_TOKEN
@@ -357,13 +372,15 @@ step_verify() {
 
 # ---------- step 4: the one sudo session ----------
 # Runs as root: only checked texts and values that were validated above. $1 = setup-unattended text, $2 = installer text, $3 web version or "-", $4 rehearsal kind or "-", $5 rehearsal version, $6 unpause 0|1,
-# $7 = the verified main merge commit (both scripts download only from it, and trust only their pinned sha256). The installer creates PAUSE and the floors BEFORE the sudoers rule goes live.
+# $7 = the verified main merge commit (both scripts download only from it, and trust only their pinned sha256), $8 = the checked setup-pim-adapter text or "-", $9 = its release version or "-", ${10} = gateway version to deploy or "-". The installer creates PAUSE and the floors BEFORE the sudoers rule goes live.
 # shellcheck disable=SC2016  # the session text is meant to be passed literally to the root shell
 ROOT_SESSION='set -e
-SU=$1; INST=$2; WEB=$3; RK=$4; RV=$5; UP=$6; MC=$7
+SU=$1; INST=$2; WEB=$3; RK=$4; RV=$5; UP=$6; MC=$7; PIM=$8; PV=$9; GWV=${10}
 su_() { /bin/bash -c "$SU" setup-unattended --src-commit "$MC" "$@"; }
 su_ accounts
 /bin/bash -c "$INST" setup-deploy-nopasswd --src-commit "$MC" --pause --deploy-user evedeploy
+if [ "$PV" != - ]; then /bin/bash -c "$PIM" setup-pim-adapter --version "$PV"; fi
+if [ "$GWV" != - ]; then su_ deploy gateway "$GWV"; fi
 if [ "$WEB" != - ]; then su_ deploy web "$WEB"; fi
 su_ state
 if [ "$RK" != - ]; then su_ rehearse "$RK" "$RV"; if [ "$UP" = 1 ]; then su_ unpause; fi; fi
@@ -372,13 +389,13 @@ su_ verify'
 step_sudo() {
   step "4. install (sudo, ONE password prompt): accounts, entrypoint with PAUSE/floor/blocklist and WEB_ENABLED, poller, PAUSE"
   if [ "$DRY" = 1 ]; then
-    say "  DRY-RUN sudo /bin/bash -c '<session>' _ <setup-unattended text> <installer text> ${WEB_VER:--} ${REH_KIND:--} ${REH_VER:--} $UNPAUSE ${MERGE:-<merge>}   with the session:"
+    say "  DRY-RUN sudo /bin/bash -c '<session>' _ <setup-unattended text> <installer text> ${WEB_VER:--} ${REH_KIND:--} ${REH_VER:--} $UNPAUSE ${MERGE:-<merge>} <setup-pim-adapter text or -> ${PIM_VER:--} ${GW_VER:--}   with the session:"
     printf '%s\n' "$ROOT_SESSION" | sed 's/^/    | /'
     return 0
   fi
   need sudo
   say "  checked texts, one sudo call (it asks for your password once)"
-  sudo /bin/bash -c "$ROOT_SESSION" _ "$SU_TEXT" "$INST_TEXT" "${WEB_VER:--}" "${REH_KIND:--}" "${REH_VER:--}" "$UNPAUSE" "$MERGE" || { SUDO_RC=$?; FAILS=$((FAILS + 1)); die "the sudo session failed (exit $SUDO_RC): read the output above; the run is idempotent"; }
+  sudo /bin/bash -c "$ROOT_SESSION" _ "$SU_TEXT" "$INST_TEXT" "${WEB_VER:--}" "${REH_KIND:--}" "${REH_VER:--}" "$UNPAUSE" "$MERGE" "${PIM_TEXT:--}" "${PIM_VER:--}" "${GW_VER:--}" || { SUDO_RC=$?; FAILS=$((FAILS + 1)); die "the sudo session failed (exit $SUDO_RC): read the output above; the run is idempotent"; }
 }
 
 main() {
