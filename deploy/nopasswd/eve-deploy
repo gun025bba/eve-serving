@@ -123,6 +123,7 @@ dir_ok() { # $1 dir: exists, root-owned, not writable by group/other (-L: a syml
   local m; m=$(/usr/bin/stat -L -c %a "$1" 2>/dev/null || /usr/bin/stat -L -f %Lp "$1" 2>/dev/null) || return 1
   [ $(( 0$m & 0022 )) = 0 ]
 }
+chown_bin() { local c; for c in /usr/sbin/chown /usr/bin/chown /sbin/chown /bin/chown; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done; return 1; }   # macOS: /usr/sbin/chown, Linux: /usr/bin/chown (fixed absolute candidates, never PATH)
 stat_size() { /usr/bin/stat -c %s "$1" 2>/dev/null || /usr/bin/stat -f %z "$1" 2>/dev/null; }
 sha_of() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 "$1" | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum "$1" | /usr/bin/awk '{print $1}'; fi; }
 sha_stdin() { if [ -x /usr/bin/shasum ]; then /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}'; else /usr/bin/sha256sum | /usr/bin/awk '{print $1}'; fi; }
@@ -385,7 +386,7 @@ unpack_web() { # $1 verified copy of the tar, $2 new (empty, root-owned) dir on 
   /usr/bin/tar -xof "$1" -C "$2" 2>/dev/null || die "cannot unpack web bundle"
   web_tree_clean "$2" || die "unpacked web tree has links, special files or group/world-writable entries"
   [ -f "$2/index.html" ] && [ ! -L "$2/index.html" ] || die "unpacked web tree has no index.html"
-  [ -z "$CHOWN_SPEC" ] || /usr/bin/chown -R "$CHOWN_SPEC" "$2" || die "cannot chown the web tree"
+  [ -z "$CHOWN_SPEC" ] || { c=$(chown_bin) && "$c" -R "$CHOWN_SPEC" "$2"; } || die "cannot chown the web tree"
   /bin/chmod -R u=rwX,go=rX "$2" || die "cannot chmod the web tree"
 }
 web_swap() { # $1 new tree  $2 where the live tree goes. Two renames in one directory; puts the live tree back if the second fails.

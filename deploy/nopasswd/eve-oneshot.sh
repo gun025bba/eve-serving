@@ -35,8 +35,8 @@ unset EVE_TEMP_TOKEN 2>/dev/null || true
 
 # ---------- pins and constants (pin-unattended.sh --oneshot rewrites the four sha256 lines; the tests check them against the files). No commit is pinned anywhere: the merge commit is an ARGUMENT ----------
 RAW=https://raw.githubusercontent.com/gun025bba/eve-serving
-PIN_INSTALLER_SHA256=a198272686d1be9a46e53656c0539be254a021c5602c25e13203d9c5a6f39d26   # deploy/nopasswd/setup-deploy-nopasswd.sh
-PIN_UNATTENDED_SHA256=6f48d83ad84055ae45cf29780ff28e0d4a0f45cb97d16bbfe2f1957db54af90c  # deploy/nopasswd/setup-unattended.sh
+PIN_INSTALLER_SHA256=deadb5c989356926c9342a97e2a08bd2c7fb6aebd1dd0fdc01e9f969d8549fc5   # deploy/nopasswd/setup-deploy-nopasswd.sh
+PIN_UNATTENDED_SHA256=caa35cfcad88d0cdbfb4fc6eabfce6c4d44d0a999f97c5945620b41202181003  # deploy/nopasswd/setup-unattended.sh
 PIN_PIMADAPTER_SHA256=7592219ad2781aef869a3268b6e3dedba1a21809174b1519195367e40d630d1b  # deploy/nopasswd/setup-pim-adapter.sh (fetched and run only with --calendar-adapter)
 PIN_SETTINGS_SHA256=fa20a942cfa642a790625d88f39f650fdb0d15fd5f8949a3f68e8f99b8462f56    # deploy/nopasswd/settings/SHA256SUMS (which pins every settings file)
 GH_USER=gun025bba

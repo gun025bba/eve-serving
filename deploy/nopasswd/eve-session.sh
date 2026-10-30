@@ -32,7 +32,7 @@ umask 077
 export PATH=${EVE_SESSION_EXTRA_PATH:+$EVE_SESSION_EXTRA_PATH:}/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin   # EVE_SESSION_EXTRA_PATH exists for the tests (fake tools)
 
 # ---- pins: every file this script runs. `bash deploy/nopasswd/pin-unattended.sh --oneshot` rewrites them; test/run.sh fails on a stale pin. ----
-PIN_ONESHOT_SHA256=21f98cd742518a70220ae910911ca55cc98c5ab3b71ed388ecb1b5cec6c5d89a   # deploy/nopasswd/eve-oneshot.sh
+PIN_ONESHOT_SHA256=ab5bd93b054ecd554a631177c8b561059ca7ae897076ac9e7a170411ee763298   # deploy/nopasswd/eve-oneshot.sh
 PIN_MEASURE_SHA256=d834c395261e2a126bcae271c067f3653f3236e30f4753916fb30ad0bee46052   # deploy/nopasswd/eve-measure.sh
 PIN_RELEASE_TAG_SHA256=b4aacc6db3c035cc3504c5b91ee6e8d3addbf58361bb19a20d414d2d820ed7f5   # deploy/nopasswd/release-tag.sh
 PIN_RELEASE_TAG_WEB_SHA256=55145eeef94245c46c08b8996fec59d45dde65c54af3a00e04b23a461e05a798   # deploy/nopasswd/release-tag.eve-web.constants
